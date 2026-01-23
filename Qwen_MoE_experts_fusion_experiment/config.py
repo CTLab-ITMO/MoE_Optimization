@@ -1,0 +1,8 @@
+MODEL_NAME = "Qwen/Qwen1.5-MoE-A2.7B"
+EXPERTS = 60
+DATASET_NAMES = "openai/gsm8k", "main"
+
+TRAIN_SIZE = 100
+TEST_SIZE = TRAIN_SIZE
+LAYERS = [0]
+TOP_K = 8
