@@ -10,7 +10,7 @@ import os
 from tqdm import tqdm
 import transformers
 import datasets
-from config import MODEL_NAME, DATASET_NAMES, LAYERS, TRAIN_SIZE, TEST_SIZE
+from config import MODEL_NAME, TRAIN_DATASET_NAME, TEST_DATASET_NAME, LAYERS, TRAIN_SIZE, TEST_SIZE
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # device = torch.device("cpu")
@@ -35,9 +35,9 @@ model.model.layers
 
 
 if "_train_data" not in globals():
-    _train_data = datasets.load_dataset(*DATASET_NAMES, split="train")["question"]
+    _train_data = datasets.load_dataset(*TRAIN_DATASET_NAME, split="train")["question"]
 if "_test_data" not in globals():
-    _test_data = datasets.load_dataset(*DATASET_NAMES, split="test")["question"]
+    _test_data = datasets.load_dataset(*TEST_DATASET_NAME, split="test")["question"]
 train_data = _train_data[:TRAIN_SIZE]
 test_data = _test_data[:TEST_SIZE]
 

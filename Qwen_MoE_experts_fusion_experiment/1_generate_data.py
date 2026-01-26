@@ -10,7 +10,7 @@ import os
 from tqdm import tqdm
 import transformers
 import datasets
-from config import MODEL_NAME, DATASET_NAMES, TRAIN_SIZE, TEST_SIZE, LAYERS, TOP_K
+from config import MODEL_NAME, TRAIN_DATASET_NAME, TEST_DATASET_NAME, TRAIN_SIZE, TEST_SIZE, LAYERS, TOP_K
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -19,27 +19,32 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 if "model" not in globals():
-    model = transformers.AutoModel.from_pretrained(MODEL_NAME)
+    model = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME)
 if "tokenizer" not in globals():
     tokenizer = transformers.AutoTokenizer.from_pretrained(MODEL_NAME)
 
 # Remove extra layers
 MAX_LAYERS = max(LAYERS) + 1
-for i in range(MAX_LAYERS, len(model.layers)):
-    del model.layers[MAX_LAYERS]
+for i in range(MAX_LAYERS, len(model.model.layers)):
+    del model.model.layers[MAX_LAYERS]
 
 torch.cuda.empty_cache()
 model = model.to(device)
 
-if "_train_data" not in globals():
-    _train_data = datasets.load_dataset(*DATASET_NAMES, split="train")["question"]
-if "_test_data" not in globals():
-    _test_data = datasets.load_dataset(*DATASET_NAMES, split="test")["question"]
-train_data = _train_data[:TRAIN_SIZE]
-test_data = _test_data[:TEST_SIZE]
-
 
 # In[3]:
+
+
+if "_train_data" not in globals():
+    _train_data = datasets.load_dataset(*TRAIN_DATASET_NAME, split="train")["question"]
+if "_test_data" not in globals():
+    _test_data = datasets.load_dataset(*TEST_DATASET_NAME, split="test")["question"]
+train_data = _train_data[:TRAIN_SIZE]
+test_data = _test_data[:TEST_SIZE]
+train_data[0], test_data[0]
+
+
+# In[4]:
 
 
 class ExpertsLogger(nn.Module):
@@ -80,19 +85,19 @@ class ExpertsLogger(nn.Module):
         self.experts = None
 
 
-# In[4]:
+# In[5]:
 
 
 loggers = []
 for i in LAYERS:
-    if isinstance(model.layers[i].mlp.gate, nn.Linear):
-        loggers.append(ExpertsLogger(model.layers[i].mlp.gate))
+    if isinstance(model.model.layers[i].mlp.gate, nn.Linear):
+        loggers.append(ExpertsLogger(model.model.layers[i].mlp.gate))
     else:
-        loggers.append(ExpertsLogger(model.layers[i].mlp.gate.gate))
-    model.layers[i].mlp.gate = loggers[i]
+        loggers.append(ExpertsLogger(model.model.layers[i].mlp.gate.gate))
+    model.model.layers[i].mlp.gate = loggers[i]
 
 
-# In[5]:
+# In[6]:
 
 
 def get_experts(data, loggers):
@@ -110,7 +115,7 @@ def get_experts(data, loggers):
     return experts
 
 
-# In[6]:
+# In[7]:
 
 
 def write_activations(train_data, test_data, loggers):
@@ -123,13 +128,13 @@ def write_activations(train_data, test_data, loggers):
         torch.save(activations, f"data/activations/test_{i}.pt")
 
 
-# In[7]:
+# In[8]:
 
 
 write_activations(train_data, test_data, loggers)
 
 
-# In[8]:
+# In[9]:
 
 
 del train_data, test_data, loggers

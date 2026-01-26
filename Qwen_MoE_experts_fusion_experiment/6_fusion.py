@@ -315,14 +315,50 @@ for experiment in new_experiment_results:
 
 for experiment in new_experiment_results:
     keys = list(experiment.keys())
-    plt.violinplot([experiment[key] for key in keys])
-    plt.legend(keys)
+    plt.hist(
+        [experiment[key] for key in keys],
+        cumulative=True,
+        bins=100,
+        density=True,
+        histtype="step",
+        alpha=0.5,
+    )
+    plt.legend(list(reversed(keys)))
     plt.show()
 
 
 # In[14]:
 
 
+for experiment in new_experiment_results:
+    keys = list(experiment.keys())
+    for key in keys:
+        plt.hist(
+            experiment[key],
+            bins=30,
+            density=True,
+            alpha=0.5,
+        )
+    plt.legend(list(reversed(keys)))
+    plt.show()
+
+
+# In[15]:
+
+
+for experiment in new_experiment_results:
+    keys = list(experiment.keys())
+    plt.violinplot([experiment[key] for key in keys])
+    plt.legend(keys)
+    plt.show()
+
+
+# In[16]:
+
+
+for key, values in new_experiment_results[0].items():
+    print(f"{key}'s mean value: {sum(values) / len(values)}")
+print()
 for key, values in new_experiment_results[1].items():
     print(f"{key}'s mean value: {sum(values) / len(values)}")
 

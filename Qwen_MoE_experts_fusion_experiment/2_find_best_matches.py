@@ -83,19 +83,19 @@ train_data[LAYERS[0]]
 # In[7]:
 
 
-plt.imshow(train_data[LAYERS[0]])
+# plt.imshow(train_data[LAYERS[0]])
 
 
 # In[8]:
 
 
-plt.imshow(test_data[LAYERS[0]])
+# plt.imshow(test_data[LAYERS[0]])
 
 
 # In[9]:
 
 
-def main(train_data, test_data):
+def main(train_data, test_data, draw=True):
     with torch.no_grad():
         res = []
         best_win = 0
@@ -162,10 +162,11 @@ def main(train_data, test_data):
                 best_win = win
                 best_pair = pairs
                 print(ind, win)
-        plt.hist(res)
-        plt.show()
-        plt.plot(res)
-        plt.show()
+        if draw:
+            plt.hist(res)
+            plt.show()
+            plt.plot(res)
+            plt.show()
 
     print("Train", eval_match(train_data, best_pair))
     print("Test", eval_match(test_data, best_pair))
@@ -176,7 +177,7 @@ def main(train_data, test_data):
 
 
 best_pairs = {
-    layer : main(train_data[layer], train_data[layer])
+    layer : main(train_data[layer], test_data[layer], draw=False)
     for layer in LAYERS
 }
 
