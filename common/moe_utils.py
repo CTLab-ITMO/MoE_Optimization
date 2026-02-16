@@ -119,3 +119,46 @@ def get_gate_weight(gate: nn.Module) -> torch.Tensor:
 
 
 
+def get_moe_top_k(moe: nn.Module, model_config: Any | None = None, kind: str | None = None, default: int | None = None) -> int:
+    """Best-effort extraction of the *runtime* top-k used by a MoE block.
+
+    IMPORTANT:
+      - Do NOT confuse with num_experts.
+      - Some HF MoE blocks expose `num_experts_per_tok` (Mixtral), others `top_k` (Qwen3),
+        or store it only in model config / init kwargs.
+
+    Returns an int >= 1.
+    """
+    candidates = [
+        'num_experts_per_tok',
+        'num_experts_per_token',
+        'top_k',
+        'k',
+    ]
+    for name in candidates:
+        if hasattr(moe, name):
+            v = getattr(moe, name)
+            if isinstance(v, int):
+                return max(1, v)
+            try:
+                import torch
+                if isinstance(v, torch.Tensor) and v.numel() == 1:
+                    return max(1, int(v.item()))
+            except Exception:
+                pass
+
+    if model_config is not None:
+        for name in ['num_experts_per_tok', 'top_k']:
+            if hasattr(model_config, name):
+                v = getattr(model_config, name)
+                if isinstance(v, int):
+                    return max(1, v)
+
+    # Heuristic defaults
+    if default is not None:
+        return max(1, int(default))
+    if kind == 'qwen':
+        return 8
+    if kind == 'mixtral':
+        return 2
+    return 2

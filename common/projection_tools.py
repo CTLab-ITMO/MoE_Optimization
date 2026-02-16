@@ -2,6 +2,8 @@ import math
 
 import torch
 import torch.nn as nn
+from tqdm import tqdm
+
 
 def _random_omega(n: int, proj_dim: int, device: torch.device, seed: int = 0) -> torch.Tensor:
     g = torch.Generator(device=device)
@@ -36,3 +38,39 @@ def expert_functional_sketch(
         # accumulate Y^T * Omega
         A += yb.t() @ ob.to(torch.float32)
     return A.reshape(-1)
+
+@torch.no_grad()
+def build_functional_sketch(
+    experts,  # ModuleList
+    mlp_inputs: torch.Tensor,  # [N, d]
+    proj_dim: int = 8,
+    batch_size: int = 64,
+    seed: int = 123,
+    device: torch.device | str = "cuda",
+) -> torch.Tensor:
+    """Return X of shape [E, N*proj_dim] where row e is a random-projection sketch."""
+    device = torch.device(device)
+    E = len(experts)
+    N, d = mlp_inputs.shape
+    g = torch.Generator(device="cpu").manual_seed(seed)
+    R = torch.randn((d, proj_dim), generator=g, dtype=torch.float32) / (d**0.5)
+
+    X = torch.empty((E, N * proj_dim), dtype=torch.float32)
+
+    for e_idx in tqdm(range(E), desc="Sketch experts"):
+        expert = experts[e_idx].to(device)
+        cursor = 0
+        for s in range(0, N, batch_size):
+            x = mlp_inputs[s : s + batch_size].to(device)
+            y = expert(x)  # [B, d]
+            y = y.float() @ R.to(device)  # [B, proj_dim]
+            b = y.shape[0]
+            X[e_idx, cursor : cursor + b * proj_dim] = y.reshape(-1).cpu()
+            cursor += b * proj_dim
+        # ensure expert is not left on GPU in a loop
+        experts[e_idx] = experts[e_idx].cpu()
+        torch.cuda.empty_cache()
+
+    # center each feature dimension across experts
+    X = X - X.mean(dim=0, keepdim=True)
+    return X

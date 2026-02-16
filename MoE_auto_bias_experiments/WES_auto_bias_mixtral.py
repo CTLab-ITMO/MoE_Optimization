@@ -1,4 +1,7 @@
 import os
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import random
 import re
 import warnings
@@ -14,6 +17,9 @@ from datasets import load_dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers import logging
 from tqdm import tqdm
+
+from common.moe_utils import get_moe_top_k
+from common.rmt_shrinkage import denoise_importance_gate_spikes, normalize_direction
 
 warnings.filterwarnings("ignore")
 logging.set_verbosity_error()
@@ -248,7 +254,7 @@ def compute_expert_importance(model, tokenizer, dataset):
 
             router_logits = layer.block_sparse_moe.gate(hidden_flat)
             routing_weights = F.softmax(router_logits, dim=1, dtype=torch.float)
-            top_k = layer.block_sparse_moe.num_experts
+            top_k = min(get_moe_top_k(layer.block_sparse_moe, getattr(model, 'config', None), kind='mixtral', default=2), layer.block_sparse_moe.num_experts)
             #print(f"[DEBUG] top-k is: {top_k}")
 
             weights, selected = torch.topk(routing_weights, top_k, dim=-1)
