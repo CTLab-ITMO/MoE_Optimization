@@ -1,0 +1,10 @@
+{
+  "seed": 1235,
+  "train_size": 100000,
+  "test_size": 100000,
+  "dtype": "bf16",
+  "device": "cuda",
+  "num_experts": 60,
+  "train_dataset_name": ["openai/gsm8k", "main"],
+  "test_dataset_name": ["cais/mmlu", "abstract_algebra"]
+}

@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0",
+  "config_hash": "78c13bfa336d8fd07b190ea1656652530365be6dd178cd6c564fcb94557d6364",
+  "root_dir": "D:\\data_old\\WORK\\Repo\\MoE_Optimization\\artifacts\\auto_bias\\phi",
+  "paths": {
+    "run_config": "D:\\data_old\\WORK\\Repo\\MoE_Optimization\\artifacts\\auto_bias\\phi\\run_config.json",
+    "stage_manifest": "D:\\data_old\\WORK\\Repo\\MoE_Optimization\\artifacts\\auto_bias\\phi\\artifacts_manifest.json",
+    "stage_summary": "D:\\data_old\\WORK\\Repo\\MoE_Optimization\\artifacts\\auto_bias\\phi\\run_summary.json",
+    "metrics_jsonl": "WES_metrics.jsonl"
+  }
+}

@@ -14,12 +14,15 @@ def _random_omega(n: int, proj_dim: int, device: torch.device, seed: int = 0) ->
     omega = omega * 2 - 1
     omega = omega / math.sqrt(float(n))
     return omega
+
+
 @torch.no_grad()
 def expert_functional_sketch(
     expert: nn.Module,
     X: torch.Tensor,          # [N, d]
     omega: torch.Tensor,      # [N, p]
-    batch: int,) -> torch.Tensor:
+    batch: int,
+) -> torch.Tensor:
     """Compute sketch A = Y^T * Omega, where Y = expert(X), without storing Y fully.
 
     Returns:
@@ -39,6 +42,7 @@ def expert_functional_sketch(
         A += yb.t() @ ob.to(torch.float32)
     return A.reshape(-1)
 
+
 @torch.no_grad()
 def build_functional_sketch(
     experts,  # ModuleList
@@ -56,6 +60,7 @@ def build_functional_sketch(
     R = torch.randn((d, proj_dim), generator=g, dtype=torch.float32) / (d**0.5)
 
     X = torch.empty((E, N * proj_dim), dtype=torch.float32)
+    R_device = R.to(device)
 
     for e_idx in tqdm(range(E), desc="Sketch experts"):
         expert = experts[e_idx].to(device)
@@ -63,12 +68,14 @@ def build_functional_sketch(
         for s in range(0, N, batch_size):
             x = mlp_inputs[s : s + batch_size].to(device)
             y = expert(x)  # [B, d]
-            y = y.float() @ R.to(device)  # [B, proj_dim]
+            y = y.float() @ R_device  # [B, proj_dim]
             b = y.shape[0]
             X[e_idx, cursor : cursor + b * proj_dim] = y.reshape(-1).cpu()
             cursor += b * proj_dim
-        # ensure expert is not left on GPU in a loop
+        # keep modules on CPU between iterations to cap peak VRAM
         experts[e_idx] = experts[e_idx].cpu()
+
+    if device.type == "cuda":
         torch.cuda.empty_cache()
 
     # center each feature dimension across experts

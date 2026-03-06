@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0",
+  "config_hash": "8d1d3a3cb47b435bd4d1192c177259d465743b2c7f473f8c21af9b12bf851540",
+  "root_dir": "D:\\data_old\\WORK\\Repo\\MoE_Optimization\\artifacts\\auto_bias\\qwen1_5",
+  "paths": {
+    "run_config": "D:\\data_old\\WORK\\Repo\\MoE_Optimization\\artifacts\\auto_bias\\qwen1_5\\run_config.json",
+    "stage_manifest": "D:\\data_old\\WORK\\Repo\\MoE_Optimization\\artifacts\\auto_bias\\qwen1_5\\artifacts_manifest.json",
+    "stage_summary": "D:\\data_old\\WORK\\Repo\\MoE_Optimization\\artifacts\\auto_bias\\qwen1_5\\run_summary.json",
+    "metrics_jsonl": "WES_metrics.jsonl"
+  }
+}

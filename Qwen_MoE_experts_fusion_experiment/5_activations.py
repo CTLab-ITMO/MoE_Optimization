@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# coding: utf-8
+"""Legacy thin wrapper: build activation artifacts via JSON config."""
 
 import torch
 import os

@@ -1,0 +1,6 @@
+﻿{
+  "plots_enabled": true,
+  "plot_style": "paper",
+  "save_figures": true,
+  "figure_dir": "artifacts/figures"
+}

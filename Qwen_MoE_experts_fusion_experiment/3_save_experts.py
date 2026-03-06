@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# coding: utf-8
+"""Legacy thin wrapper: export experts via JSON config."""
 
 import sys
 import torch

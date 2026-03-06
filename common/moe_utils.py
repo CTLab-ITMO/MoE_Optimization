@@ -162,3 +162,16 @@ def get_moe_top_k(moe: nn.Module, model_config: Any | None = None, kind: str | N
     if kind == 'mixtral':
         return 2
     return 2
+def set_top_k_if_possible(moe: nn.Module, k: int) -> bool:
+    """Best-effort setter for MoE runtime top-k.
+
+    Returns True if any known attribute was updated.
+    """
+    for name in ['num_experts_per_tok', 'num_experts_per_token', 'top_k', 'k']:
+        if hasattr(moe, name):
+            try:
+                setattr(moe, name, int(k))
+                return True
+            except Exception:
+                continue
+    return False

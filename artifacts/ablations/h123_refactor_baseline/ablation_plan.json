@@ -1,0 +1,37 @@
+{
+  "base_config": "D:\\data_old\\WORK\\Repo\\MoE_Optimization\\configs\\experiments\\h123_refactor_baseline.json",
+  "output_root": "artifacts\\ablations\\h123_refactor_baseline",
+  "execute": false,
+  "cases": [
+    {
+      "case": "baseline",
+      "config_path": "artifacts\\ablations\\h123_refactor_baseline\\configs\\baseline.json",
+      "artifact_root": "artifacts\\ablations\\h123_refactor_baseline\\baseline",
+      "enabled": {
+        "h1": false,
+        "h2": false,
+        "h3": false
+      }
+    },
+    {
+      "case": "h2",
+      "config_path": "artifacts\\ablations\\h123_refactor_baseline\\configs\\h2.json",
+      "artifact_root": "artifacts\\ablations\\h123_refactor_baseline\\h2",
+      "enabled": {
+        "h1": false,
+        "h2": true,
+        "h3": false
+      }
+    },
+    {
+      "case": "h1_h2_h3",
+      "config_path": "artifacts\\ablations\\h123_refactor_baseline\\configs\\h1_h2_h3.json",
+      "artifact_root": "artifacts\\ablations\\h123_refactor_baseline\\h1_h2_h3",
+      "enabled": {
+        "h1": true,
+        "h2": true,
+        "h3": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "status": "validated",
+  "profile": "qwen3",
+  "run_config": "D:\\data_old\\WORK\\Repo\\MoE_Optimization\\artifacts\\auto_bias\\qwen3\\run_config.json",
+  "manifest_path": "D:\\data_old\\WORK\\Repo\\MoE_Optimization\\artifacts\\auto_bias\\qwen3\\auto_bias_manifest.json",
+  "summary_path": null,
+  "metrics_path": "WES_metrics.jsonl"
+}

@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0",
+  "config_hash": "0405d8e82bd4138edde810dc026da501518b205f6e473e6d305a0e1fd2bcc8d3",
+  "root_dir": "D:\\data_old\\WORK\\Repo\\MoE_Optimization\\artifacts\\auto_bias\\mixtral",
+  "paths": {
+    "run_config": "D:\\data_old\\WORK\\Repo\\MoE_Optimization\\artifacts\\auto_bias\\mixtral\\run_config.json",
+    "stage_manifest": "D:\\data_old\\WORK\\Repo\\MoE_Optimization\\artifacts\\auto_bias\\mixtral\\artifacts_manifest.json",
+    "stage_summary": "D:\\data_old\\WORK\\Repo\\MoE_Optimization\\artifacts\\auto_bias\\mixtral\\run_summary.json",
+    "metrics_jsonl": "WES_metrics.jsonl"
+  }
+}

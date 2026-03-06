@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# coding: utf-8
+"""Legacy thin wrapper: collect MLP inputs via JSON config."""
 
 import torch
 import torch.nn as nn

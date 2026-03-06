@@ -1,0 +1,15 @@
+﻿{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Artifact Spec",
+  "type": "object",
+  "required": ["schema_version", "config_hash", "root_dir", "paths"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "config_hash": {"type": "string"},
+    "root_dir": {"type": "string"},
+    "paths": {
+      "type": "object",
+      "additionalProperties": {"type": "string"}
+    }
+  }
+}

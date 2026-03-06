@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0",
+  "config_hash": "b6076ed291f2a88df7145e6776682683f1cd84f47a16a248ac3599144fc84d0c",
+  "root_dir": "artifacts/h123_refactor_baseline",
+  "paths": {
+    "h1_pairs": "artifacts/h123_refactor_baseline/pairs_0.pt",
+    "h1_diag": "artifacts/h123_refactor_baseline/h1_diag_0.json",
+    "h2_bias": "artifacts/h123_refactor_baseline/h2_bias_0.pt",
+    "h3_diag": "artifacts/h123_refactor_baseline/h3_diag_0.json"
+  }
+}

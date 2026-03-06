@@ -1,0 +1,80 @@
+{
+  "name": "h123_refactor_baseline__h3",
+  "model": {
+    "name": "Qwen/Qwen1.5-MoE-A2.7B-Chat",
+    "kind": "qwen",
+    "load_source": "hf",
+    "torch_dtype": "auto",
+    "device_map": "auto",
+    "local_files_only": false,
+    "trust_remote_code": false
+  },
+  "runtime": {
+    "top_k": 8
+  },
+  "layers": [
+    0
+  ],
+  "constants": {
+    "training": "D:\\data_old\\WORK\\Repo\\MoE_Optimization\\configs\\constants\\constant_repo_training.json",
+    "routing": "D:\\data_old\\WORK\\Repo\\MoE_Optimization\\configs\\constants\\constant_repo_routing.json",
+    "visualization": "D:\\data_old\\WORK\\Repo\\MoE_Optimization\\configs\\constants\\constant_repo_visualization.json",
+    "io": "D:\\data_old\\WORK\\Repo\\MoE_Optimization\\configs\\constants\\constant_repo_io.json"
+  },
+  "artifacts": {
+    "root_dir": "artifacts\\ablations\\h123_refactor_baseline\\h3",
+    "manifest_path": "artifacts\\ablations\\h123_refactor_baseline\\h3\\artifacts_manifest.json",
+    "schema_version": "1.0"
+  },
+  "profile": {
+    "enabled": true,
+    "warmup_steps": 10,
+    "measure_steps": 50
+  },
+  "stages": {
+    "h1": {
+      "enabled": false,
+      "layer": 0,
+      "mlp_inputs_path": "artifacts\\ablations\\h123_refactor_baseline\\h3\\routing_inputs_layer0.pt",
+      "experts_dir": "data/experts",
+      "output_pairs_path": "artifacts\\ablations\\h123_refactor_baseline\\h3\\pairs_layer0.pt",
+      "output_diagnostics_path": "artifacts\\ablations\\h123_refactor_baseline\\h3\\h1_diag_layer0.json",
+      "output_merged_dir": "artifacts\\ablations\\h123_refactor_baseline\\h3\\merged",
+      "experts_source": "hf_model",
+      "auto_generate_inputs_if_missing": true,
+      "mode": "pair",
+      "merge_method": "geometry",
+      "proj_dim": 8,
+      "n_inputs": 2048,
+      "batch_size": 64,
+      "mp_factor": 1.1,
+      "cluster_count": 0,
+      "geometry_rank": 64,
+      "shrink_tau": 0.0
+    },
+    "h2": {
+      "enabled": false,
+      "layer": 0,
+      "mode": "gate_spike",
+      "output_bias_path": "artifacts\\ablations\\h123_refactor_baseline\\h3\\h2_bias_layer0.pt",
+      "importance_matrix_path": "",
+      "importance_vector_path": "artifacts\\ablations\\h123_refactor_baseline\\h3\\importance_vec_layer0.pt",
+      "gate_weight_path": "artifacts\\ablations\\h123_refactor_baseline\\h3\\gate_weight_layer0.pt",
+      "auto_from_model": true,
+      "alpha": 0.2,
+      "lam": 0.001,
+      "mp_factor": 1.1,
+      "normalize": "maxabs",
+      "scale": 0.1
+    },
+    "h3": {
+      "enabled": true,
+      "routing_probs_path": "artifacts\\ablations\\h123_refactor_baseline\\h3\\routing_probs_layer0.pt",
+      "output_diagnostics_path": "artifacts\\ablations\\h123_refactor_baseline\\h3\\h3_diag_layer0.json",
+      "auto_from_model": true,
+      "tau": 0.92,
+      "k_min": 1,
+      "k_max": 8
+    }
+  }
+}

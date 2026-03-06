@@ -1,0 +1,8 @@
+﻿{
+  "runtime_top_k": 8,
+  "dynamic_topk_policy": "cumprob",
+  "cumprob_tau": 0.92,
+  "k_min": 1,
+  "k_max": 8,
+  "renormalize_after_topk": true
+}

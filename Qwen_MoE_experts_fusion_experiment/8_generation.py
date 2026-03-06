@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# coding: utf-8
+"""Legacy thin wrapper: run base vs fused generation from JSON config."""
 
 import torch
 from tqdm import tqdm
@@ -8,8 +8,10 @@ import transformers
 import datasets
 from config import LAYERS, MODEL_NAME, TEST_DATASET_NAME, device, DATA_DIR
 
-sys.path.append("..")
-from common.fusion_layer import get_fusion_layer_by_index
+_THIS = os.path.dirname(__file__)
+_PARENT = os.path.abspath(os.path.join(_THIS, ".."))
+if _PARENT not in sys.path:
+    sys.path.append(_PARENT)
 
 EXAMPLES = 10
 

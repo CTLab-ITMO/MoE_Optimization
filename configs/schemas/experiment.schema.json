@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MoE Experiment Config",
+  "type": "object",
+  "required": ["name", "model", "runtime", "layers", "constants", "artifacts", "stages"],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "model": {
+      "type": "object",
+      "required": ["name", "kind"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "kind": {"type": "string", "minLength": 1},
+        "load_source": {"type": "string", "enum": ["hf", "local"]},
+        "torch_dtype": {"type": "string", "enum": ["auto", "fp16", "bf16", "fp32"]},
+        "device_map": {"type": "string"},
+        "local_files_only": {"type": "boolean"},
+        "trust_remote_code": {"type": "boolean"}
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "required": ["top_k"],
+      "additionalProperties": false,
+      "properties": {
+        "top_k": {"type": "integer", "minimum": 1}
+      }
+    },
+    "layers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "integer", "minimum": 0}
+    },
+    "constants": {
+      "type": "object",
+      "required": ["training", "routing", "visualization", "io"],
+      "additionalProperties": false,
+      "properties": {
+        "training": {"type": "string", "minLength": 1},
+        "routing": {"type": "string", "minLength": 1},
+        "visualization": {"type": "string", "minLength": 1},
+        "io": {"type": "string", "minLength": 1}
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "required": ["root_dir", "manifest_path"],
+      "additionalProperties": false,
+      "properties": {
+        "root_dir": {"type": "string", "minLength": 1},
+        "manifest_path": {"type": "string", "minLength": 1},
+        "schema_version": {"type": "string", "minLength": 1}
+      }
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "warmup_steps": {"type": "integer", "minimum": 0},
+        "measure_steps": {"type": "integer", "minimum": 1}
+      }
+    },
+    "stages": {
+      "type": "object",
+      "required": ["h1", "h2", "h3"],
+      "additionalProperties": false,
+      "properties": {
+        "h1": {
+          "type": "object",
+          "required": [
+            "enabled",
+            "layer",
+            "mlp_inputs_path",
+            "experts_dir",
+            "output_pairs_path",
+            "output_diagnostics_path",
+            "output_merged_dir"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "layer": {"type": "integer", "minimum": 0},
+            "mlp_inputs_path": {"type": "string", "minLength": 1},
+            "experts_dir": {"type": "string", "minLength": 1},
+            "output_pairs_path": {"type": "string", "minLength": 1},
+            "output_diagnostics_path": {"type": "string", "minLength": 1},
+            "output_merged_dir": {"type": "string", "minLength": 1},
+            "experts_source": {"type": "string", "enum": ["saved_experts", "hf_model"]},
+            "auto_generate_inputs_if_missing": {"type": "boolean"},
+            "mode": {"type": "string", "enum": ["pair", "cluster"]},
+            "merge_method": {"type": "string", "enum": ["baseline", "geometry"]},
+            "proj_dim": {"type": "integer", "minimum": 1},
+            "n_inputs": {"type": "integer", "minimum": 1},
+            "batch_size": {"type": "integer", "minimum": 1},
+            "mp_factor": {"type": "number", "exclusiveMinimum": 0},
+            "cluster_count": {"type": "integer", "minimum": 0},
+            "geometry_rank": {"type": "integer", "minimum": 1},
+            "shrink_tau": {"type": "number", "minimum": 0}
+          }
+        },
+        "h2": {
+          "type": "object",
+          "required": ["enabled", "layer", "mode", "output_bias_path"],
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "layer": {"type": "integer", "minimum": 0},
+            "mode": {"type": "string", "enum": ["covariance", "gate_spike"]},
+            "output_bias_path": {"type": "string", "minLength": 1},
+            "importance_matrix_path": {"type": "string"},
+            "importance_vector_path": {"type": "string"},
+            "gate_weight_path": {"type": "string"},
+            "auto_from_model": {"type": "boolean"},
+            "alpha": {"type": "number", "minimum": 0, "maximum": 1},
+            "lam": {"type": "number", "minimum": 0},
+            "mp_factor": {"type": "number", "exclusiveMinimum": 0},
+            "normalize": {"type": "string", "enum": ["none", "l2", "maxabs", "sum1"]},
+            "scale": {"type": "number", "minimum": 0}
+          }
+        },
+        "h3": {
+          "type": "object",
+          "required": ["enabled", "routing_probs_path", "output_diagnostics_path"],
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "routing_probs_path": {"type": "string", "minLength": 1},
+            "output_diagnostics_path": {"type": "string", "minLength": 1},
+            "auto_from_model": {"type": "boolean"},
+            "tau": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+            "k_min": {"type": "integer", "minimum": 1},
+            "k_max": {"type": "integer", "minimum": 1}
+          }
+        }
+      }
+    }
+  }
+}

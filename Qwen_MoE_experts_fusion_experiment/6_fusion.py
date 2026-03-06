@@ -1,7 +1,7 @@
 #!/usr/bin/env python
-# coding: utf-8
+"""Single-process thin wrapper for fusion runner."""
 
-# # Imports
+from __future__ import annotations
 
 import torch
 from datetime import datetime

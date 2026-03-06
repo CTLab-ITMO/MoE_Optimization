@@ -1,0 +1,6 @@
+﻿{
+  "artifact_root": "artifacts",
+  "cache_dir": "artifacts/cache",
+  "reports_dir": "artifacts/reports",
+  "overwrite": true
+}
