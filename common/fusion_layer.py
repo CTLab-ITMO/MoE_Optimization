@@ -4,14 +4,16 @@ from config import TOP_K, EXPERTS
 
 
 class FusionLayer(nn.Module):
-    def __init__(self, *, experts, expert_pairs, fusion_experts, gate, shared_expert, shared_expert_gate):
+    def __init__(self, *, experts, expert_pairs, fusion_experts, gate, shared_expert, shared_expert_gate, use_default_experts):
         super().__init__()
         self.gate = gate
-        self.experts = nn.ModuleList(experts)
+        if use_default_experts:
+            self.experts = nn.ModuleList(experts)
         self.expert_pairs = expert_pairs
         self.fusion_experts = nn.ModuleList(fusion_experts)
         self.shared_expert = shared_expert
         self.shared_expert_gate = shared_expert_gate
+        self.use_default_experts = use_default_experts
 
         self.num_experts = len(experts)
         self.pair_idx = [None] * len(experts)
@@ -41,7 +43,7 @@ class FusionLayer(nn.Module):
 
         for seq_idx in range(hidden_states.shape[0]):
             current_hidden_states = hidden_states[seq_idx]
-            current_experts = selected_experts[seq_idx]
+            current_experts = selected_experts[seq_idx].tolist()
             current_routing_weights = routing_weights[seq_idx]
 
             out = [None] * len(current_experts)
@@ -91,20 +93,32 @@ class FusionLayer(nn.Module):
             for i, expert_idx in enumerate(current_experts):
                 if self.friend[expert_idx] in current_experts:
                     if expert_idx < self.friend[expert_idx]:
-                        pair = self.expert_pairs[self.pair_idx[expert_idx]]
-                        idx_1, idx_2 = [current_experts.index(exp) for exp in pair]
+                        pair_idx = self.pair_idx[expert_idx]
+                        pair = self.expert_pairs[pair_idx]
+
                         fusion_out = (
-                            self.fusion_experts[self.pair_idx[expert_idx]]
+                            self.fusion_experts[pair_idx]
                             .forward_unzip(current_hidden_states)
                             .view(2, hidden_dim)
                         )
-                        out1, out2 = fusion_out[0], fusion_out[1]
-                        out[idx_1] = out1
-                        out[idx_2] = out2
+
+                        idx_1, idx_2 = [current_experts.index(exp) for exp in pair]
+                        out[idx_1] = fusion_out[0]
+                        out[idx_2] = fusion_out[1]
                     else:
                         pass
                 else:
-                    out[i] = self.experts[expert_idx].forward(current_hidden_states)
+                    if self.use_default_experts:
+                        out[i] = self.experts[expert_idx].forward(current_hidden_states)
+                    else:
+                        pair_idx = self.pair_idx[expert_idx]
+                        pair = self.expert_pairs[pair_idx]
+                        fusion_out = (
+                            self.fusion_experts[pair_idx]
+                            .forward_unzip(current_hidden_states)
+                            .view(2, hidden_dim)
+                        )
+                        out[i] = fusion_out[0 if expert_idx == pair[0] else 1]
 
             experts_output = torch.stack(out)
 
@@ -125,7 +139,7 @@ class FusionLayer(nn.Module):
         return final_hidden_states, router_logits
 
 
-def get_fusion_layer_by_index(index, device=torch.device("cpu")):
+def get_fusion_layer_by_index(index, device=torch.device("cpu"), use_default_experts = True):
     experts = [
         torch.load(f"data/experts/{index}/{i}.pt", weights_only=False).to(device)
         for i in range(EXPERTS)
@@ -147,5 +161,6 @@ def get_fusion_layer_by_index(index, device=torch.device("cpu")):
         fusion_experts=fusion_experts,
         gate=gate,
         shared_expert=shared_expert,
-        shared_expert_gate=shared_expert_gate
+        shared_expert_gate=shared_expert_gate,
+        use_default_experts=use_default_experts
     )

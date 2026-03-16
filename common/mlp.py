@@ -1,15 +1,14 @@
 import torch
 from torch import nn
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def unite_matrix(mat1: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
     """Unite matrix A and B in block format:
     A 0
     0 B"""
-    add1 = torch.zeros((mat1.shape[0], mat2.shape[1]), device=device)
-    add2 = torch.zeros((mat2.shape[0], mat1.shape[1]), device=device)
+    add1 = torch.zeros((mat1.shape[0], mat2.shape[1]), device=mat1.device)
+    add2 = torch.zeros((mat2.shape[0], mat1.shape[1]), device=mat1.device)
     mat1 = torch.cat([mat1, add1], dim=1)
     mat2 = torch.cat([add2, mat2], dim=1)
     return torch.cat([mat1, mat2], dim=0)
@@ -68,7 +67,7 @@ class Zipper(nn.Linear):
         n = corr_matrix.shape[0]
 
         matches = build_matches(corr_matrix)
-        self.M = torch.zeros(n // 2, n).to(device)
+        self.M = torch.zeros(n // 2, n).to(self.activations[0].device)
         for idx, (i, j) in enumerate(matches):
             self.M[idx, i] = 0.5
             self.M[idx, j] = 0.5
@@ -114,9 +113,10 @@ class SimpleMLP(MLP):
     """MLP with two hidden linear layers"""
 
     def __init__(
-        self, in_features: int, hid_features: int, out_features: int, bias: bool = False
+        self, in_features: int, hid_features: int, out_features: int, bias: bool = False, device = default_device
     ):
         super().__init__()
+        self.device = device
         self.fc1 = nn.Linear(in_features, hid_features, bias=bias, device=device)
         self.zip1 = Zipper(hid_features)
         self.act = nn.ReLU()
@@ -147,14 +147,19 @@ class SimpleMLP(MLP):
 
     def zip(self):
         """ZipIt operation"""
-        self.U = self.zip2.U
+        self.U = nn.Parameter(self.zip2.U)
 
         self.fc1.weight = nn.Parameter(
             self.zip1.M
             @ self.fc1.weight
-            @ torch.cat(2 * [torch.eye(self.fc1.in_features, device=device)])
+            @ torch.cat(2 * [torch.eye(self.fc1.in_features, device=self.device)])
         )
         self.fc2.weight = nn.Parameter(self.zip2.M @ self.fc2.weight @ self.zip1.U)
+
+        del self.zip1
+        self.zip1 = None
+        del self.zip2
+        self.zip2 = None
 
         self.zipped = False
 
@@ -163,14 +168,15 @@ class AdvancedMLP(MLP):
     """MLP with up, down and proj linear layers"""
 
     def __init__(
-        self, in_features: int, hid_features: int, out_features: int, bias: bool = False
+        self, in_features: int, hid_features: int, out_features: int, bias: bool = False, device = default_device
     ):
         super().__init__()
-        self.gate = nn.Linear(in_features, hid_features, bias=bias, device=device)
+        self.device = device
+        self.gate = nn.Linear(in_features, hid_features, bias=bias, device=self.device)
         self.act = nn.SiLU()
-        self.up = nn.Linear(in_features, hid_features, bias=bias, device=device)
+        self.up = nn.Linear(in_features, hid_features, bias=bias, device=self.device)
         self.zip1 = Zipper(hid_features)
-        self.down = nn.Linear(hid_features, out_features, bias=bias, device=device)
+        self.down = nn.Linear(hid_features, out_features, bias=bias, device=self.device)
         self.zip2 = Zipper(out_features)
         self.zipped = False
         self.U = None
@@ -201,18 +207,23 @@ class AdvancedMLP(MLP):
 
     def zip(self):
         """ZipIt operation"""
-        self.U = self.zip2.U
+        self.U = nn.Parameter(self.zip2.U)
 
         self.gate.weight = nn.Parameter(
             self.zip1.M
             @ self.gate.weight
-            @ torch.cat(2 * [torch.eye(self.gate.in_features, device=device)])
+            @ torch.cat(2 * [torch.eye(self.gate.in_features, device=self.device)])
         )
         self.up.weight = nn.Parameter(
             self.zip1.M
             @ self.up.weight
-            @ torch.cat(2 * [torch.eye(self.up.in_features, device=device)])
+            @ torch.cat(2 * [torch.eye(self.up.in_features, device=self.device)])
         )
         self.down.weight = nn.Parameter(self.zip2.M @ self.down.weight @ self.zip1.U)
+
+        del self.zip1
+        self.zip1 = None
+        del self.zip2
+        self.zip2 = None
 
         self.zipped = False
