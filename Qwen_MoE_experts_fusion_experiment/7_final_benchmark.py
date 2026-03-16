@@ -1,133 +1,119 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
-
-
 import torch
 from matplotlib import pyplot as plt
 from tqdm import tqdm
 import sys
-from config import LAYERS
+from config import LAYERS, device
+import time
+import seaborn as sns
+from datetime import datetime
+import os
 
 sys.path.append("..")
 from common.fusion_layer import get_fusion_layer_by_index
 
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-
-# In[2]:
-
-
 LAYER = LAYERS[0]
-
-
-# In[3]:
 
 
 train_data = torch.load(f"data/mlp_inputs/train_{LAYER}.pt")
 test_data = torch.load(f"data/mlp_inputs/test_{LAYER}.pt")
 
 
-# In[4]:
-
-
 model = get_fusion_layer_by_index(LAYER, device=device)
-
-
-# In[5]:
-
-
-model.forward_default(torch.stack([train_data[0], train_data[1]]).to(device))[0] - model.forward_default(
-    torch.stack([torch.stack([train_data[0]]), torch.stack([train_data[1]])]).to(device)
-)[0]
-
-
-# In[6]:
-
-
-model.forward(torch.stack([train_data[0], train_data[1]]).to(device))[0] - model.forward(
-    torch.stack([torch.stack([train_data[0]]), torch.stack([train_data[1]])]).to(device)
-)[0]
-
-
-# In[7]:
 
 
 batch_size = 1024
 total = 100
 
 
-# In[8]:
+for ind in tqdm(range(0, batch_size * total, batch_size)):
+    batch = torch.stack(train_data[ind: ind + batch_size])
+    batch = batch.to(device)
+    model.forward(batch)[0]
 
 
 for ind in tqdm(range(0, batch_size * total, batch_size)):
-    model.forward(torch.stack(train_data[ind : ind + batch_size]).to(device))[0]
-
-
-# In[9]:
-
-
-for ind in tqdm(range(0, batch_size * total, batch_size)):
-    model.forward_default(torch.stack(train_data[ind : ind + batch_size]).to(device))[0]
-
-
-# In[10]:
-
-
-for ind in tqdm(range(0, batch_size * total, batch_size)):
-    model.forward(torch.stack(train_data[ind : ind + batch_size]).to(device))[0]
-for ind in tqdm(range(0, batch_size * total, batch_size)):
-    model.forward_default(torch.stack(train_data[ind : ind + batch_size]).to(device))[0]
-
-
-# In[11]:
-
-
-for ind in tqdm(range(0, batch_size * total, batch_size)):
-    model.forward(torch.stack(train_data[ind : ind + batch_size]).to(device))[0]
-
-
-# In[12]:
-
-
-for ind in tqdm(range(0, batch_size * total, batch_size)):
-    model.forward_default(torch.stack(train_data[ind : ind + batch_size]).to(device))[0]
-
-
-# In[13]:
-
-
-model.forward(torch.stack(train_data[0:10000]).to(device))[0]
-
-
-# In[14]:
-
-
-batch_size = 2048
-total = 10
-
-
-# In[15]:
+    batch = torch.stack(train_data[ind: ind + batch_size])
+    batch = batch.to(device)
+    model.forward_default(batch)[0]
 
 
 norm = []
 err = []
+cos_sim = []
+
+time_new = []
+time_base = []
 
 for ind in tqdm(range(0, batch_size * total, batch_size)):
-    x = model.forward(torch.stack(train_data[ind : ind + batch_size]).to(device))[0]
-    y = model.forward_default(torch.stack(train_data[ind : ind + batch_size]).to(device))[0]
-    norm.append(y.square().mean().cpu().detach())
-    err.append((x - y).square().mean().cpu().detach())
+    input = torch.stack(train_data[ind: ind + batch_size]).to(device)
+    time_start = time.perf_counter()
+    x = model.forward(input)[0][0]
+    time_middle = time.perf_counter()
+    y = model.forward_default(input)[0][0]
+    time_end = time.perf_counter()
+    for i in range(y.shape[0]):
+        norm.append(y[i].square().sum().sqrt().cpu().detach().item())
+        err.append((x[i] - y[i]).square().sum().sqrt().cpu().detach().item())
+        cos_sim.append(torch
+                       .cosine_similarity(
+                           x[i].flatten(),
+                           y[i].flatten(),
+                           dim=0)
+                       .cpu()
+                       .detach()
+                       .item())
+    time_new.append(time_middle-time_start)
+    time_base.append(time_end-time_middle)
 
-norm[0], err[0]
+print("Norm:", norm[0])
+print("Error:", err[0])
+print("Cos_sim:", cos_sim[0])
 
 
-# In[16]:
+now = datetime.now()
+time = now.strftime("%Y_%m_%d_%HX_%M_%S")
+_plot_dir = f"plots/fusion/{time}"
+os.makedirs(_plot_dir)
 
 
-plt.violinplot([norm, err])
-plt.show()
-sum(err) / sum(norm)
+sns.kdeplot(cos_sim, label='Cosine similarity',
+            fill=True, alpha=0.3, log_scale=True)
+# plt.xlabel('Norm')
+# plt.ylabel('Density')
+# plt.title('Density of norms')
+# plt.legend()
+# plt.grid(True, alpha=0.3)
+
+plt.savefig(f"{_plot_dir}/kdeplot.png")
+plt.close()
+
+sns.kdeplot([1e-10 + x for x in norm],
+            label='Norm of the true vector',
+            fill=True, alpha=0.3, log_scale=True)
+sns.kdeplot([1e-10 + x for x in err if x != 0],
+            label='Norm of the error vector',
+            fill=True, alpha=0.3, log_scale=True)
+plt.xlabel('Norm')
+plt.ylabel('Density')
+plt.title('Density of norms')
+plt.legend()
+plt.grid(True, alpha=0.3)
+
+plt.savefig(f"{_plot_dir}/kdeplot_norms.png")
+plt.close()
+
+sns.kdeplot(time_new, label='Our method', fill=True, alpha=0.3)
+sns.kdeplot(time_base, label='Original model', fill=True, alpha=0.3)
+plt.xlabel('Time')
+plt.ylabel('Density')
+plt.title('Density of time')
+plt.legend()
+plt.grid(True, alpha=0.3)
+
+plt.savefig(f"{_plot_dir}/kdeplot_times.png")
+plt.close()
 

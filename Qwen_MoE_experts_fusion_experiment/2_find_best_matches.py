@@ -1,19 +1,12 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
-
-
 import torch
 from matplotlib import pyplot as plt
 from tqdm import tqdm
 from config import LAYERS
-
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-
-# In[2]:
+import os
+from datetime import datetime
 
 
 train_data = {}
@@ -24,11 +17,9 @@ for layer in LAYERS:
     train_data[layer] /= train_data[layer].sum()
 
 
-# In[3]:
-
-
 def build_matches(corr_matrix):
-    """Get a matrix of correlations and build matching with most sum of correlations (greedy)"""
+    """Get a matrix of correlations and build 
+    matching with most sum of correlations (greedy)"""
     matches = []
     n = corr_matrix.shape[0]
     used = torch.zeros(n, dtype=torch.bool)
@@ -62,37 +53,25 @@ def eval_match(corr_matrix, matches, top_k=8):
     return (win / (corr_matrix.sum() / top_k)).item()
 
 
-# In[4]:
-
-
 matches = build_matches(train_data[LAYERS[0]])
 
 
-# In[5]:
+print("Test matches with greed algorithm:", eval_match(test_data[LAYERS[0]], matches))
 
 
-eval_match(test_data[LAYERS[0]], matches)
+now = datetime.now()
+time = now.strftime("%Y_%m_%d_%HX_%M_%S")
+_plot_dir = f"plots/activation_correlation/{time}"
+os.makedirs(_plot_dir)
+
+plt.imshow(train_data[LAYERS[0]])
+plt.savefig(f"{_plot_dir}/1.png")
+plt.close()
 
 
-# In[6]:
-
-
-train_data[LAYERS[0]]
-
-
-# In[7]:
-
-
-# plt.imshow(train_data[LAYERS[0]])
-
-
-# In[8]:
-
-
-# plt.imshow(test_data[LAYERS[0]])
-
-
-# In[9]:
+plt.imshow(test_data[LAYERS[0]])
+plt.savefig(f"{_plot_dir}/2.png")
+plt.close()
 
 
 def main(train_data, test_data, draw=True):
@@ -102,7 +81,8 @@ def main(train_data, test_data, draw=True):
         best_pair = []
         for ind in tqdm(range(200)):
             pairs = (
-                torch.arange(0, train_data.shape[0])[torch.randperm(train_data.shape[0])]
+                torch.arange(0, train_data.shape[0])
+                [torch.randperm(train_data.shape[0])]
                 .reshape((-1, 2))
                 .tolist()
             )
@@ -139,7 +119,8 @@ def main(train_data, test_data, draw=True):
 
             def win_from_swap(i, j):
                 return (
-                    train_data[i, j] + train_data[friend[i], friend[j]] - train_data[i, friend[i]] - train_data[j, friend[j]]
+                    train_data[i, j] + train_data[friend[i], friend[j]]
+                    - train_data[i, friend[i]] - train_data[j, friend[j]]
                 ).item()
 
             while True:
@@ -173,30 +154,19 @@ def main(train_data, test_data, draw=True):
     return best_pair
 
 
-# In[10]:
-
-
 best_pairs = {
-    layer : main(train_data[layer], test_data[layer], draw=False)
+    layer: main(train_data[layer], test_data[layer], draw=False)
     for layer in LAYERS
 }
 
 
-# In[11]:
-
-
 for layer in LAYERS:
-    eval_match(train_data[layer], best_pairs[layer]), eval_match(test_data[layer], best_pairs[layer])
-
-
-# In[12]:
+    eval_match(train_data[layer], best_pairs[layer])
+    eval_match(test_data[layer], best_pairs[layer])
 
 
 for layer in LAYERS:
     torch.save(best_pairs[layer], f"data/pairs_{layer}.pt")
-
-
-# In[13]:
 
 
 torch.load(f"data/pairs_{LAYERS[0]}.pt")
