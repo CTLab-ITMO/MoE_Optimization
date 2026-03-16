@@ -108,13 +108,14 @@ def get_experts(data, loggers):
 
 
 def write_activations(train_data, test_data, loggers):
-    os.makedirs("data/activations", exist_ok=True)
+    act_dir = "data/activations"
+    os.makedirs(dir, exist_ok=True)
     train_activations = get_experts(train_data, loggers)
     for i, activations in train_activations.items():
-        torch.save(activations, f"data/activations/train_{i}.pt")
+        torch.save(activations, f"{act_dir}/train_matrix_{i}.pt")
     test_activations = get_experts(test_data, loggers)
     for i, activations in test_activations.items():
-        torch.save(activations, f"data/activations/test_{i}.pt")
+        torch.save(activations, f"{act_dir}/test_matrix_{i}.pt")
 
 
 write_activations(train_data, test_data, loggers)

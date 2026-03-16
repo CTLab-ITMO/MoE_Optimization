@@ -17,7 +17,7 @@ for n_layer in tqdm(LAYERS):
     os.makedirs(f"data/experts/{n_layer}", exist_ok=True)
 
     for i, expert in enumerate(experts):
-        torch.save(expert, f"data/experts/{n_layer}/{i}.pt")
+        torch.save(expert, f"data/experts/{n_layer}/expert_{i}.pt")
 
     torch.save(
         model.model.layers[n_layer].mlp.gate,

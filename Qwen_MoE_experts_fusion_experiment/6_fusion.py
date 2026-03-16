@@ -75,16 +75,14 @@ def compare_fusions_error_and_time(
 act_dir = "data/activations"
 for layer in tqdm(LAYERS):
     experts = [
-        torch.load(f"data/experts/{layer}/{i}.pt", weights_only=False)
+        torch.load(f"data/experts/{layer}/expert_{i}.pt", weights_only=False)
         for i in range(EXPERTS)
     ]
     train_data = torch.load(f"data/mlp_inputs/train_{layer}.pt")
     test_data = torch.load(f"data/mlp_inputs/test_{layer}.pt")
-    train_activations = torch.load(f"{act_dir}/train_{layer}.pt")
-    test_activations = torch.load(f"{act_dir}/test_{layer}.pt")
     pairs = torch.load(f"data/pairs_{layer}.pt")
-    train_pairs_activations = torch.load(f"{act_dir}/pairs_train_{layer}.pt")
-    test_pairs_activations = torch.load(f"{act_dir}/pairs_test_{layer}.pt")
+    train_pairs_activations = torch.load(f"data/activations/pairs_train_{layer}.pt")
+    test_pairs_activations = torch.load(f"data/activations/pairs_test_{layer}.pt")
 
     fusion_experts = [None] * len(pairs)
 

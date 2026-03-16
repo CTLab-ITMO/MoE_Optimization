@@ -42,27 +42,27 @@ def count_activations(data, layer):
     return res
 
 
-os.makedirs("data/activations", exist_ok=True)
+os.makedirs("data/mlp_inputs", exist_ok=True)
 
 for layer in LAYERS:
     data = count_activations(train_data[layer], layer)
-    torch.save(data, f"data/activations/train_{layer}.pt")
+    torch.save(data, f"data/activations/train_all_{layer}.pt")
 
     data = count_activations(test_data[layer], layer)
-    torch.save(data, f"data/activations/test_{layer}.pt")
+    torch.save(data, f"data/activations/test_all_{layer}.pt")
 
 
 train_activations = {}
 test_activations = {}
 for layer in LAYERS:
-    train_activations[layer] = torch.load(f"data/activations/train_{layer}.pt")
-    test_activations[layer] = torch.load(f"data/activations/test_{layer}.pt")
+    train_activations[layer] = torch.load(f"data/activations/train_all_{layer}.pt")
+    test_activations[layer] = torch.load(f"data/activations/test_all_{layer}.pt")
 
 
 pairs = {}
 pairs_ind = {}
 for layer in LAYERS:
-    pairs[layer] = torch.load(f"data/pairs_{layer}.pt")
+    pairs[layer] = torch.load(f"data/pairs/{layer}.pt")
     pairs_ind[layer] = [-1] * (2 * len(pairs[layer]))
     for i, (x, y) in enumerate(pairs[layer]):
         pairs_ind[layer][x] = i
