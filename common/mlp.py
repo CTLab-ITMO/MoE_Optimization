@@ -83,11 +83,15 @@ class MLP(nn.Module):
     def __init__(self):
         super().__init__()
 
-    def forward_unzip(self, x: torch.Tensor):
+    def forward_unzip(self, x: torch.Tensor, out=None):
         """Count forward and return features of model 1 and model 2 concated"""
         y = self.forward(x)
         if self.U is not None:
+            if out is not None:
+                return torch._C._nn.linear(y, torch.chunk(self.U, 2, dim=0)[out])
             return torch._C._nn.linear(y, self.U)
+        if out is not None:
+            return y
         return y.repeat(*([1] * (y.dim() - 1) + [2]))
 
     def forward(self, x: torch.Tensor):

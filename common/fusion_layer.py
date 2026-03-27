@@ -1,6 +1,7 @@
 from torch import nn
 import torch
 from config import TOP_K, EXPERTS
+import torch.nn.functional as F
 
 
 class FusionLayer(nn.Module):
@@ -24,124 +25,84 @@ class FusionLayer(nn.Module):
             self.pair_idx[x] = i
             self.pair_idx[y] = i
 
-    def forward_default(self, hidden_states):
-        while len(hidden_states.shape) < 3:
-            hidden_states = torch.stack([hidden_states])
+    def forward(self, hidden_states: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         batch_size, sequence_length, hidden_dim = hidden_states.shape
-        hidden_states = hidden_states.view(-1, hidden_dim)
-        router_logits = self.gate(hidden_states)
+        hidden_states_reshaped = hidden_states.view(-1, hidden_dim)
+        shared_expert_output = self.shared_expert(hidden_states_reshaped)
+        _, routing_weights, selected_experts = self.gate(hidden_states_reshaped)
+        expert_output = self._forward(hidden_states_reshaped, selected_experts, routing_weights)
 
-        if isinstance(router_logits, tuple):
-            routing_weights, selected_experts = router_logits[1:]
-        else:
-            routing_weights = router_logits.softmax(dim=1, dtype=torch.float)
-            routing_weights, selected_experts = torch.topk(routing_weights, TOP_K, dim=-1)
-            routing_weights = routing_weights.to(hidden_states.dtype)
+        shared_expert_output = F.sigmoid(self.shared_expert_gate(hidden_states_reshaped)) * shared_expert_output
 
-        final_hidden_states = torch.zeros(
-            (batch_size * sequence_length, hidden_dim),
-            dtype=hidden_states.dtype,
-            device=hidden_states.device,
-        )
+        expert_output = expert_output + shared_expert_output
+        expert_output = expert_output.reshape(batch_size, sequence_length, hidden_dim)
+        return expert_output
 
-        for seq_idx in range(hidden_states.shape[0]):
-            current_hidden_states = hidden_states[seq_idx]
-            current_experts = selected_experts[seq_idx].tolist()
-            current_routing_weights = routing_weights[seq_idx]
+    def _forward(
+        self,
+        hidden_states: torch.Tensor,
+        top_k_index: torch.Tensor,
+        top_k_weights: torch.Tensor,
+    ) -> torch.Tensor:
+        final_hidden_states = torch.zeros_like(hidden_states)
+        with torch.no_grad():
+            expert_mask = torch.nn.functional.one_hot(top_k_index, num_classes=self.num_experts)
+            expert_mask = expert_mask.permute(2, 1, 0)
+            expert_hit = torch.greater(expert_mask.sum(dim=(-1, -2)), 0).nonzero()
 
-            out = [None] * len(current_experts)
-            for i, expert_idx in enumerate(current_experts):
-                out[i] = self.experts[expert_idx].forward(current_hidden_states)
-            experts_output = torch.stack(out)
-
-            final_hidden_states[seq_idx] = torch.sum(
-                experts_output * current_routing_weights.unsqueeze(1), dim=0
+        for expert_idx in expert_hit:
+            expert_idx = expert_idx[0]
+            if expert_idx == self.num_experts:
+                continue
+            top_k_pos, token_idx = torch.where(expert_mask[expert_idx])
+            current_state = hidden_states[token_idx]
+            pair_idx = self.pair_idx[expert_idx]
+            pair = self.expert_pairs[pair_idx]
+            current_hidden_states = (
+                            self.fusion_experts[pair_idx]
+                            .forward_unzip(current_state, out=(0 if expert_idx == pair[0] else 1))
             )
+#            current_hidden_states = torch.chunk(current_hidden_states, 2, dim=-1)[0 if expert_idx == pair[0] else 1]
+            current_hidden_states = current_hidden_states * top_k_weights[token_idx, top_k_pos, None]
+            final_hidden_states.index_add_(0, token_idx, current_hidden_states.to(final_hidden_states.dtype))
 
-        shared_expert_output = self.shared_expert(hidden_states)
-        shared_expert_output = (
-            self.shared_expert_gate(hidden_states).sigmoid() * shared_expert_output
-        )
-
-        final_hidden_states = final_hidden_states + shared_expert_output
-
-        final_hidden_states = final_hidden_states.reshape(
-            batch_size, sequence_length, hidden_dim
-        )
         return final_hidden_states
 
-    def forward(self, hidden_states):
-        while len(hidden_states.shape) < 3:
-            hidden_states = torch.stack([hidden_states])
+    def forward_default(self, hidden_states: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         batch_size, sequence_length, hidden_dim = hidden_states.shape
-        hidden_states = hidden_states.view(-1, hidden_dim)
-        router_logits = self.gate(hidden_states)
+        hidden_states_reshaped = hidden_states.view(-1, hidden_dim)
+        shared_expert_output = self.shared_expert(hidden_states_reshaped)
+        _, routing_weights, selected_experts = self.gate(hidden_states_reshaped)
+        expert_output = self._forward_default(hidden_states_reshaped, selected_experts, routing_weights)
 
-        if isinstance(router_logits, tuple):
-            routing_weights, selected_experts = router_logits[1:]
-        else:
-            routing_weights = router_logits.softmax(dim=1, dtype=torch.float)
-            routing_weights, selected_experts = torch.topk(routing_weights, TOP_K, dim=-1)
-            routing_weights = routing_weights.to(hidden_states.dtype)
+        shared_expert_output = F.sigmoid(self.shared_expert_gate(hidden_states_reshaped)) * shared_expert_output
 
-        final_hidden_states = torch.zeros(
-            (batch_size * sequence_length, hidden_dim),
-            dtype=hidden_states.dtype,
-            device=hidden_states.device,
-        )
+        expert_output = expert_output + shared_expert_output
+        expert_output = expert_output.reshape(batch_size, sequence_length, hidden_dim)
+        return expert_output
 
-        for seq_idx in range(hidden_states.shape[0]):
-            current_hidden_states = hidden_states[seq_idx]
-            current_experts = selected_experts[seq_idx].tolist()
-            current_routing_weights = routing_weights[seq_idx]
+    def _forward_default(
+        self,
+        hidden_states: torch.Tensor,
+        top_k_index: torch.Tensor,
+        top_k_weights: torch.Tensor,
+    ) -> torch.Tensor:
+        final_hidden_states = torch.zeros_like(hidden_states)
+        with torch.no_grad():
+            expert_mask = torch.nn.functional.one_hot(top_k_index, num_classes=self.num_experts)
+            expert_mask = expert_mask.permute(2, 1, 0)
+            expert_hit = torch.greater(expert_mask.sum(dim=(-1, -2)), 0).nonzero()
 
-            out = [None] * len(current_experts)
-            for i, expert_idx in enumerate(current_experts):
-                if self.friend[expert_idx] in current_experts:
-                    if expert_idx < self.friend[expert_idx]:
-                        pair_idx = self.pair_idx[expert_idx]
-                        pair = self.expert_pairs[pair_idx]
+        for expert_idx in expert_hit:
+            expert_idx = expert_idx[0]
+            if expert_idx == self.num_experts:
+                continue
+            top_k_pos, token_idx = torch.where(expert_mask[expert_idx])
+            current_state = hidden_states[token_idx]
+            current_hidden_states = self.experts[expert_idx](current_state)
+            current_hidden_states = current_hidden_states * top_k_weights[token_idx, top_k_pos, None]
+            final_hidden_states.index_add_(0, token_idx, current_hidden_states.to(final_hidden_states.dtype))
 
-                        fusion_out = (
-                            self.fusion_experts[pair_idx]
-                            .forward_unzip(current_hidden_states)
-                            .view(2, hidden_dim)
-                        )
-
-                        idx_1, idx_2 = [current_experts.index(exp) for exp in pair]
-                        out[idx_1] = fusion_out[0]
-                        out[idx_2] = fusion_out[1]
-                    else:
-                        pass
-                else:
-                    if self.use_default_experts:
-                        out[i] = self.experts[expert_idx].forward(current_hidden_states)
-                    else:
-                        pair_idx = self.pair_idx[expert_idx]
-                        pair = self.expert_pairs[pair_idx]
-                        fusion_out = (
-                            self.fusion_experts[pair_idx]
-                            .forward_unzip(current_hidden_states)
-                            .view(2, hidden_dim)
-                        )
-                        out[i] = fusion_out[0 if expert_idx == pair[0] else 1]
-
-            experts_output = torch.stack(out)
-
-            final_hidden_states[seq_idx] = torch.sum(
-                experts_output * current_routing_weights.unsqueeze(1), dim=0
-            )
-
-        shared_expert_output = self.shared_expert(hidden_states)
-        shared_expert_output = (
-            self.shared_expert_gate(hidden_states).sigmoid() * shared_expert_output
-        )
-
-        final_hidden_states = final_hidden_states + shared_expert_output
-
-        final_hidden_states = final_hidden_states.reshape(
-            batch_size, sequence_length, hidden_dim
-        )
         return final_hidden_states
 
 
