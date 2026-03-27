@@ -1,6 +1,6 @@
 from torch import nn
 import torch
-from config import TOP_K, EXPERTS
+from config import TOP_K, EXPERTS, DATA_DIR
 import torch.nn.functional as F
 
 
@@ -106,20 +106,20 @@ class FusionLayer(nn.Module):
         return final_hidden_states
 
 
-def get_fusion_layer_by_index(index, device=torch.device("cpu"), use_default_experts = True):
+def get_fusion_layer_by_index(index, experts_dir, device=torch.device("cpu"), use_default_experts = True):
     experts = [
-        torch.load(f"data/experts/{index}/expert_{i}.pt", weights_only=False).to(device)
+        torch.load(f"{DATA_DIR}/experts/{index}/expert_{i}.pt", weights_only=False).to(device)
         for i in range(EXPERTS)
     ]
-    expert_pairs = torch.load(f"data/pairs/{index}.pt")
+    expert_pairs = torch.load(f"{DATA_DIR}/pairs/{index}.pt")
     fusion_experts = [
-        torch.load(f"data/fusion_experts/{index}/{i}.pt", weights_only=False).to(device)
+        torch.load(f"{experts_dir}/{index}/{i}.pt", weights_only=False).to(device)
         for i in range(len(expert_pairs))
     ]
-    gate = torch.load(f"data/experts/{index}/gate.pt", weights_only=False).to(device)
-    shared_expert = torch.load(f"data/experts/{index}/shared_expert.pt", weights_only=False).to(device)
+    gate = torch.load(f"{DATA_DIR}/experts/{index}/gate.pt", weights_only=False).to(device)
+    shared_expert = torch.load(f"{DATA_DIR}/experts/{index}/shared_expert.pt", weights_only=False).to(device)
     shared_expert_gate = torch.load(
-        f"data/experts/{index}/shared_expert_gate.pt", weights_only=False
+        f"{DATA_DIR}/experts/{index}/shared_expert_gate.pt", weights_only=False
     ).to(device)
 
     return FusionLayer(

@@ -25,8 +25,8 @@ model = model.to(device)
 train_data = {}
 test_data = {}
 for layer in LAYERS:
-    train_data[layer] = torch.load(f"data/mlp_inputs/train_{layer}.pt")
-    test_data[layer] = torch.load(f"data/mlp_inputs/test_{layer}.pt")
+    train_data[layer] = torch.load(f"{DATA_DIR}/mlp_inputs/train_{layer}.pt")
+    test_data[layer] = torch.load(f"{DATA_DIR}/mlp_inputs/test_{layer}.pt")
 
 
 def count_activations(data, layer):
@@ -46,27 +46,27 @@ def count_activations(data, layer):
     return res
 
 
-os.makedirs("data/mlp_inputs", exist_ok=True)
+os.makedirs(f"{DATA_DIR}/mlp_inputs", exist_ok=True)
 
 for layer in LAYERS:
     data = count_activations(train_data[layer], layer)
-    torch.save(data, f"data/activations/train_all_{layer}.pt")
+    torch.save(data, f"{DATA_DIR}/activations/train_all_{layer}.pt")
 
     data = count_activations(test_data[layer], layer)
-    torch.save(data, f"data/activations/test_all_{layer}.pt")
+    torch.save(data, f"{DATA_DIR}/activations/test_all_{layer}.pt")
 
 
 train_activations = {}
 test_activations = {}
 for layer in LAYERS:
-    train_activations[layer] = torch.load(f"data/activations/train_all_{layer}.pt")
-    test_activations[layer] = torch.load(f"data/activations/test_all_{layer}.pt")
+    train_activations[layer] = torch.load(f"{DATA_DIR}/activations/train_all_{layer}.pt")
+    test_activations[layer] = torch.load(f"{DATA_DIR}/activations/test_all_{layer}.pt")
 
 
 pairs = {}
 pairs_ind = {}
 for layer in LAYERS:
-    pairs[layer] = torch.load(f"data/pairs/{layer}.pt")
+    pairs[layer] = torch.load(f"{DATA_DIR}/pairs/{layer}.pt")
     pairs_ind[layer] = [-1] * (2 * len(pairs[layer]))
     for i, (x, y) in enumerate(pairs[layer]):
         pairs_ind[layer][x] = i
@@ -96,10 +96,10 @@ def get_pairs_activations(activations, layer):
 for layer in LAYERS:
     torch.save(
         get_pairs_activations(train_activations[layer], layer),
-        f"data/activations/pairs_train_{layer}.pt"
+        f"{DATA_DIR}/activations/pairs_train_{layer}.pt"
     )
     torch.save(
         get_pairs_activations(test_activations[layer], layer),
-        f"data/activations/pairs_test_{layer}.pt"
+        f"{DATA_DIR}/activations/pairs_test_{layer}.pt"
     )
 

@@ -7,22 +7,17 @@ import transformers
 from datasets import load_dataset
 from matplotlib import pyplot as plt
 from tqdm import tqdm
-from config import MODEL_NAME, LAYERS, VALIDATION_SIZE, device, EVAL_MODEL_AFTER_EVERY_STEP
+from config import MODEL_NAME, LAYERS, VALIDATION_SIZE, device, REPLACE_LAYERS_SEQUANTIAL, DATA_DIR
 
 sys.path.append("..")
 from common.fusion_layer import get_fusion_layer_by_index
+from common.mlp_utils import FUSION_METHODS
 
 model_id = "Qwen/Qwen1.5-MoE-A2.7B-Chat"
 use_default_experts = False
 
 
-if "model" not in globals():
-    model = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map=device)
-if "tokenizer" not in globals():
-    tokenizer = transformers.AutoTokenizer.from_pretrained(MODEL_NAME)
-
-model.config.use_cache = False
-model.generation_config.use_cache = False
+tokenizer = transformers.AutoTokenizer.from_pretrained(MODEL_NAME)
 
 
 dataset = load_dataset("commonsense_qa", split="validation")
@@ -117,44 +112,7 @@ def test_model(model):
     return accuracy
 
 
-accuracy_list = [test_model(model)]
-base_accuracy = accuracy_list[0]
-
-
-for layer in tqdm(LAYERS):
-    old_mlp = model.model.layers[layer].mlp
-    new_mlp = get_fusion_layer_by_index(layer, device=model.device,
-                                        use_default_experts=use_default_experts
-                                        ).to(model.device, dtype=model.dtype)
-    model.model.layers[layer].mlp = new_mlp
-    if EVAL_MODEL_AFTER_EVERY_STEP:
-        accuracy_list.append(test_model(model))
-        model.model.layers[layer].mlp = old_mlp
-        del new_mlp
-    else:
-        del old_mlp
-
-if not EVAL_MODEL_AFTER_EVERY_STEP:
-    accuracy_list.append(test_model(model))
-
-
-new_accuracy = accuracy_list[-1]
-
-
-print("Base model's accuracy:", base_accuracy)
-print("New model's accuracy:", new_accuracy)
-
-
-print("Base model's correct answers:", base_accuracy * validation_size)
-print("New model's correct answers:", new_accuracy * validation_size)
-
-
-print("model's accuracy list:", accuracy_list)
-torch.save(accuracy_list, "accuracy_list.pt")
-
-
-accuracy_list_drops = [accuracy_list[0]]
-base_accuracy = accuracy_list_drops[0]
+base_accuracy = None
 
 
 class ZeroLayer(torch.nn.Module):
@@ -164,15 +122,46 @@ class ZeroLayer(torch.nn.Module):
     def forward(*args, **kwargs):
         return torch.zeros_like(args[1])
 
-for layer in tqdm(LAYERS):
-    old_mlp = model.model.layers[layer].mlp
-    new_mlp = ZeroLayer()
-    model.model.layers[layer].mlp = new_mlp
-    accuracy_list_drops.append(test_model(model))
-    model.model.layers[layer].mlp = old_mlp
-    del new_mlp
+def zero_fusion(model, layer):
+    return ZeroLayer().to(model.device, dtype=model.dtype)
 
 
-print("model's drops accuracy list:", accuracy_list_drops)
-torch.save(accuracy_list_drops, "accuracy_list_drop.pt")
+def default_fusion(name):
+    def inner(model, layer):
+        return get_fusion_layer_by_index(layer, device=model.device,
+                                            use_default_experts=use_default_experts
+                                            ).to(model.device, dtype=model.dtype)
+
+
+experts_fusions = [zero_fusion]
+experts_fusions.extend(default_fusion(name) for name in FUSION_METHODS.keys())
+
+
+for fusion_name, experts_fusion in experts_fusions.items():
+    model = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map=device)
+    model.config.use_cache = False
+    model.generation_config.use_cache = False
+
+    if base_accuracy is None:
+        base_accuracy = test_model(model)
+    accuracy_list = [base_accuracy]
+
+    for layer in tqdm(LAYERS):
+        if REPLACE_LAYERS_SEQUANTIAL:
+            del model.model.layers[layer].mlp
+            torch.cuda.empty_cache()
+            model.model.layers[layer].mlp = experts_fusion(model, layer)
+            accuracy_list.append(test_model(model))
+        else:
+            old_mlp = model.model.layers[layer].mlp
+            model.model.layers[layer].mlp = experts_fusion(model, layer)
+            accuracy_list.append(test_model(model))
+            del model.model.layers[layer].mlp
+            torch.cuda.empty_cache()
+            model.model.layers[layer].mlp = old_mlp
+
+    print(f"model's accuracy list after {fusion_name}:", accuracy_list)
+    torch.save(accuracy_list, "accuracy_list.pt")
+    del model
+
 

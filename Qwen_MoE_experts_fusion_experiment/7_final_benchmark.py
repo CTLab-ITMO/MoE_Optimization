@@ -18,11 +18,11 @@ from common.fusion_layer import get_fusion_layer_by_index
 LAYER = LAYERS[0]
 
 
-train_data = torch.load(f"data/mlp_inputs/train_{LAYER}.pt")
-test_data = torch.load(f"data/mlp_inputs/test_{LAYER}.pt")
+train_data = torch.load(f"{DATA_DIR}/mlp_inputs/train_{LAYER}.pt")
+test_data = torch.load(f"{DATA_DIR}/mlp_inputs/test_{LAYER}.pt")
 
 
-model = get_fusion_layer_by_index(LAYER, device=device)
+model = get_fusion_layer_by_index(LAYER, f"{DATA_DIR}/fusion_experts/ZipIt", device=device)
 
 
 batch_size = 128

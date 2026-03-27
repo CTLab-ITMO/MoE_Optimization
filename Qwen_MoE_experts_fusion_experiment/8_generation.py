@@ -27,7 +27,6 @@ test_data = _test_data[:EXAMPLES]
 
 
 @torch.autocast("cuda")
-@torch.no_grad()
 def generate_examples(model, examples):
     res = []
     for example in tqdm(examples):
@@ -58,9 +57,10 @@ for layer in LAYERS:
     torch.cuda.empty_cache()
     new_mlp = get_fusion_layer_by_index(
         layer,
+        f"{DATA_DIR}/fusion_experts/ZipIt",
         device=device,
         use_default_experts=False
-    ).to(model.device, dtype=model.dtype)
+    ).to(device)
     model.model.layers[layer].mlp = new_mlp
 
 

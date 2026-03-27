@@ -41,7 +41,7 @@ class Logger(nn.Module):
 @torch.autocast("cuda")
 @torch.no_grad()
 def compare_fusions_error_and_time(
-    mlp1, mlp2, train_data, test_data, ind=None
+    mlp1, mlp2, train_data, test_data, fusion_experts=None, ind=None
 ) -> tuple[dict[str, list[float]], dict[str, list[float]]]:
     """Take two experts from model first layer 
     and count MSE and time for existed fusion methods"""
@@ -49,11 +49,11 @@ def compare_fusions_error_and_time(
     fusions = {}
     for fusion_name, fusion_methos in FUSION_METHODS.items():
         fusions[fusion_name] = fusion_methos(mlp1, mlp2, train_data)
-    if ind is not None:
-        fusion_experts[ind] = fusions["ZipIt"]
+    if fusion_experts is not None:
+        fusion_experts[ind] = fusions
     torch.cuda.empty_cache()
 
-    if len(test_data_for_pair) > 0:
+    if len(test_data) > 0:
         means = {
             f"MSE of {fusion_name}": mse_on_test_data(
                 fusions[fusion_name], mlp1, mlp2, test_data
@@ -72,17 +72,17 @@ def compare_fusions_error_and_time(
         return None, None
 
 
-act_dir = "data/activations"
+act_dir = "{DATA_DIR}/activations"
 for layer in tqdm(LAYERS):
     experts = [
-        torch.load(f"data/experts/{layer}/expert_{i}.pt", weights_only=False)
+        torch.load(f"{DATA_DIR}/experts/{layer}/expert_{i}.pt", weights_only=False)
         for i in range(EXPERTS)
     ]
-    train_data = torch.load(f"data/mlp_inputs/train_{layer}.pt")
-    test_data = torch.load(f"data/mlp_inputs/test_{layer}.pt")
-    pairs = torch.load(f"data/pairs/{layer}.pt")
-    train_pairs_activations = torch.load(f"data/activations/pairs_train_{layer}.pt")
-    test_pairs_activations = torch.load(f"data/activations/pairs_test_{layer}.pt")
+    train_data = torch.load(f"{DATA_DIR}/mlp_inputs/train_{layer}.pt")
+    test_data = torch.load(f"{DATA_DIR}/mlp_inputs/test_{layer}.pt")
+    pairs = torch.load(f"{DATA_DIR}/pairs/{layer}.pt")
+    train_pairs_activations = torch.load(f"{DATA_DIR}/activations/pairs_train_{layer}.pt")
+    test_pairs_activations = torch.load(f"{DATA_DIR}/activations/pairs_test_{layer}.pt")
 
     fusion_experts = [None] * len(pairs)
 
@@ -100,6 +100,7 @@ for layer in tqdm(LAYERS):
             experts[expert_2].to(device),
             train_data_for_pair,
             test_data_for_pair,
+            fusion_experts,
             i,
         )
         if len(test_data_for_pair) > 0:
@@ -109,10 +110,11 @@ for layer in tqdm(LAYERS):
         del x
     for x in test_data:
         del x
-    os.makedirs(f"data/fusion_experts/{layer}", exist_ok=True)
-    for i, expert in enumerate(fusion_experts):
-        torch.save(expert, f"data/fusion_experts/{layer}/{i}.pt")
-        del expert
+    for i, experts in enumerate(fusion_experts):
+        for fusion_name, fusion_expert in experts.items():
+            os.makedirs(f"{DATA_DIR}/fusion_experts/{fusion_name}/{layer}", exist_ok=True)
+            torch.save(fusion_expert.cpu(), f"{DATA_DIR}/fusion_experts/{fusion_name}/{layer}/{i}.pt")
+            del fusion_expert
     torch.cuda.empty_cache()
 
 

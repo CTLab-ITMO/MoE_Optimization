@@ -60,17 +60,17 @@ class Logger(nn.Module):
 for n_layer in LAYERS:
     logger = Logger(model.model.layers[n_layer].mlp)
     model.model.layers[n_layer].mlp = logger
-    os.makedirs("data/mlp_inputs", exist_ok=True)
+    os.makedirs(f"{DATA_DIR}/mlp_inputs", exist_ok=True)
 
     for data in tqdm(train_data):
         input_ids = tokenizer(data, return_tensors="pt")["input_ids"]
         model.forward(input_ids.to(device))
-    torch.save(logger.get(), f"data/mlp_inputs/train_{n_layer}.pt")
+    torch.save(logger.get(), f"{DATA_DIR}/mlp_inputs/train_{n_layer}.pt")
 
     for data in tqdm(test_data):
         input_ids = tokenizer(data, return_tensors="pt")["input_ids"]
         model.forward(input_ids.to(device))
-    torch.save(logger.get(), f"data/mlp_inputs/test_{n_layer}.pt")
+    torch.save(logger.get(), f"{DATA_DIR}/mlp_inputs/test_{n_layer}.pt")
 
     model.model.layers[n_layer].mlp = logger.model
 

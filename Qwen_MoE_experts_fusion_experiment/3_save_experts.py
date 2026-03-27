@@ -21,11 +21,11 @@ if "model" not in globals():
 
 for n_layer in tqdm(LAYERS):
     experts = model.model.layers[n_layer].mlp.experts
-    os.makedirs(f"data/experts/{n_layer}", exist_ok=True)
+    os.makedirs(f"{DATA_DIR}/experts/{n_layer}", exist_ok=True)
 
     try:
         for i, expert in enumerate(experts):
-            torch.save(turn_in_mlp(expert, device = torch.device("cpu")), f"data/experts/{n_layer}/expert_{i}.pt")
+            torch.save(turn_in_mlp(expert, device = torch.device("cpu")), f"{DATA_DIR}/experts/{n_layer}/expert_{i}.pt")
     except TypeError:
         for i in range(experts.num_experts):
             new_mlp = AdvancedMLP(
@@ -37,18 +37,18 @@ for n_layer in tqdm(LAYERS):
             new_mlp.gate.weight = torch.nn.Parameter(experts.gate_up_proj[i, :experts.intermediate_dim].detach().clone())
             new_mlp.up.weight = torch.nn.Parameter(experts.gate_up_proj[i, experts.intermediate_dim:].detach().clone())
             new_mlp.down.weight = torch.nn.Parameter(experts.down_proj[i].detach().clone())
-            torch.save(new_mlp, f"data/experts/{n_layer}/expert_{i}.pt")
+            torch.save(new_mlp, f"{DATA_DIR}/experts/{n_layer}/expert_{i}.pt")
 
     torch.save(
         model.model.layers[n_layer].mlp.gate.cpu(),
-        f"data/experts/{n_layer}/gate.pt"
+        f"{DATA_DIR}/experts/{n_layer}/gate.pt"
     )
     torch.save(
         model.model.layers[n_layer].mlp.shared_expert.cpu(),
-        f"data/experts/{n_layer}/shared_expert.pt",
+        f"{DATA_DIR}/experts/{n_layer}/shared_expert.pt",
     )
     torch.save(
         model.model.layers[n_layer].mlp.shared_expert_gate.cpu(),
-        f"data/experts/{n_layer}/shared_expert_gate.pt",
+        f"{DATA_DIR}/experts/{n_layer}/shared_expert_gate.pt",
     )
 

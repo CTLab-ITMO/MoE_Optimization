@@ -12,8 +12,8 @@ from datetime import datetime
 train_data = {}
 test_data = {}
 for layer in LAYERS:
-    train_data[layer] = torch.load(f"data/activations/train_matrix_{layer}.pt").cpu()
-    test_data[layer] = torch.load(f"data/activations/test_matrix_{layer}.pt").cpu()
+    train_data[layer] = torch.load(f"{DATA_DIR}/activations/train_matrix_{layer}.pt").cpu()
+    test_data[layer] = torch.load(f"{DATA_DIR}/activations/test_matrix_{layer}.pt").cpu()
     train_data[layer] /= train_data[layer].sum()
 
 
@@ -165,10 +165,10 @@ for layer in LAYERS:
     eval_match(test_data[layer], best_pairs[layer])
 
 
-os.makedirs("data/pairs", exist_ok=True)
+os.makedirs(f"{DATA_DIR}/pairs", exist_ok=True)
 for layer in LAYERS:
-    torch.save(best_pairs[layer], f"data/pairs/{layer}.pt")
+    torch.save(best_pairs[layer], f"{DATA_DIR}/pairs/{layer}.pt")
 
 
-print("Saved data example:", torch.load(f"data/pairs/{LAYERS[0]}.pt"))
+print("Saved data example:", torch.load(f"{DATA_DIR}/pairs/{LAYERS[0]}.pt"))
 
