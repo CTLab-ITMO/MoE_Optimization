@@ -1,11 +1,18 @@
 #!/usr/bin/env python
 # coding: utf-8
 
+import sys
 import torch
 import os
 import transformers
-from config import MODEL_NAME, LAYERS, device
+from config import MODEL_NAME, LAYERS
 from tqdm import tqdm
+
+sys.path.append("..")
+from common.mlp import AdvancedMLP
+from common.mlp_utils import turn_in_mlp
+
+device = torch.device("cpu")
 
 
 if "model" not in globals():
@@ -16,19 +23,32 @@ for n_layer in tqdm(LAYERS):
     experts = model.model.layers[n_layer].mlp.experts
     os.makedirs(f"data/experts/{n_layer}", exist_ok=True)
 
-    for i, expert in enumerate(experts):
-        torch.save(expert, f"data/experts/{n_layer}/expert_{i}.pt")
+    try:
+        for i, expert in enumerate(experts):
+            torch.save(turn_in_mlp(expert, device = torch.device("cpu")), f"data/experts/{n_layer}/expert_{i}.pt")
+    except TypeError:
+        for i in range(experts.num_experts):
+            new_mlp = AdvancedMLP(
+                experts.hidden_dim,
+                experts.intermediate_dim,
+                experts.hidden_dim,
+                device=torch.device("cpu"),
+            )
+            new_mlp.gate.weight = torch.nn.Parameter(experts.gate_up_proj[i, :experts.intermediate_dim].detach().clone())
+            new_mlp.up.weight = torch.nn.Parameter(experts.gate_up_proj[i, experts.intermediate_dim:].detach().clone())
+            new_mlp.down.weight = torch.nn.Parameter(experts.down_proj[i].detach().clone())
+            torch.save(new_mlp, f"data/experts/{n_layer}/expert_{i}.pt")
 
     torch.save(
-        model.model.layers[n_layer].mlp.gate,
+        model.model.layers[n_layer].mlp.gate.cpu(),
         f"data/experts/{n_layer}/gate.pt"
     )
     torch.save(
-        model.model.layers[n_layer].mlp.shared_expert,
+        model.model.layers[n_layer].mlp.shared_expert.cpu(),
         f"data/experts/{n_layer}/shared_expert.pt",
     )
     torch.save(
-        model.model.layers[n_layer].mlp.shared_expert_gate,
+        model.model.layers[n_layer].mlp.shared_expert_gate.cpu(),
         f"data/experts/{n_layer}/shared_expert_gate.pt",
     )
 

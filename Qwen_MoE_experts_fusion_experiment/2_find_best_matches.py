@@ -4,7 +4,7 @@
 import torch
 from matplotlib import pyplot as plt
 from tqdm import tqdm
-from config import LAYERS
+from config import LAYERS, EVOLUTION_STEPS
 import os
 from datetime import datetime
 
@@ -62,7 +62,7 @@ print("Test matches with greed algorithm:", eval_match(test_data[LAYERS[0]], mat
 now = datetime.now()
 time = now.strftime("%Y_%m_%d_%HX_%M_%S")
 _plot_dir = f"plots/activation_correlation/{time}"
-os.makedirs(_plot_dir)
+os.makedirs(_plot_dir, exist_ok=True)
 
 plt.imshow(train_data[LAYERS[0]])
 plt.savefig(f"{_plot_dir}/1.png")
@@ -79,7 +79,7 @@ def main(train_data, test_data, draw=True):
         res = []
         best_win = 0
         best_pair = []
-        for ind in tqdm(range(200)):
+        for ind in tqdm(range(EVOLUTION_STEPS)):
             pairs = (
                 torch.arange(0, train_data.shape[0])
                 [torch.randperm(train_data.shape[0])]
@@ -165,10 +165,10 @@ for layer in LAYERS:
     eval_match(test_data[layer], best_pairs[layer])
 
 
-os.makedirs("data/pairs")
+os.makedirs("data/pairs", exist_ok=True)
 for layer in LAYERS:
     torch.save(best_pairs[layer], f"data/pairs/{layer}.pt")
 
 
-torch.load(f"data/pairs/{LAYERS[0]}.pt")
+print("Saved data example:", torch.load(f"data/pairs/{LAYERS[0]}.pt"))
 

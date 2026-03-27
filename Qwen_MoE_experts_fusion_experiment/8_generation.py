@@ -26,6 +26,8 @@ if "_test_data" not in globals():
 test_data = _test_data[:EXAMPLES]
 
 
+@torch.autocast("cuda")
+@torch.no_grad()
 def generate_examples(model, examples):
     res = []
     for example in tqdm(examples):
@@ -58,7 +60,7 @@ for layer in LAYERS:
         layer,
         device=device,
         use_default_experts=False
-    ).to(device)
+    ).to(model.device, dtype=model.dtype)
     model.model.layers[layer].mlp = new_mlp
 
 

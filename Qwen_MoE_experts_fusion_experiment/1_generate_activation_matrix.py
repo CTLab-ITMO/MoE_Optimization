@@ -15,7 +15,7 @@ from config import (
     TEST_SIZE,
     LAYERS,
     TOP_K,
-    device
+    device,
 )
 
 print("Device:", device)
@@ -51,7 +51,7 @@ class ExpertsLogger(nn.Module):
     def __init__(self, gate: nn.Module):
         super().__init__()
         self.gate = gate
-        self.num_experts = gate.out_features
+        self.num_experts = gate.num_experts
         self.experts: torch.Tensor | None = torch.zeros(
             (self.num_experts, self.num_experts)
         )
@@ -59,8 +59,12 @@ class ExpertsLogger(nn.Module):
     def forward(self, x: torch.Tensor):
         router_logits = self.gate(x)
 
-        routing_weights = router_logits.softmax(dim=1, dtype=torch.float)
-        _, selected_experts = torch.topk(routing_weights, TOP_K, dim=-1)
+        if isinstance(router_logits, tuple):
+            routing_weights = router_logits[0]
+            selected_experts = router_logits[-1]
+        else:
+            routing_weights = router_logits.softmax(dim=1, dtype=torch.float)
+            _, selected_experts = torch.topk(routing_weights, TOP_K, dim=-1)
         if self.experts is not None:
             for experts_stack in selected_experts:
                 for expert1 in experts_stack:
@@ -109,7 +113,7 @@ def get_experts(data, loggers):
 
 def write_activations(train_data, test_data, loggers):
     act_dir = "data/activations"
-    os.makedirs(dir, exist_ok=True)
+    os.makedirs(act_dir, exist_ok=True)
     train_activations = get_experts(train_data, loggers)
     for i, activations in train_activations.items():
         torch.save(activations, f"{act_dir}/train_matrix_{i}.pt")

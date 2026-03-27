@@ -70,7 +70,7 @@ print(format_prompt(dataset[0]))
 validation_size = min(len(dataset), VALIDATION_SIZE)
 eval_dataset = dataset.select(range(validation_size))
 
-
+@torch.no_grad()
 def test_model(model):
     correct_count = 0
     total_count = 0
@@ -122,14 +122,17 @@ base_accuracy = accuracy_list[0]
 
 
 for layer in tqdm(LAYERS):
-    del model.model.layers[layer].mlp
-    torch.cuda.empty_cache()
+    old_mlp = model.model.layers[layer].mlp
     new_mlp = get_fusion_layer_by_index(layer, device=model.device,
                                         use_default_experts=use_default_experts
-                                        ).to(model.device)
+                                        ).to(model.device, dtype=model.dtype)
     model.model.layers[layer].mlp = new_mlp
     if EVAL_MODEL_AFTER_EVERY_STEP:
         accuracy_list.append(test_model(model))
+        model.model.layers[layer].mlp = old_mlp
+        del new_mlp
+    else:
+        del old_mlp
 
 if not EVAL_MODEL_AFTER_EVERY_STEP:
     accuracy_list.append(test_model(model))
@@ -148,4 +151,28 @@ print("New model's correct answers:", new_accuracy * validation_size)
 
 print("model's accuracy list:", accuracy_list)
 torch.save(accuracy_list, "accuracy_list.pt")
+
+
+accuracy_list_drops = [accuracy_list[0]]
+base_accuracy = accuracy_list_drops[0]
+
+
+class ZeroLayer(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(*args, **kwargs):
+        return torch.zeros_like(args[1])
+
+for layer in tqdm(LAYERS):
+    old_mlp = model.model.layers[layer].mlp
+    new_mlp = ZeroLayer()
+    model.model.layers[layer].mlp = new_mlp
+    accuracy_list_drops.append(test_model(model))
+    model.model.layers[layer].mlp = old_mlp
+    del new_mlp
+
+
+print("model's drops accuracy list:", accuracy_list_drops)
+torch.save(accuracy_list_drops, "accuracy_list_drop.pt")
 

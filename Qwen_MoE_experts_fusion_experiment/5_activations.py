@@ -32,13 +32,17 @@ for layer in LAYERS:
 def count_activations(data, layer):
     res = []
     for example in tqdm(data):
-        _, selected = (model
-                       .model
-                       .layers[layer]
-                       .mlp
-                       .gate(example.to(device))
-                       .topk(TOP_K, dim=-1))
-        res.append(selected.cpu())
+        router_output = (model
+                        .model
+                        .layers[layer]
+                        .mlp
+                        .gate(example.to(device)))
+        if isinstance(router_output, tuple):
+            selected = router_output[-1]
+        else:
+            _, selected = router_output.topk(TOP_K, dim=-1)
+
+        res.append(selected.cpu().flatten())
     return res
 
 
@@ -78,12 +82,13 @@ def get_pairs_activations(activations, layer):
         enumerate(activations),
         total=len(activations)
     ):
-        for i in range(len(activation)):
-            for j in range(i + 1, len(activation)):
+        topk = len(activation)
+        for i in range(topk):
+            for j in range(i + 1, topk):
                 if (pairs_ind[layer][activation[i]]
                         == pairs_ind[layer][activation[j]]):
-                    activation = pairs_ind[layer][activation[i]]
-                    pairs_activations[activation].append(ind)
+                    act = pairs_ind[layer][activation[i]]
+                    pairs_activations[act].append(ind)
 
     return pairs_activations
 

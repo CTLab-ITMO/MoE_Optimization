@@ -38,14 +38,14 @@ class Logger(nn.Module):
 
 # # Fusion
 
+@torch.autocast("cuda")
+@torch.no_grad()
 def compare_fusions_error_and_time(
-    model1, model2, train_data, test_data, ind=None
+    mlp1, mlp2, train_data, test_data, ind=None
 ) -> tuple[dict[str, list[float]], dict[str, list[float]]]:
     """Take two experts from model first layer 
     and count MSE and time for existed fusion methods"""
     torch.cuda.empty_cache()
-    mlp1 = turn_in_mlp(model1)
-    mlp2 = turn_in_mlp(model2)
     fusions = {}
     for fusion_name, fusion_methos in FUSION_METHODS.items():
         fusions[fusion_name] = fusion_methos(mlp1, mlp2, train_data)
@@ -80,7 +80,7 @@ for layer in tqdm(LAYERS):
     ]
     train_data = torch.load(f"data/mlp_inputs/train_{layer}.pt")
     test_data = torch.load(f"data/mlp_inputs/test_{layer}.pt")
-    pairs = torch.load(f"data/pairs_{layer}.pt")
+    pairs = torch.load(f"data/pairs/{layer}.pt")
     train_pairs_activations = torch.load(f"data/activations/pairs_train_{layer}.pt")
     test_pairs_activations = torch.load(f"data/activations/pairs_test_{layer}.pt")
 
@@ -105,9 +105,15 @@ for layer in tqdm(LAYERS):
         if len(test_data_for_pair) > 0:
             experiment_results.append(res)
 
-        os.makedirs(f"data/fusion_experts/{layer}", exist_ok=True)
-        for i, expert in enumerate(fusion_experts):
-            torch.save(expert, f"data/fusion_experts/{layer}/{i}.pt")
+    for x in train_data:
+        del x
+    for x in test_data:
+        del x
+    os.makedirs(f"data/fusion_experts/{layer}", exist_ok=True)
+    for i, expert in enumerate(fusion_experts):
+        torch.save(expert, f"data/fusion_experts/{layer}/{i}.pt")
+        del expert
+    torch.cuda.empty_cache()
 
 
 new_experiment_results = []
@@ -123,7 +129,7 @@ for j in range(len(experiment_results[0])):
 now = datetime.now()
 time = now.strftime("%Y_%m_%d_%HX_%M_%S")
 _plot_dir = f"plots/fusion/{time}"
-os.makedirs(_plot_dir)
+os.makedirs(_plot_dir, exist_ok=True)
 
 
 for experiment in new_experiment_results:

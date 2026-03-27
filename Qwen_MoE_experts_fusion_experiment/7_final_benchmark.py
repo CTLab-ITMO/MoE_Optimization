@@ -25,20 +25,24 @@ test_data = torch.load(f"data/mlp_inputs/test_{LAYER}.pt")
 model = get_fusion_layer_by_index(LAYER, device=device)
 
 
-batch_size = 1024
+batch_size = 128
 total = 100
 
 
-for ind in tqdm(range(0, batch_size * total, batch_size)):
-    batch = torch.stack(train_data[ind: ind + batch_size])
-    batch = batch.to(device)
-    model.forward(batch)[0]
+with torch.no_grad():
+    with torch.autocast("cuda"):
+        for ind in tqdm(range(0, batch_size * total, batch_size)):
+            batch = torch.stack(train_data[ind: ind + batch_size])
+            batch = batch.to(device)
+            model.forward(batch)[0]
 
 
-for ind in tqdm(range(0, batch_size * total, batch_size)):
-    batch = torch.stack(train_data[ind: ind + batch_size])
-    batch = batch.to(device)
-    model.forward_default(batch)[0]
+with torch.no_grad():
+    with torch.autocast("cuda"):
+        for ind in tqdm(range(0, batch_size * total, batch_size)):
+            batch = torch.stack(train_data[ind: ind + batch_size])
+            batch = batch.to(device)
+            model.forward_default(batch)[0]
 
 
 norm = []
@@ -48,26 +52,28 @@ cos_sim = []
 time_new = []
 time_base = []
 
-for ind in tqdm(range(0, batch_size * total, batch_size)):
-    input = torch.stack(train_data[ind: ind + batch_size]).to(device)
-    time_start = time.perf_counter()
-    x = model.forward(input)[0][0]
-    time_middle = time.perf_counter()
-    y = model.forward_default(input)[0][0]
-    time_end = time.perf_counter()
-    for i in range(y.shape[0]):
-        norm.append(y[i].square().sum().sqrt().cpu().detach().item())
-        err.append((x[i] - y[i]).square().sum().sqrt().cpu().detach().item())
-        cos_sim.append(torch
-                       .cosine_similarity(
-                           x[i].flatten(),
-                           y[i].flatten(),
-                           dim=0)
-                       .cpu()
-                       .detach()
-                       .item())
-    time_new.append(time_middle-time_start)
-    time_base.append(time_end-time_middle)
+with torch.no_grad():
+    with torch.autocast("cuda"):
+        for ind in tqdm(range(0, batch_size * total, batch_size)):
+            input = torch.stack(train_data[ind: ind + batch_size]).to(device)
+            time_start = time.perf_counter()
+            x = model.forward(input)[0][0]
+            time_middle = time.perf_counter()
+            y = model.forward_default(input)[0][0]
+            time_end = time.perf_counter()
+            for i in range(y.shape[0]):
+                norm.append(y[i].square().sum().sqrt().cpu().detach().item())
+                err.append((x[i] - y[i]).square().sum().sqrt().cpu().detach().item())
+                cos_sim.append(torch
+                            .cosine_similarity(
+                                x[i].flatten(),
+                                y[i].flatten(),
+                                dim=0)
+                            .cpu()
+                            .detach()
+                            .item())
+            time_new.append(time_middle-time_start)
+            time_base.append(time_end-time_middle)
 
 print("Norm:", norm[0])
 print("Error:", err[0])
@@ -77,7 +83,7 @@ print("Cos_sim:", cos_sim[0])
 now = datetime.now()
 time = now.strftime("%Y_%m_%d_%HX_%M_%S")
 _plot_dir = f"plots/fusion/{time}"
-os.makedirs(_plot_dir)
+os.makedirs(_plot_dir, exist_ok=True)
 
 
 sns.kdeplot(cos_sim, label='Cosine similarity',
