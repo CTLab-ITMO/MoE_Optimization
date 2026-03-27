@@ -100,7 +100,7 @@ class MLP(nn.Module):
     def train_with(self, train_data):
         """Run train data and eval M and U matrix"""
         for example in train_data:
-            self.forward(example)
+            self.forward(example.to(self.gate.weight.device))
         self.zip1.build_MU()
         self.zip2.build_MU()
 
@@ -116,7 +116,6 @@ class SimpleMLP(MLP):
         self, in_features: int, hid_features: int, out_features: int, bias: bool = False, device = default_device
     ):
         super().__init__()
-        self.device = device
         self.fc1 = nn.Linear(in_features, hid_features, bias=bias, device=device)
         self.zip1 = Zipper(hid_features)
         self.act = nn.ReLU()
@@ -124,6 +123,7 @@ class SimpleMLP(MLP):
         self.zip2 = Zipper(out_features)
         self.zipped = False
         self.U = None
+        self.to(device)
 
     def forward(self, x: torch.Tensor):
         if self.zipped:
@@ -171,15 +171,15 @@ class AdvancedMLP(MLP):
         self, in_features: int, hid_features: int, out_features: int, bias: bool = False, device = default_device
     ):
         super().__init__()
-        self.device = device
-        self.gate = nn.Linear(in_features, hid_features, bias=bias, device=self.device)
+        self.gate = nn.Linear(in_features, hid_features, bias=bias, device=device)
         self.act = nn.SiLU()
-        self.up = nn.Linear(in_features, hid_features, bias=bias, device=self.device)
+        self.up = nn.Linear(in_features, hid_features, bias=bias, device=device)
         self.zip1 = Zipper(hid_features)
-        self.down = nn.Linear(hid_features, out_features, bias=bias, device=self.device)
+        self.down = nn.Linear(hid_features, out_features, bias=bias, device=device)
         self.zip2 = Zipper(out_features)
         self.zipped = False
         self.U = None
+        self.to(device)
 
     def forward(self, x: torch.Tensor):
         if self.zipped:
@@ -212,12 +212,12 @@ class AdvancedMLP(MLP):
         self.gate.weight = nn.Parameter(
             self.zip1.M
             @ self.gate.weight
-            @ torch.cat(2 * [torch.eye(self.gate.in_features, device=self.device)])
+            @ torch.cat(2 * [torch.eye(self.gate.in_features, device=self.gate.weight.device)])
         )
         self.up.weight = nn.Parameter(
             self.zip1.M
             @ self.up.weight
-            @ torch.cat(2 * [torch.eye(self.up.in_features, device=self.device)])
+            @ torch.cat(2 * [torch.eye(self.up.in_features, device=self.gate.weight.device)])
         )
         self.down.weight = nn.Parameter(self.zip2.M @ self.down.weight @ self.zip1.U)
 

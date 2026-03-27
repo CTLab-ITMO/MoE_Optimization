@@ -31,9 +31,12 @@ class FusionLayer(nn.Module):
         hidden_states = hidden_states.view(-1, hidden_dim)
         router_logits = self.gate(hidden_states)
 
-        routing_weights = router_logits.softmax(dim=1, dtype=torch.float)
-        routing_weights, selected_experts = torch.topk(routing_weights, TOP_K, dim=-1)
-        routing_weights = routing_weights.to(hidden_states.dtype)
+        if isinstance(router_logits, tuple):
+            routing_weights, selected_experts = router_logits[1:]
+        else:
+            routing_weights = router_logits.softmax(dim=1, dtype=torch.float)
+            routing_weights, selected_experts = torch.topk(routing_weights, TOP_K, dim=-1)
+            routing_weights = routing_weights.to(hidden_states.dtype)
 
         final_hidden_states = torch.zeros(
             (batch_size * sequence_length, hidden_dim),
@@ -65,7 +68,7 @@ class FusionLayer(nn.Module):
         final_hidden_states = final_hidden_states.reshape(
             batch_size, sequence_length, hidden_dim
         )
-        return final_hidden_states, router_logits
+        return final_hidden_states
 
     def forward(self, hidden_states):
         while len(hidden_states.shape) < 3:
@@ -74,9 +77,12 @@ class FusionLayer(nn.Module):
         hidden_states = hidden_states.view(-1, hidden_dim)
         router_logits = self.gate(hidden_states)
 
-        routing_weights = router_logits.softmax(dim=1, dtype=torch.float)
-        routing_weights, selected_experts = torch.topk(routing_weights, TOP_K, dim=-1)
-        routing_weights = routing_weights.to(hidden_states.dtype)
+        if isinstance(router_logits, tuple):
+            routing_weights, selected_experts = router_logits[1:]
+        else:
+            routing_weights = router_logits.softmax(dim=1, dtype=torch.float)
+            routing_weights, selected_experts = torch.topk(routing_weights, TOP_K, dim=-1)
+            routing_weights = routing_weights.to(hidden_states.dtype)
 
         final_hidden_states = torch.zeros(
             (batch_size * sequence_length, hidden_dim),
@@ -136,7 +142,7 @@ class FusionLayer(nn.Module):
         final_hidden_states = final_hidden_states.reshape(
             batch_size, sequence_length, hidden_dim
         )
-        return final_hidden_states, router_logits
+        return final_hidden_states
 
 
 def get_fusion_layer_by_index(index, device=torch.device("cpu"), use_default_experts = True):

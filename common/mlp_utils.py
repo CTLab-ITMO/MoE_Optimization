@@ -32,6 +32,8 @@ def zipMLP(
     mlpA: MLP, mlpB: MLP, train_data: torch.Tensor, create_new: bool = True
 ) -> MLP:
     """Take two MLP models, zipit using train data. Return zipped MLP"""
+    if (len(train_data) == 0):
+        return avgMLP(mlpA, mlpB, train_data, create_new)
     with torch.no_grad():
         new_mlp = mlpA
         if create_new:
