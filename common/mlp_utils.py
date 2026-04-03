@@ -7,7 +7,6 @@ from common.mlp import MLP, AdvancedMLP
 
 default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-
 FUSION_METHODS = {}
 
 
@@ -65,11 +64,33 @@ def proj(*args):
     return args[0]
 
 
+def finetune(method):
+    def inner(mlpA: MLP, mlpB: MLP, train_data: torch.Tensor, create_new: bool = True):
+        newMlp = method(mlpA, mlpB, train_data, create_new)
+        if newMlp.U is None:
+            newMlp.U = torch.cat(2 * [torch.eye(newMlp.down.out_features, device=newMlp.device)])
+        real_res = torch.cat(
+            [
+                torch.cat([mlpA.forward(example), mlpB.forward(example)], dim=-1)
+                for example in train_data
+            ]
+        )
+        new_res = torch.cat([newMlp.forward(example) for example in train_data])
+        newMlp.U = torch.nn.Parameter(torch.linalg.lstsq(new_res, real_res).solution.T)
+        return newMlp
+    return inner
+
+
 FUSION_METHODS["ZipIt"] = zipMLP
-FUSION_METHODS["Avarage"] = avgMLP
+FUSION_METHODS["Average"] = avgMLP
 FUSION_METHODS["Projection"] = proj
 
+FUSION_METHODS["FineTune_ZipIt"] = finetune(zipMLP)
+FUSION_METHODS["FineTune_Average"] = finetune(avgMLP)
+FUSION_METHODS["FineTune_Projection"] = finetune(proj)
 
+
+@torch.no_grad()
 def find_mlp_mse_err(
     merger, n: int, hidden: int, out: int, examples: int = 10_000, device=default_device
 ) -> torch.Tensor:
@@ -109,6 +130,7 @@ def find_mlp_mse_err_repeat(
     )
 
 
+@torch.no_grad()
 def turn_in_mlp(mlp: torch.nn.Module, device=default_device) -> MLP:
     """Extract matrixs from loaded mlp layer
     and create AdvancedMLP with same weights"""
@@ -124,6 +146,7 @@ def turn_in_mlp(mlp: torch.nn.Module, device=default_device) -> MLP:
     return new_mlp
 
 
+@torch.no_grad()
 def mse_on_test_data(mlp_zipped: MLP, mlp1: MLP, mlp2: MLP, test_data) -> float:
     """Apply default mlps and zipped version
     and return MSE between this values"""
@@ -133,14 +156,25 @@ def mse_on_test_data(mlp_zipped: MLP, mlp1: MLP, mlp2: MLP, test_data) -> float:
             for example in test_data
         ]
     )
-    return torch.mean(
-        torch.square(
-            torch.cat([mlp_zipped.forward_unzip(example) for example in test_data])
-            - real_res
-        )
-    ).item()
+    new_res = torch.cat([mlp_zipped.forward_unzip(example) for example in test_data])
+    return torch.mean(torch.square(new_res - real_res)).item()
 
 
+@torch.no_grad()
+def cosine_on_test_data(mlp_zipped: MLP, mlp1: MLP, mlp2: MLP, test_data) -> float:
+    """Apply default mlps and zipped version and 
+    return mean cosine similarity between this values"""
+    real_res = torch.stack(
+        [
+            torch.cat([mlp1.forward(example), mlp2.forward(example)], dim=-1)
+            for example in test_data
+        ]
+    )
+    new_res = torch.stack([mlp_zipped.forward_unzip(example) for example in test_data])
+    return torch.cosine_similarity(new_res, real_res).mean().item()
+
+
+@torch.no_grad()
 def timer(mlp: MLP, test_data, iters=10) -> float:
     """Apply mlp on data and return required time"""
     start_time = time.perf_counter()

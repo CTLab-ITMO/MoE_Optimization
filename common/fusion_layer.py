@@ -62,7 +62,6 @@ class FusionLayer(nn.Module):
                             self.fusion_experts[pair_idx]
                             .forward_unzip(current_state, out=(0 if expert_idx == pair[0] else 1))
             )
-#            current_hidden_states = torch.chunk(current_hidden_states, 2, dim=-1)[0 if expert_idx == pair[0] else 1]
             current_hidden_states = current_hidden_states * top_k_weights[token_idx, top_k_pos, None]
             final_hidden_states.index_add_(0, token_idx, current_hidden_states.to(final_hidden_states.dtype))
 
@@ -113,7 +112,7 @@ def get_fusion_layer_by_index(index, experts_dir, device=torch.device("cpu"), us
     ]
     expert_pairs = torch.load(f"{DATA_DIR}/pairs/{index}.pt")
     fusion_experts = [
-        torch.load(f"{experts_dir}/{index}/{i}.pt", weights_only=False).to(device)
+        torch.load(f"{DATA_DIR}/{experts_dir}/{index}/{i}.pt", weights_only=False).to(device)
         for i in range(len(expert_pairs))
     ]
     gate = torch.load(f"{DATA_DIR}/experts/{index}/gate.pt", weights_only=False).to(device)
