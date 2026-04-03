@@ -9,11 +9,13 @@ replace_with_average_seq = torch.load("accuracy/accuracy_list_seq_Average.pt")
 replace_with_zero_seq = torch.load("accuracy/accuracy_list_seq_zero.pt")
 replace_with_zipit_seq = torch.load("accuracy/accuracy_list_seq_ZipIt.pt")
 replace_with_proj_seq = torch.load("accuracy/accuracy_list_seq_Projection.pt")
+replace_with_best_seq = torch.load("accuracy/accuracy_list_seq_Best.pt")
 
 replace_with_average_single = torch.load("accuracy/accuracy_list_single_Average.pt")
 replace_with_zero_single = torch.load("accuracy/accuracy_list_single_zero.pt")
 replace_with_zipit_single = torch.load("accuracy/accuracy_list_single_ZipIt.pt")
 replace_with_proj_single = torch.load("accuracy/accuracy_list_single_Projection.pt")
+replace_with_best_single = torch.load("accuracy/accuracy_list_single_Best.pt")
 
 
 def draw(data):
@@ -30,7 +32,7 @@ def draw(data):
 
     plt.subplot(2, 2, 2)
 
-    colors = ['r', 'g', 'b', 'y']
+    colors = ['r', 'g', 'b', 'y', 'purple']
     vp = plt.violinplot([data[key][0] for key in data_keys])
     for i, body in enumerate(vp['bodies']):
         body.set_facecolor(colors[i])
@@ -51,7 +53,6 @@ def draw(data):
 
     plt.subplot(2, 2, 4)
 
-    colors = ['r', 'g', 'b', 'y']
     vp = plt.violinplot([data[key][1] for key in data_keys])
     for i, body in enumerate(vp['bodies']):
         body.set_facecolor(colors[i])
@@ -68,6 +69,7 @@ data = {
     "Replace with zero": [replace_with_zero_seq, replace_with_zero_single],
     # "Replace with ZipIt": [replace_with_zipit_seq, replace_with_zipit_single],
     # "Replace with proj": [replace_with_proj_seq, replace_with_proj_single],
+    # "Replace with best": [replace_with_best_seq, replace_with_best_single],
 }
 draw(data)
 
@@ -77,6 +79,7 @@ data = {
     "Replace with zero": [replace_with_zero_seq, replace_with_zero_single],
     "Replace with ZipIt": [replace_with_zipit_seq, replace_with_zipit_single],
     # "Replace with proj": [replace_with_proj_seq, replace_with_proj_single],
+    # "Replace with best": [replace_with_best_seq, replace_with_best_single],
 }
 draw(data)
 
@@ -86,6 +89,7 @@ data = {
     "Replace with zero": [replace_with_zero_seq, replace_with_zero_single],
     "Replace with ZipIt": [replace_with_zipit_seq, replace_with_zipit_single],
     # "Replace with proj": [replace_with_proj_seq, replace_with_proj_single],
+    # "Replace with best": [replace_with_best_seq, replace_with_best_single],
 }
 draw(data)
 
@@ -95,6 +99,17 @@ data = {
     "Replace with zero": [replace_with_zero_seq, replace_with_zero_single],
     "Replace with ZipIt": [replace_with_zipit_seq, replace_with_zipit_single],
     "Replace with proj": [replace_with_proj_seq, replace_with_proj_single],
+    # "Replace with best": [replace_with_best_seq, replace_with_best_single],
+}
+draw(data)
+
+
+data = {
+    "Replace with average": [replace_with_average_seq, replace_with_average_single],
+    "Replace with zero": [replace_with_zero_seq, replace_with_zero_single],
+    "Replace with ZipIt": [replace_with_zipit_seq, replace_with_zipit_single],
+    "Replace with proj": [replace_with_proj_seq, replace_with_proj_single],
+    "Replace with best": [replace_with_best_seq, replace_with_best_single],
 }
 draw(data)
 

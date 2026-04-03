@@ -8,7 +8,7 @@ import transformers
 from datasets import load_dataset
 from matplotlib import pyplot as plt
 from tqdm import tqdm
-from config import MODEL_NAME, LAYERS, VALIDATION_SIZE, device, REPLACE_LAYERS_SEQUANTIAL, DATA_DIR
+from config import MODEL_NAME, LAYERS, VALIDATION_SIZE, device, REPLACE_LAYERS_SEQUANTIAL, DATA_DIR, REPLACE_BEST_LAYERS_SEQUANTIAL
 
 sys.path.append("..")
 from common.fusion_layer import get_fusion_layer_by_index
@@ -120,8 +120,8 @@ class ZeroLayer(torch.nn.Module):
     def __init__(self):
         super().__init__()
 
-    def forward(*args, **kwargs):
-        return torch.zeros_like(args[1])
+    def forward(self, *args, **kwargs):
+        return torch.zeros_like(args[0])
 
 def zero_fusion(model, layer):
     return ZeroLayer().to(model.device, dtype=model.dtype)
@@ -163,9 +163,21 @@ for fusion_name, experts_fusion in experts_fusions.items():
             torch.cuda.empty_cache()
             model.model.layers[layer].mlp = old_mlp
 
-    print(f"model's accuracy list after {fusion_name}:", accuracy_list)
+    print(f"model's accuracy list after {fusion_name} ({'seq' if REPLACE_LAYERS_SEQUANTIAL else 'single'}):", accuracy_list)
     os.makedirs("accuracy", exist_ok=True)
-    torch.save(accuracy_list, f"accuracy/accuracy_list_{fusion_name}.pt")
-    del model
+    torch.save(accuracy_list, f"accuracy/accuracy_list_{'seq' if REPLACE_LAYERS_SEQUANTIAL else 'single'}_{fusion_name}.pt")
 
+    if REPLACE_BEST_LAYERS_SEQUANTIAL:
+        best_layers = [x[0] for x in sorted(enumerate(accuracy_list[1:]), key=lambda x:-x[1])]
+        print("Best layers:", best_layers)
+        new_accuracy_list = [base_accuracy]
+
+        for layer in tqdm(best_layers):
+            del model.model.layers[layer].mlp
+            torch.cuda.empty_cache()
+            model.model.layers[layer].mlp = experts_fusion(model, layer)
+            new_accuracy_list.append(test_model(model))
+        print(f"model's accuracy list after {fusion_name} (seq):", new_accuracy_list)
+        torch.save(new_accuracy_list, f"accuracy/accuracy_list_seq_{fusion_name}.pt")
+    del model
 

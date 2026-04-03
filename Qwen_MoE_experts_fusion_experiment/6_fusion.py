@@ -11,13 +11,14 @@ from matplotlib import pyplot as plt
 from tqdm import tqdm
 import time
 import sys
-from config import LAYERS, EXPERTS, device
+from config import LAYERS, EXPERTS, device, DATA_DIR
 import os
 import seaborn as sns
+import numpy as np
 
 sys.path.append("..")
 from common.mlp import MLP, AdvancedMLP
-from common.mlp_utils import FUSION_METHODS, turn_in_mlp, mse_on_test_data, timer
+from common.mlp_utils import FUSION_METHODS, turn_in_mlp, mse_on_test_data, timer, cosine_on_test_data
 
 
 # # Classes
@@ -42,37 +43,38 @@ class Logger(nn.Module):
 @torch.no_grad()
 def compare_fusions_error_and_time(
     mlp1, mlp2, train_data, test_data, fusion_experts=None, ind=None
-) -> tuple[dict[str, list[float]], dict[str, list[float]]]:
+) -> dict[str, dict[str, list[float]]]:
     """Take two experts from model first layer 
     and count MSE and time for existed fusion methods"""
-    torch.cuda.empty_cache()
     fusions = {}
     for fusion_name, fusion_methos in FUSION_METHODS.items():
         fusions[fusion_name] = fusion_methos(mlp1, mlp2, train_data)
     if fusion_experts is not None:
         fusion_experts[ind] = fusions
-    torch.cuda.empty_cache()
 
-    if len(test_data) > 0:
-        means = {
-            f"MSE of {fusion_name}": mse_on_test_data(
-                fusions[fusion_name], mlp1, mlp2, test_data
-            )
+    fusions["Best"] = fusions.get("Avarage", list(fusions.values())[0])
+    if len(test_data) > 10:
+        results = {
+            fusion_name: {
+                "MSE": mse_on_test_data(fusions[fusion_name], mlp1, mlp2, test_data),
+                "Cosine": cosine_on_test_data(fusions[fusion_name], mlp1, mlp2, test_data),
+                "Time": timer(fusions[fusion_name], test_data)
+            }
             for fusion_name, _ in FUSION_METHODS.items()
         }
+        best_name = list(results.keys())[0]
+        for fusion_name, result in results.items():
+            if result["MSE"] < results[best_name]["MSE"]:
+                best_name = fusion_name
+        fusions["Best"] = fusions[best_name]
 
-        times = {
-            f"Time of {fusion_name}": timer(fusions[fusion_name], test_data)
-            for fusion_name, _ in FUSION_METHODS.items()
-        }
-
-        torch.cuda.empty_cache()
-        return means, times
+        return results
     else:
-        return None, None
+        return None
 
 
-act_dir = "{DATA_DIR}/activations"
+experiment_results: list[dict[str, dict[str, list[float]]]] = []
+act_dir = f"{DATA_DIR}/activations"
 for layer in tqdm(LAYERS):
     experts = [
         torch.load(f"{DATA_DIR}/experts/{layer}/expert_{i}.pt", weights_only=False)
@@ -86,7 +88,6 @@ for layer in tqdm(LAYERS):
 
     fusion_experts = [None] * len(pairs)
 
-    experiment_results = []
     for i in tqdm(range(len(pairs))):
         expert_1, expert_2 = pairs[i]
         train_data_for_pair = [
@@ -103,150 +104,101 @@ for layer in tqdm(LAYERS):
             fusion_experts,
             i,
         )
-        if len(test_data_for_pair) > 0:
+        if len(test_data_for_pair) > 10:
             experiment_results.append(res)
 
     for x in train_data:
         del x
     for x in test_data:
         del x
-    for i, experts in enumerate(fusion_experts):
-        for fusion_name, fusion_expert in experts.items():
+    for i, fused in enumerate(fusion_experts):
+        for fusion_name, fusion_expert in fused.items():
             os.makedirs(f"{DATA_DIR}/fusion_experts/{fusion_name}/{layer}", exist_ok=True)
             torch.save(fusion_expert.cpu(), f"{DATA_DIR}/fusion_experts/{fusion_name}/{layer}/{i}.pt")
             del fusion_expert
     torch.cuda.empty_cache()
 
 
-new_experiment_results = []
-for j in range(len(experiment_results[0])):
-    tmp = {}
-    for key in experiment_results[0][j].keys():
-        tmp[key] = []
-        for exper in experiment_results:
-            tmp[key].append(exper[j][key])
-    new_experiment_results.append(tmp)
-
-
 now = datetime.now()
-time = now.strftime("%Y_%m_%d_%HX_%M_%S")
+time = now.strftime("%Y_%m_%d_%H_%M_%S")
 _plot_dir = f"plots/fusion/{time}"
 os.makedirs(_plot_dir, exist_ok=True)
 
-
-for experiment in new_experiment_results:
-    keys = list(experiment.keys())
-    plt.boxplot([experiment[key] for key in keys])
-    plt.legend(keys)
-
-    plt.savefig(f"{_plot_dir}/boxplot.png")
-    plt.close()
+os.makedirs(f"logs/fusion", exist_ok=True)
+torch.save(experiment_results, f"logs/fusion/{time}.pt")
 
 
-for experiment in new_experiment_results:
-    keys = list(experiment.keys())
-    plt.hist(
-        [experiment[key] for key in keys],
-        cumulative=True,
-        bins=100,
-        density=True,
-        histtype="stepfilled",
-        alpha=0.5,
-    )
-    plt.legend(list(reversed(keys)))
-
-    plt.savefig(f"{_plot_dir}/hist_stepfilled.png")
-    plt.close()
+experiment_results = torch.load(f"logs/fusion/{time}.pt")
 
 
-for experiment in new_experiment_results:
-    keys = list(experiment.keys())
-    plt.hist(
-        [experiment[key] for key in keys],
-        cumulative=True,
-        bins=100,
-        density=True,
-        histtype="step",
-        alpha=0.5,
-    )
-    plt.legend(list(reversed(keys)))
-
-    plt.savefig(f"{_plot_dir}/hist_step.png")
-    plt.close()
+metrics = ["MSE", "Time", "Cosine"]
+data = {    
+    metric: {
+        fusion_name: [experiment_result[fusion_name][metric] for experiment_result in experiment_results]
+        for fusion_name in FUSION_METHODS.keys()
+    } for metric in metrics
+}
 
 
-for experiment in new_experiment_results:
-    keys = list(experiment.keys())
-    for key in keys:
-        plt.hist(
-            experiment[key],
-            bins=30,
-            density=True,
-            alpha=0.5,
-        )
-    plt.legend(list(reversed(keys)))
+experts = len(data[metrics[0]][list(FUSION_METHODS.keys())[0]]) // len(LAYERS)
 
-    plt.savefig(f"{_plot_dir}/hist.png")
-    plt.close()
+for metric in metrics:
+    print(f"Mean {metric} results for fusion methods:")
+    for method_name in FUSION_METHODS.keys():
+        print(f"For {method_name} - {np.mean(data[metric][method_name]):.3f}")
 
-
-for experiment in new_experiment_results:
-    keys = list(experiment.keys())
-    plt.violinplot([experiment[key] for key in keys])
-    plt.legend(keys)
-
-    plt.savefig(f"{_plot_dir}/violinplot.png")
-    plt.close()
+for i, layer in enumerate(LAYERS):
+    print()
+    print(f"On layer {layer}:")
+    for metric in metrics:
+        print(f"{metric} results for fusion methods:")
+        for method_name in FUSION_METHODS.keys():
+            print(f"For {method_name} - {np.mean(data[metric][method_name][i*experts:(i+1)*experts]):.3f}")
 
 
-for experiment in new_experiment_results:
-    keys = list(experiment.keys())
-    sns.kdeplot([experiment[key] for key in keys], fill=True, alpha=0.3)
-    plt.legend(keys)
-
-    plt.savefig(f"{_plot_dir}/kdeplot.png")
-    plt.close()
-
-
-for key, values in new_experiment_results[0].items():
-    print(f"{key}'s mean value: {sum(values) / len(values)}")
-print()
-for key, values in new_experiment_results[1].items():
-    print(f"{key}'s mean value: {sum(values) / len(values)}")
-
-
-list1 = new_experiment_results[0]["MSE of ZipIt"]
-list2 = new_experiment_results[0]["MSE of Avarage"]
-list3 = new_experiment_results[0]["MSE of Projection"]
-
-plt.figure(figsize=(10, 6))
-sns.kdeplot(list1, label='Our method', fill=True, alpha=0.3)
-sns.kdeplot(list2, label='Average', fill=True, alpha=0.3)
-sns.kdeplot(list3, label='Projection', fill=True, alpha=0.3)
-plt.xlabel('MSE')
-plt.ylabel('Density')
-plt.title('Density of errors')
-plt.legend()
-plt.grid(True, alpha=0.3)
-
-plt.savefig(f"{_plot_dir}/kde_errors.png")
+plt.figure(figsize=(6 * len(metrics), 6))
+for i, metric in enumerate(metrics):
+    plt.subplot(1, len(metrics), i+1)
+    for name, values in data[metric].items():
+        plt.hist(values if metric == "Cosine" else np.log(values), label=name, bins=100, density=True, alpha=0.5, cumulative=True, histtype="stepfilled")
+    plt.legend()
+    plt.title(metric)
+plt.savefig(f"{_plot_dir}/hist_stepfilled_1.png")
 plt.close()
 
 
-list1 = new_experiment_results[1]["Time of ZipIt"]
-list2 = new_experiment_results[1]["Time of Avarage"]
-list3 = new_experiment_results[1]["Time of Projection"]
+plt.figure(figsize=(6 * len(metrics), 6))
+for i, metric in enumerate(metrics):
+    plt.subplot(1, len(metrics), i+1)
+    for name, values in data[metric].items():
+        plt.hist(values, label=name, bins=100, density=True, alpha=0.5, cumulative=True, histtype="stepfilled")
+    plt.legend()
+    plt.title(metric)
+plt.savefig(f"{_plot_dir}/hist_stepfilled_2.png")
+plt.close()
 
-plt.figure(figsize=(10, 6))
-sns.kdeplot(list1, label='Our method', fill=True, alpha=0.3)
-sns.kdeplot(list2, label='Avarage весов', fill=True, alpha=0.3)
-sns.kdeplot(list3, label='Projection', fill=True, alpha=0.3)
-plt.xlabel('Time')
-plt.ylabel('Density')
-plt.title('Density of comptation time')
-plt.legend()
-plt.grid(True, alpha=0.3)
 
-plt.savefig(f"{_plot_dir}/kde_time.png")
+plt.figure(figsize=(6 * len(metrics), 6))
+for i, metric in enumerate(metrics):
+    plt.subplot(1, len(metrics), i+1)
+    names = list(data[metric].keys())
+    for i, name in enumerate(names):
+        vp = plt.violinplot(data[metric][name], positions=[i])
+    l = []
+    for x in names:
+        l.extend([x, None, None, None])
+    plt.legend(l)
+    plt.title(metric)
+plt.savefig(f"{_plot_dir}/violinplot.png")
+plt.close()
+
+
+plt.figure(figsize=(6 * len(metrics), 6))
+for i, metric in enumerate(metrics):
+    plt.subplot(1, len(metrics), i+1)
+    names = list(data[metric].keys())
+    sns.kdeplot([np.log(data[metric][key]) for key in names], fill=True, alpha=0.3)
+    plt.legend(names)
+plt.savefig(f"{_plot_dir}/kdeplot.png")
 plt.close()
 

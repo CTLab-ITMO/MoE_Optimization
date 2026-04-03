@@ -14,6 +14,7 @@ LAYERS = list(range(24))
 TOP_K = 4
 
 REPLACE_LAYERS_SEQUANTIAL = False
+REPLACE_BEST_LAYERS_SEQUANTIAL = True
 EVOLUTION_STEPS = 50
 
 device = torch.device("cuda")
