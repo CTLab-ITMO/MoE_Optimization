@@ -16,6 +16,7 @@ from config import (
     LAYERS,
     TOP_K,
     device,
+    DATA_DIR
 )
 
 print("Device:", device)
@@ -112,7 +113,7 @@ def get_experts(data, loggers):
 
 
 def write_activations(train_data, test_data, loggers):
-    act_dir = "{DATA_DIR}/activations"
+    act_dir = f"{DATA_DIR}/activations"
     os.makedirs(act_dir, exist_ok=True)
     train_activations = get_experts(train_data, loggers)
     for i, activations in train_activations.items():
@@ -128,7 +129,7 @@ write_activations(train_data, test_data, loggers)
 # # Extra
 
 # from matplotlib import pyplot as plt
-# acts = torch.load("{DATA_DIR}/activations/train_matrix_0.pt")
+# acts = torch.load(f"{DATA_DIR}/activations/train_matrix_0.pt")
 # for i in range(acts.shape[0]):
 #     acts[i, i] = 0
 # acts /= acts.max()

@@ -5,7 +5,7 @@ import torch
 import os
 from tqdm import tqdm
 import transformers
-from config import MODEL_NAME, LAYERS, TOP_K, device
+from config import MODEL_NAME, LAYERS, TOP_K, device, DATA_DIR
 
 
 if "model" not in globals():

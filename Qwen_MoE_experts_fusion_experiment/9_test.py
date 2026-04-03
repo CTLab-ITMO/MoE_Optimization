@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
+import os
 import sys
 import torch
 import transformers
@@ -128,16 +129,18 @@ def zero_fusion(model, layer):
 
 def default_fusion(name):
     def inner(model, layer):
-        return get_fusion_layer_by_index(layer, device=model.device,
+        return get_fusion_layer_by_index(layer, f"fusion_experts/{name}", device=model.device,
                                             use_default_experts=use_default_experts
                                             ).to(model.device, dtype=model.dtype)
+    return inner
 
 
-experts_fusions = [zero_fusion]
-experts_fusions.extend(default_fusion(name) for name in FUSION_METHODS.keys())
+experts_fusions = {name:default_fusion(name) for name in FUSION_METHODS.keys()}
+experts_fusions["zero"] = zero_fusion
 
 
 for fusion_name, experts_fusion in experts_fusions.items():
+    print(f"Testing {fusion_name}")
     model = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map=device)
     model.config.use_cache = False
     model.generation_config.use_cache = False
@@ -161,7 +164,8 @@ for fusion_name, experts_fusion in experts_fusions.items():
             model.model.layers[layer].mlp = old_mlp
 
     print(f"model's accuracy list after {fusion_name}:", accuracy_list)
-    torch.save(accuracy_list, "accuracy_list.pt")
+    os.makedirs("accuracy", exist_ok=True)
+    torch.save(accuracy_list, f"accuracy/accuracy_list_{fusion_name}.pt")
     del model
 
 

@@ -5,7 +5,7 @@ import sys
 import torch
 import os
 import transformers
-from config import MODEL_NAME, LAYERS
+from config import MODEL_NAME, LAYERS, DATA_DIR
 from tqdm import tqdm
 
 sys.path.append("..")

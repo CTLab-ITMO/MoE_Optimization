@@ -14,7 +14,8 @@ from config import (
     LAYERS,
     TRAIN_SIZE,
     TEST_SIZE,
-    device
+    device, 
+    DATA_DIR
 )
 
 

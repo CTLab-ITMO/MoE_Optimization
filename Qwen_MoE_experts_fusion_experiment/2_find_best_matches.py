@@ -4,7 +4,7 @@
 import torch
 from matplotlib import pyplot as plt
 from tqdm import tqdm
-from config import LAYERS, EVOLUTION_STEPS
+from config import LAYERS, EVOLUTION_STEPS, DATA_DIR
 import os
 from datetime import datetime
 
@@ -60,7 +60,7 @@ print("Test matches with greed algorithm:", eval_match(test_data[LAYERS[0]], mat
 
 
 now = datetime.now()
-time = now.strftime("%Y_%m_%d_%HX_%M_%S")
+time = now.strftime("%Y_%m_%d_%H_%M_%S")
 _plot_dir = f"plots/activation_correlation/{time}"
 os.makedirs(_plot_dir, exist_ok=True)
 
@@ -86,7 +86,7 @@ def main(train_data, test_data, draw=True):
                 .reshape((-1, 2))
                 .tolist()
             )
-            pairs = [(x, y) for x, y in pairs]
+            pairs = set([(x, y) for x, y in pairs])
             win = eval_match(train_data, pairs)
             friend = [-1] * train_data.shape[0]
             for i, j in pairs:
@@ -104,8 +104,8 @@ def main(train_data, test_data, draw=True):
                     pairs.remove((j, friend[j]))
                 else:
                     pairs.remove((friend[j], j))
-                pairs.append((i, j))
-                pairs.append((friend[i], friend[j]))
+                pairs.add((i, j))
+                pairs.add((friend[i], friend[j]))
                 fi = friend[i]
                 fj = friend[j]
                 friend[fi] = fj
@@ -149,6 +149,7 @@ def main(train_data, test_data, draw=True):
             plt.plot(res)
             plt.show()
 
+    best_pair = list(best_pair)
     print("Train", eval_match(train_data, best_pair))
     print("Test", eval_match(test_data, best_pair))
     return best_pair

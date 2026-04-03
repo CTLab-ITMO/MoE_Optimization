@@ -6,7 +6,7 @@ from tqdm import tqdm
 import sys
 import transformers
 import datasets
-from config import LAYERS, MODEL_NAME, TEST_DATASET_NAME, device
+from config import LAYERS, MODEL_NAME, TEST_DATASET_NAME, device, DATA_DIR
 
 sys.path.append("..")
 from common.fusion_layer import get_fusion_layer_by_index

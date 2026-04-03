@@ -5,7 +5,7 @@ import torch
 from matplotlib import pyplot as plt
 from tqdm import tqdm
 import sys
-from config import LAYERS, device
+from config import LAYERS, device, DATA_DIR
 import time
 import seaborn as sns
 from datetime import datetime
@@ -22,7 +22,7 @@ train_data = torch.load(f"{DATA_DIR}/mlp_inputs/train_{LAYER}.pt")
 test_data = torch.load(f"{DATA_DIR}/mlp_inputs/test_{LAYER}.pt")
 
 
-model = get_fusion_layer_by_index(LAYER, f"{DATA_DIR}/fusion_experts/ZipIt", device=device)
+model = get_fusion_layer_by_index(LAYER, f"fusion_experts/ZipIt", device=device)
 
 
 batch_size = 128
@@ -81,7 +81,7 @@ print("Cos_sim:", cos_sim[0])
 
 
 now = datetime.now()
-time = now.strftime("%Y_%m_%d_%HX_%M_%S")
+time = now.strftime("%Y_%m_%d_%H_%M_%S")
 _plot_dir = f"plots/fusion/{time}"
 os.makedirs(_plot_dir, exist_ok=True)
 
