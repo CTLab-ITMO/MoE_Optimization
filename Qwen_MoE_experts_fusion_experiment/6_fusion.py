@@ -11,14 +11,19 @@ from matplotlib import pyplot as plt
 from tqdm import tqdm
 import time
 import sys
-from config import LAYERS, EXPERTS, device, DATA_DIR
+from config import LAYERS, EXPERTS, device, DATA_DIR, FILTER_FUSIONS, FILTER_METRICS
 import os
 import seaborn as sns
 import numpy as np
 
 sys.path.append("..")
 from common.mlp import MLP, AdvancedMLP
-from common.mlp_utils import FUSION_METHODS, turn_in_mlp, mse_on_test_data, timer, cosine_on_test_data
+from common.mlp_utils import FUSION_METHODS, turn_in_mlp, test_model_on_data, best_metrics
+
+if FILTER_FUSIONS is not None:
+    FUSION_METHODS = {k:v for k, v in FUSION_METHODS.items() if k in FILTER_FUSIONS}
+if FILTER_METRICS is not None:
+    best_metrics = {k:v for k, v in best_metrics.items() if k in FILTER_METRICS}
 
 
 # # Classes
@@ -39,7 +44,6 @@ class Logger(nn.Module):
 
 # # Fusion
 
-@torch.autocast("cuda")
 @torch.no_grad()
 def compare_fusions_error_and_time(
     mlp1, mlp2, train_data, test_data, fusion_experts=None, ind=None
@@ -47,26 +51,25 @@ def compare_fusions_error_and_time(
     """Take two experts from model first layer 
     and count MSE and time for existed fusion methods"""
     fusions = {}
-    for fusion_name, fusion_methos in FUSION_METHODS.items():
+    for fusion_name, fusion_methos in FUSION_METHODS.items():        
         fusions[fusion_name] = fusion_methos(mlp1, mlp2, train_data)
     if fusion_experts is not None:
         fusion_experts[ind] = fusions
 
-    fusions["Best"] = fusions.get("Avarage", list(fusions.values())[0])
+    for metric, inverse in best_metrics.items():
+        fusions[f"Best_{metric}"] = fusions["Projection"]
     if len(test_data) > 10:
         results = {
-            fusion_name: {
-                "MSE": mse_on_test_data(fusions[fusion_name], mlp1, mlp2, test_data),
-                "Cosine": cosine_on_test_data(fusions[fusion_name], mlp1, mlp2, test_data),
-                "Time": timer(fusions[fusion_name], test_data)
-            }
+            fusion_name: test_model_on_data(fusions[fusion_name], mlp1, mlp2, test_data)
             for fusion_name, _ in FUSION_METHODS.items()
         }
-        best_name = list(results.keys())[0]
-        for fusion_name, result in results.items():
-            if result["MSE"] < results[best_name]["MSE"]:
-                best_name = fusion_name
-        fusions["Best"] = fusions[best_name]
+        for metric, inverse in best_metrics.items():
+            best_name = list(results.keys())[0]
+            for fusion_name in FUSION_METHODS.keys():
+                if (results[fusion_name][metric] > results[best_name][metric]) == inverse:
+                    best_name = fusion_name
+            fusions[f"Best_{metric}"] = fusions[best_name]
+            results[f"Best_{metric}"] = results[best_name]
 
         return results
     else:
@@ -131,7 +134,8 @@ torch.save(experiment_results, f"logs/fusion/{time}.pt")
 experiment_results = torch.load(f"logs/fusion/{time}.pt")
 
 
-metrics = ["MSE", "Time", "Cosine"]
+metrics = list(best_metrics.keys()) + ["Time"]
+log_safe_metrics = {"MSE", "RMSE", "MAE", "RelMSE", "JS", "KL", "CKA", "EntropyGap", "Time"}
 data = {    
     metric: {
         fusion_name: [experiment_result[fusion_name][metric] for experiment_result in experiment_results]
@@ -143,9 +147,9 @@ data = {
 experts = len(data[metrics[0]][list(FUSION_METHODS.keys())[0]]) // len(LAYERS)
 
 for metric in metrics:
-    print(f"Mean {metric} results for fusion methods:")
+    print(f"Meadian {metric} results for fusion methods:")
     for method_name in FUSION_METHODS.keys():
-        print(f"For {method_name} - {np.mean(data[metric][method_name]):.3f}")
+        print(f"For {method_name} - {np.median(data[metric][method_name]):.3f}")
 
 for i, layer in enumerate(LAYERS):
     print()
@@ -153,14 +157,23 @@ for i, layer in enumerate(LAYERS):
     for metric in metrics:
         print(f"{metric} results for fusion methods:")
         for method_name in FUSION_METHODS.keys():
-            print(f"For {method_name} - {np.mean(data[metric][method_name][i*experts:(i+1)*experts]):.3f}")
+            print(f"For {method_name} - {np.median(data[metric][method_name][i*experts:(i+1)*experts]):.3f}")
+
+
+for values in data.values():
+    for key in values.keys():
+        values[key] = [value for value in values[key] if value < 1e6]
 
 
 plt.figure(figsize=(6 * len(metrics), 6))
 for i, metric in enumerate(metrics):
     plt.subplot(1, len(metrics), i+1)
+    plt.title(metric)
     for name, values in data[metric].items():
-        plt.hist(values if metric == "Cosine" else np.log(values), label=name, bins=100, density=True, alpha=0.5, cumulative=True, histtype="stepfilled")
+        plot_values = values
+        if metric in log_safe_metrics and metric != "Cosine":
+            plot_values = np.log(np.maximum(np.asarray(values, dtype=np.float64), 1e-12))
+        plt.hist(plot_values, label=name, bins=100, density=True, alpha=0.5, cumulative=True, histtype="stepfilled")
     plt.legend()
     plt.title(metric)
 plt.savefig(f"{_plot_dir}/hist_stepfilled_1.png")
@@ -170,8 +183,12 @@ plt.close()
 plt.figure(figsize=(6 * len(metrics), 6))
 for i, metric in enumerate(metrics):
     plt.subplot(1, len(metrics), i+1)
+    plt.title(metric)
     for name, values in data[metric].items():
-        plt.hist(values, label=name, bins=100, density=True, alpha=0.5, cumulative=True, histtype="stepfilled")
+        plot_values = values
+        if metric in log_safe_metrics and metric != "Cosine":
+            plot_values = np.log(np.maximum(np.asarray(values, dtype=np.float64), 1e-12))
+        plt.hist(plot_values, label=name, bins=100, density=True, alpha=0.5, cumulative=True, histtype="stepfilled")
     plt.legend()
     plt.title(metric)
 plt.savefig(f"{_plot_dir}/hist_stepfilled_2.png")
@@ -181,14 +198,20 @@ plt.close()
 plt.figure(figsize=(6 * len(metrics), 6))
 for i, metric in enumerate(metrics):
     plt.subplot(1, len(metrics), i+1)
-    names = list(data[metric].keys())
-    for i, name in enumerate(names):
-        vp = plt.violinplot(data[metric][name], positions=[i])
-    l = []
-    for x in names:
-        l.extend([x, None, None, None])
-    plt.legend(l)
     plt.title(metric)
+    names = list(data[metric].keys())
+
+    handles = []
+    for j, name in enumerate(names):
+        values = data[metric][name]
+        if metric in log_safe_metrics and metric != "Cosine":
+            values = np.log(np.maximum(np.asarray(values, dtype=np.float64), 1e-12))
+        vp = plt.violinplot(values, positions=[j])
+        handles.append(vp['bodies'][0])
+
+    plt.legend(handles, names)
+    plt.title(metric)
+
 plt.savefig(f"{_plot_dir}/violinplot.png")
 plt.close()
 
@@ -196,8 +219,33 @@ plt.close()
 plt.figure(figsize=(6 * len(metrics), 6))
 for i, metric in enumerate(metrics):
     plt.subplot(1, len(metrics), i+1)
+    plt.title(metric)
     names = list(data[metric].keys())
-    sns.kdeplot([np.log(data[metric][key]) for key in names], fill=True, alpha=0.3)
+
+    handles = []
+    for j, name in enumerate(names):
+        values = data[metric][name]
+        if metric in log_safe_metrics and metric != "Cosine":
+            values = np.log(np.maximum(np.asarray(values, dtype=np.float64), 1e-12))
+        vp = plt.violinplot(values, positions=[j])
+        handles.append(vp['bodies'][0])
+
+    plt.legend(handles, names)
+    plt.title(metric)
+
+plt.savefig(f"{_plot_dir}/violinplot_log.png")
+plt.close()
+
+
+plt.figure(figsize=(6 * len(metrics), 6))
+for i, metric in enumerate(metrics):
+    plt.subplot(1, len(metrics), i+1)
+    plt.title(metric)
+    names = list(data[metric].keys())
+    if metric in log_safe_metrics and metric != "Cosine":
+        sns.kdeplot([np.log(np.maximum(np.asarray(data[metric][key], dtype=np.float64), 1e-12)) for key in names], fill=True, alpha=0.3)
+    else:
+        sns.kdeplot([data[metric][key] for key in names], fill=True, alpha=0.3)
     plt.legend(names)
 plt.savefig(f"{_plot_dir}/kdeplot.png")
 plt.close()

@@ -106,11 +106,14 @@ class FusionLayer(nn.Module):
 
 
 def get_fusion_layer_by_index(index, experts_dir, device=torch.device("cpu"), use_default_experts = True):
-    experts = [
-        torch.load(f"{DATA_DIR}/experts/{index}/expert_{i}.pt", weights_only=False).to(device)
-        for i in range(EXPERTS)
-    ]
     expert_pairs = torch.load(f"{DATA_DIR}/pairs/{index}.pt")
+    if use_default_experts:
+        experts = [
+            torch.load(f"{DATA_DIR}/experts/{index}/expert_{i}.pt", weights_only=False).to(device)
+            for i in range(EXPERTS)
+        ]
+    else:
+        experts = [None] * EXPERTS
     fusion_experts = [
         torch.load(f"{DATA_DIR}/{experts_dir}/{index}/{i}.pt", weights_only=False).to(device)
         for i in range(len(expert_pairs))

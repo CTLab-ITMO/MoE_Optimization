@@ -1,6 +1,6 @@
 import torch
 
-DATA_DIR = "./data"
+DATA_DIR = "./data_commonsense_base"
 
 MODEL_NAME = "Qwen/Qwen1.5-MoE-A2.7B-Chat"
 EXPERTS = 60
@@ -18,3 +18,6 @@ REPLACE_BEST_LAYERS_SEQUANTIAL = True
 EVOLUTION_STEPS = 50
 
 device = torch.device("cuda")
+
+FILTER_FUSIONS = None
+FILTER_METRICS = None

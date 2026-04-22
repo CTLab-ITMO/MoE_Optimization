@@ -76,7 +76,7 @@ for layer in LAYERS:
 def get_pairs_activations(activations, layer):
     pairs_activations = []
     for _ in range(len(pairs[layer])):
-        pairs_activations.append([])
+        pairs_activations.append(set())
 
     for ind, activation in tqdm(
         enumerate(activations),
@@ -84,13 +84,16 @@ def get_pairs_activations(activations, layer):
     ):
         topk = len(activation)
         for i in range(topk):
-            for j in range(i + 1, topk):
-                if (pairs_ind[layer][activation[i]]
-                        == pairs_ind[layer][activation[j]]):
-                    act = pairs_ind[layer][activation[i]]
-                    pairs_activations[act].append(ind)
+            activated_expert = pairs_ind[layer][activation[i]]
+            pairs_activations[activated_expert].add(ind)
+        # for i in range(topk):
+        #     for j in range(i + 1, topk):
+        #         if (pairs_ind[layer][activation[i]]
+        #                 == pairs_ind[layer][activation[j]]):
+        #             activated_expert = pairs_ind[layer][activation[i]]
+        #             pairs_activations[activated_expert].append(ind)
 
-    return pairs_activations
+    return list(map(list, pairs_activations))
 
 
 for layer in LAYERS:

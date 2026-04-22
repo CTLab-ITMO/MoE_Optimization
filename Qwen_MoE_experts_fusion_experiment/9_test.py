@@ -8,14 +8,19 @@ import transformers
 from datasets import load_dataset
 from matplotlib import pyplot as plt
 from tqdm import tqdm
-from config import MODEL_NAME, LAYERS, VALIDATION_SIZE, device, REPLACE_LAYERS_SEQUANTIAL, DATA_DIR, REPLACE_BEST_LAYERS_SEQUANTIAL
+from config import MODEL_NAME, LAYERS, VALIDATION_SIZE, device, REPLACE_LAYERS_SEQUANTIAL, DATA_DIR, REPLACE_BEST_LAYERS_SEQUANTIAL, FILTER_FUSIONS, FILTER_METRICS
 
 sys.path.append("..")
 from common.fusion_layer import get_fusion_layer_by_index
-from common.mlp_utils import FUSION_METHODS
+from common.mlp_utils import FUSION_METHODS, best_metrics
 
 model_id = "Qwen/Qwen1.5-MoE-A2.7B-Chat"
 use_default_experts = False
+
+if FILTER_FUSIONS is not None:
+    FUSION_METHODS = {k:v for k, v in FUSION_METHODS.items() if k in FILTER_FUSIONS}
+if FILTER_METRICS is not None:
+    best_metrics = {k:v for k, v in best_metrics.items() if k in FILTER_METRICS}
 
 
 tokenizer = transformers.AutoTokenizer.from_pretrained(MODEL_NAME)
@@ -66,50 +71,83 @@ print(format_prompt(dataset[0]))
 validation_size = min(len(dataset), VALIDATION_SIZE)
 eval_dataset = dataset.select(range(validation_size))
 
+prompts = []
+ground_truths = []
+
+for sample in eval_dataset:
+    prompt = format_prompt(sample)
+    ground_truth = sample['answerKey']
+    prompts.append(prompt)
+    ground_truths.append(ground_truth)
+tokenizer.padding_side = 'left'
+
+
+answer_letters = ['A', 'B', 'C', 'D', 'E']
+answer_token_ids = []
+
+for letter in answer_letters:
+    token_ids = tokenizer.encode(f" {letter}", add_special_tokens=False)
+    if token_ids:
+        token_id = token_ids[0]
+    else:
+        token_ids = tokenizer.encode(letter, add_special_tokens=False)
+        if token_ids:
+            token_id = token_ids[0]
+        else:
+            print(f"Warning: Could not find token for {letter}")
+            token_id = -1
+    answer_token_ids.append(token_id)
+letter_to_idx = {letter: idx for idx, letter in enumerate(answer_letters)}
+
 @torch.no_grad()
-def test_model(model):
+def test_model(model, batch_size=100):
     correct_count = 0
     total_count = 0
 
-    for sample in tqdm(eval_dataset, desc="testing model"):
-        prompt = format_prompt(sample)
-        ground_truth = sample['answerKey']
 
-        inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+    answer_token_tensor = torch.tensor(answer_token_ids, device=model.device)  # [5]
 
-        with torch.no_grad():
-            outputs = model.generate(
-                **inputs,
-                max_new_tokens=1,
-                do_sample=False,
-                pad_token_id=tokenizer.eos_token_id,
-                use_cache=False
-            )
 
-        generated_token_id = outputs[0][inputs.input_ids.shape[1]:]
-        response = tokenizer.decode(
-            generated_token_id,
-            skip_special_tokens=True
-        ).strip().upper()
+    for i in range(0, len(prompts), batch_size):
+        batch_prompts = prompts[i:i+batch_size]
+        batch_truths = ground_truths[i:i+batch_size]
 
-        valid_answers = ['A', 'B', 'C', 'D', 'E']
-        clean_response = response[0] if (len(response) > 0
-                                         and response[0] in valid_answers
-                                         ) else response
+        inputs = tokenizer(
+            batch_prompts, 
+            return_tensors="pt", 
+            padding=True,
+            truncation=True,
+            max_length=512
+        ).to(model.device)
 
-        is_correct = (clean_response == ground_truth)
-        if is_correct:
-            correct_count += 1
+        outputs = model(
+            input_ids=inputs.input_ids,
+            attention_mask=inputs.attention_mask,
+            output_hidden_states=False,
+            output_attentions=False,
+            use_cache=False
+        )
 
-        total_count += 1
+        last_token_logits = outputs.logits[:, -1, :]  # [batch_size, vocab_size]
 
-        # print(f"Q: {sample['question'][:30]}... | Pred: {clean_response} | True: {ground_truth}")
+        answer_indices = answer_token_tensor.unsqueeze(0).expand(last_token_logits.size(0), -1)
+        answer_logits = torch.gather(last_token_logits, 1, answer_indices)  # [batch_size, 5]
+
+        predicted_indices = torch.argmax(answer_logits, dim=1)  # [batch_size]
+
+        truth_indices = torch.tensor(
+            [letter_to_idx[truth] for truth in batch_truths],
+            device=model.device
+        )  # [batch_size]
+
+        correct_mask = predicted_indices == truth_indices  # [batch_size]
+        correct_count += correct_mask.sum().item()
+        total_count += len(batch_prompts)
+
+        del inputs, outputs, last_token_logits, answer_indices, answer_logits, predicted_indices, truth_indices, correct_mask
+        torch.cuda.empty_cache()
 
     accuracy = correct_count / total_count
-    print("\n--- Results ---")
-    print(f"Total examples: {total_count}")
-    print(f"Correct answers: {correct_count}")
-    print(f"Accuracy: {accuracy:.2%}")
     return accuracy
 
 
@@ -129,21 +167,26 @@ def zero_fusion(model, layer):
 
 def default_fusion(name):
     def inner(model, layer):
-        return get_fusion_layer_by_index(layer, f"fusion_experts/{name}", device=model.device,
+        new_layer = get_fusion_layer_by_index(layer, f"fusion_experts/{name}", device=model.device,
                                             use_default_experts=use_default_experts
                                             ).to(model.device, dtype=model.dtype)
+        for expert in new_layer.fusion_experts:
+            if expert.U is not None:
+                expert.U = expert.U.to(model.device, dtype=model.dtype)
+        return new_layer
+
     return inner
 
 
 experts_fusions = {name:default_fusion(name) for name in FUSION_METHODS.keys()}
 experts_fusions["zero"] = zero_fusion
+for best_metric in best_metrics.keys():
+    experts_fusions[f"Best_{best_metric}"] = default_fusion(f"Best_{best_metric}")
 
 
 for fusion_name, experts_fusion in experts_fusions.items():
     print(f"Testing {fusion_name}")
     model = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map=device)
-    model.config.use_cache = False
-    model.generation_config.use_cache = False
 
     if base_accuracy is None:
         base_accuracy = test_model(model)
