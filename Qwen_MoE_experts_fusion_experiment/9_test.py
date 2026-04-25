@@ -8,7 +8,7 @@ import transformers
 from datasets import load_dataset
 from matplotlib import pyplot as plt
 from tqdm import tqdm
-from config import MODEL_NAME, LAYERS, VALIDATION_SIZE, device, REPLACE_LAYERS_SEQUANTIAL, DATA_DIR, REPLACE_BEST_LAYERS_SEQUANTIAL, FILTER_FUSIONS, FILTER_METRICS
+from config import MODEL_NAME, LAYERS, VALIDATION_SIZE, device, REPLACE_LAYERS_SEQUANTIAL, DATA_DIR, REPLACE_BEST_LAYERS_SEQUANTIAL, FILTER_FUSIONS, FILTER_METRICS, REPLACE_LAYERS_SMART_SEQUANTIAL
 
 sys.path.append("..")
 from common.fusion_layer import get_fusion_layer_by_index
@@ -152,6 +152,10 @@ def test_model(model, batch_size=100):
 
 
 base_accuracy = None
+base_size = None
+
+def count_params(model):
+    return sum(p.numel() for p in model.parameters())
 
 
 class ZeroLayer(torch.nn.Module):
@@ -190,7 +194,9 @@ for fusion_name, experts_fusion in experts_fusions.items():
 
     if base_accuracy is None:
         base_accuracy = test_model(model)
+        base_size = count_params(model)
     accuracy_list = [base_accuracy]
+    size_list = [base_size]
 
     for layer in tqdm(LAYERS):
         if REPLACE_LAYERS_SEQUANTIAL:
@@ -198,29 +204,75 @@ for fusion_name, experts_fusion in experts_fusions.items():
             torch.cuda.empty_cache()
             model.model.layers[layer].mlp = experts_fusion(model, layer)
             accuracy_list.append(test_model(model))
+            size_list.append(count_params(model))
         else:
             old_mlp = model.model.layers[layer].mlp
             model.model.layers[layer].mlp = experts_fusion(model, layer)
             accuracy_list.append(test_model(model))
+            size_list.append(count_params(model))
             del model.model.layers[layer].mlp
             torch.cuda.empty_cache()
             model.model.layers[layer].mlp = old_mlp
 
-    print(f"model's accuracy list after {fusion_name} ({'seq' if REPLACE_LAYERS_SEQUANTIAL else 'single'}):", accuracy_list)
-    os.makedirs("accuracy", exist_ok=True)
-    torch.save(accuracy_list, f"accuracy/accuracy_list_{'seq' if REPLACE_LAYERS_SEQUANTIAL else 'single'}_{fusion_name}.pt")
+    mode_str = 'seq' if REPLACE_LAYERS_SEQUANTIAL else 'single'
+    print(f"model's accuracy list after {fusion_name} ({mode_str}):", accuracy_list)
+    os.makedirs("test_results/accuracy", exist_ok=True)
+    os.makedirs("test_results/model_size", exist_ok=True)
+    torch.save(accuracy_list, f"test_results/accuracy/accuracy_list_{mode_str}_{fusion_name}.pt")
+    torch.save(size_list, f"test_results/model_size/model_size_list_{mode_str}_{fusion_name}.pt")
 
     if REPLACE_BEST_LAYERS_SEQUANTIAL:
         best_layers = [x[0] for x in sorted(enumerate(accuracy_list[1:]), key=lambda x:-x[1])]
         print("Best layers:", best_layers)
         new_accuracy_list = [base_accuracy]
+        new_size_list = [base_size]
 
         for layer in tqdm(best_layers):
             del model.model.layers[layer].mlp
             torch.cuda.empty_cache()
             model.model.layers[layer].mlp = experts_fusion(model, layer)
             new_accuracy_list.append(test_model(model))
+            new_size_list.append(count_params(model))
         print(f"model's accuracy list after {fusion_name} (seq):", new_accuracy_list)
-        torch.save(new_accuracy_list, f"accuracy/accuracy_list_seq_{fusion_name}.pt")
+        torch.save(new_accuracy_list, f"test_results/accuracy/accuracy_list_seq_{fusion_name}.pt")
+        torch.save(new_size_list, f"test_results/model_size/model_size_list_seq_{fusion_name}.pt")
     del model
+
+
+if REPLACE_LAYERS_SMART_SEQUANTIAL:
+    for fusion_name, experts_fusion in tqdm(list(experts_fusions.items())):
+        changed = set()
+        remain = set(LAYERS)
+        print(f"Testing {fusion_name}")
+        model = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map=device)
+        if base_accuracy is None:
+            base_accuracy = test_model(model)
+            base_size = count_params(model)
+        accuracy_list = [base_accuracy]
+        size_list = [base_size]
+        for _ in tqdm(LAYERS):
+            best_ind = -1
+            best_score = -1
+
+            for layer in remain:
+                old_mlp = model.model.layers[layer].mlp
+                model.model.layers[layer].mlp = experts_fusion(model, layer)
+                new_score = test_model(model)
+                if new_score > best_score:
+                    best_score = new_score
+                    best_ind = layer
+                del model.model.layers[layer].mlp
+                torch.cuda.empty_cache()
+                model.model.layers[layer].mlp = old_mlp
+            remain.remove(best_ind)
+            changed.add(best_ind)
+            model.model.layers[best_ind].mlp = experts_fusion(model, best_ind)
+            accuracy_list.append(best_score)
+            size_list.append(count_params(model))
+        print(f"model's accuracy list after {fusion_name} smart seq:", accuracy_list)
+        os.makedirs("test_results/accuracy", exist_ok=True)
+        os.makedirs("test_results/model_size", exist_ok=True)
+        torch.save(accuracy_list, f"test_results/accuracy/accuracy_list_smart_seq_{fusion_name}.pt")
+        torch.save(size_list, f"test_results/model_size/model_size_list_smart_seq_{fusion_name}.pt")
+        del model
 
