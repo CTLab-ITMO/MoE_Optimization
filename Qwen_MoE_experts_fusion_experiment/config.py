@@ -18,6 +18,9 @@ REPLACE_BEST_LAYERS_SEQUANTIAL = True
 REPLACE_LAYERS_SMART_SEQUANTIAL = True
 EVOLUTION_STEPS = 50
 
+# "activation_correlation", "random", "output_similarity"
+PAIRING_METHOD = "activation_correlation"
+
 device = torch.device("cuda")
 
 FILTER_FUSIONS = None
