@@ -20,9 +20,25 @@ def _join_or(items: list) -> str:
     return ", ".join(items[:-1]) + f", or {items[-1]}"
 
 
+def _extract_choices(sample: dict) -> tuple:
+    choices = sample["choices"]
+    if isinstance(choices, dict):
+        return list(choices["label"]), list(choices["text"])
+    labels = [chr(ord("A") + i) for i in range(len(choices))]
+    return labels, list(choices)
+
+
+def _extract_answer(sample: dict, labels: list) -> str:
+    if "answerKey" in sample:
+        return sample["answerKey"]
+    ans = sample["answer"]
+    return labels[ans] if isinstance(ans, int) else ans
+
+
 def _format_prompt(sample: dict, tokenizer, letters: list) -> str:
+    labels, texts = _extract_choices(sample)
     options_text = ""
-    for label, text in zip(sample["choices"]["label"], sample["choices"]["text"]):
+    for label, text in zip(labels, texts):
         options_text += f"{label}. {text}\n"
 
     system_message = (
@@ -44,10 +60,8 @@ def _format_prompt(sample: dict, tokenizer, letters: list) -> str:
 def _resolve_answer_token_ids(tokenizer, letters: list) -> list:
     ids = []
     for letter in letters:
-        toks = tokenizer.encode(f" {letter}", add_special_tokens=False)
-        if not toks:
-            toks = tokenizer.encode(letter, add_special_tokens=False)
-        ids.append(toks[0] if toks else -1)
+        toks = tokenizer.encode(letter, add_special_tokens=False)
+        ids.append(toks[0])
     return ids
 
 
@@ -58,11 +72,11 @@ def _prepare(dataset_kwargs: dict, n: int, tokenizer, seed: int) -> dict:
     subset = full.select(indices)
 
     # Per-dataset letter set: assume every sample shares the schema of subset[0].
-    answer_letters = list(subset[0]["choices"]["label"])
+    answer_letters, _ = _extract_choices(subset[0])
     letter_to_idx = {letter: i for i, letter in enumerate(answer_letters)}
 
     prompts = [_format_prompt(s, tokenizer, answer_letters) for s in subset]
-    ground_truths = [s["answerKey"] for s in subset]
+    ground_truths = [_extract_answer(s, answer_letters) for s in subset]
     answer_token_ids = _resolve_answer_token_ids(tokenizer, answer_letters)
 
     return {
@@ -82,11 +96,12 @@ def evaluate_qa(
     n: int,
     *,
     seed: int = 42,
-    batch_size: int = 100,
+    batch_size: int = 16,
     max_length: int = 512,
 ) -> float:
     set_seed(seed)
     tokenizer.padding_side = "left"
+    tokenizer.truncation_side = "left"
 
     was_training = model.training
     model.eval()

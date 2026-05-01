@@ -124,7 +124,12 @@ for layer in tqdm(LAYERS):
     for i, fused in enumerate(fusion_experts):
         for fusion_name, fusion_expert in fused.items():
             os.makedirs(f"{DATA_DIR}/fusion_experts/{fusion_name}/{layer}", exist_ok=True)
-            torch.save(fusion_expert.cpu(), f"{DATA_DIR}/fusion_experts/{fusion_name}/{layer}/{i}.pt")
+            while True:
+                try:
+                    torch.save(fusion_expert.cpu(), f"{DATA_DIR}/fusion_experts/{fusion_name}/{layer}/{i}.pt")
+                    break
+                except Exception as e:
+                    print(f"[DEBUG] {e}")
             del fusion_expert
     torch.cuda.empty_cache()
 
