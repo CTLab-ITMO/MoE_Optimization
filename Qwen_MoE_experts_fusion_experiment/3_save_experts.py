@@ -15,6 +15,13 @@ from common.mlp_utils import turn_in_mlp
 device = torch.device("cpu")
 
 
+import sys
+sys.path.append("..")
+from common.seeding import set_seed
+from config import SEED
+set_seed(SEED)
+
+
 if "model" not in globals():
     model = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map=device)
 

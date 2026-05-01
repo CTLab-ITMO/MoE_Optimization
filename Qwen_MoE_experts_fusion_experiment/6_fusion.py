@@ -26,6 +26,13 @@ if FILTER_METRICS is not None:
     best_metrics = {k:v for k, v in best_metrics.items() if k in FILTER_METRICS}
 
 
+import sys
+sys.path.append("..")
+from common.seeding import set_seed
+from config import SEED
+set_seed(SEED)
+
+
 # # Classes
 
 class Logger(nn.Module):

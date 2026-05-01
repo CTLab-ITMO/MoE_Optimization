@@ -15,6 +15,13 @@ sys.path.append("..")
 from common.fusion_layer import get_fusion_layer_by_index
 
 
+import sys
+sys.path.append("..")
+from common.seeding import set_seed
+from config import SEED
+set_seed(SEED)
+
+
 LAYER = LAYERS[0]
 
 

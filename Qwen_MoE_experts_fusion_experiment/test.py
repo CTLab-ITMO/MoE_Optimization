@@ -18,6 +18,13 @@ fusions += ["zero"]
 fusions += [f"Best_{metric}" for metric in best_metrics.keys()]
 
 
+import sys
+sys.path.append("..")
+from common.seeding import set_seed
+from config import SEED
+set_seed(SEED)
+
+
 colors = plt.cm.tab20(np.linspace(0, 1, len(fusions)))
 def draw(data, save=False):
     nrows = len(replace_types)

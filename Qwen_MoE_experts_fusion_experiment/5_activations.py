@@ -8,6 +8,13 @@ import transformers
 from config import MODEL_NAME, LAYERS, TOP_K, device, DATA_DIR
 
 
+import sys
+sys.path.append("..")
+from common.seeding import set_seed
+from config import SEED
+set_seed(SEED)
+
+
 if "model" not in globals():
     model = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map=device)
 if "tokenizer" not in globals():

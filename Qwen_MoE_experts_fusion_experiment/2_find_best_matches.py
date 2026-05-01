@@ -22,8 +22,14 @@ from config import (
     device,
 )
 
-
 print(f"PAIRING_METHOD = {PAIRING_METHOD}")
+
+
+import sys
+sys.path.append("..")
+from common.seeding import set_seed
+from config import SEED
+set_seed(SEED)
 
 
 if PAIRING_METHOD == "activation_correlation":
@@ -57,5 +63,5 @@ os.makedirs(f"{DATA_DIR}/pairs", exist_ok=True)
 for layer in LAYERS:
     torch.save(best_pairs[layer], f"{DATA_DIR}/pairs/{layer}.pt")
 
-
 print("Saved data example:", torch.load(f"{DATA_DIR}/pairs/{LAYERS[0]}.pt"))
+

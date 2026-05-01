@@ -14,6 +14,13 @@ from common.fusion_layer import get_fusion_layer_by_index
 EXAMPLES = 10
 
 
+import sys
+sys.path.append("..")
+from common.seeding import set_seed
+from config import SEED
+set_seed(SEED)
+
+
 if "model" not in globals():
     model = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME)
 if "tokenizer" not in globals():
