@@ -20,19 +20,37 @@ def _join_or(items: list) -> str:
     return ", ".join(items[:-1]) + f", or {items[-1]}"
 
 
+def _extract_question(sample: dict) -> str:
+    if "question" in sample:
+        return sample["question"]
+    if "sentence" in sample:  # winogrande
+        return sample["sentence"]
+    if "question_stem" in sample:  # openbookqa
+        return sample["question_stem"]
+    raise KeyError("sample has neither 'question' nor 'sentence'")
+
+
 def _extract_choices(sample: dict) -> tuple:
-    choices = sample["choices"]
-    if isinstance(choices, dict):
-        return list(choices["label"]), list(choices["text"])
-    labels = [chr(ord("A") + i) for i in range(len(choices))]
-    return labels, list(choices)
+    if "choices" in sample:
+        choices = sample["choices"]
+        if isinstance(choices, dict):  # commonsense_qa, ARC, OpenBookQA
+            return list(choices["label"]), list(choices["text"])
+        labels = [chr(ord("A") + i) for i in range(len(choices))]  # mmlu
+        return labels, list(choices)
+    if "option1" in sample and "option2" in sample:  # winogrande
+        return ["A", "B"], [sample["option1"], sample["option2"]]
+    raise KeyError("sample has no recognized choices field")
 
 
 def _extract_answer(sample: dict, labels: list) -> str:
     if "answerKey" in sample:
         return sample["answerKey"]
     ans = sample["answer"]
-    return labels[ans] if isinstance(ans, int) else ans
+    if isinstance(ans, int):  # mmlu
+        return labels[ans]
+    if ans in labels:  # already a letter
+        return ans
+    return labels[int(ans) - 1]  # winogrande: '1' -> 'A', '2' -> 'B'
 
 
 def _format_prompt(sample: dict, tokenizer, letters: list) -> str:
@@ -47,7 +65,7 @@ def _format_prompt(sample: dict, tokenizer, letters: list) -> str:
         f"Your task is to answer with ONLY the letter corresponding to the correct option ({_join_or(letters)}). "
         "Do not write the full answer, do not write explanations. Output only one character."
     )
-    user_message = f"Question: {sample['question']}\nOptions:\n{options_text}\nAnswer:"
+    user_message = f"Question: {_extract_question(sample)}\nOptions:\n{options_text}\nAnswer:"
     messages = [
         {"role": "system", "content": system_message},
         {"role": "user", "content": user_message},

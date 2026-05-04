@@ -5,7 +5,7 @@ DATA_DIR = "./data_MMLU_1k"
 MODEL_NAME = "Qwen/Qwen1.5-MoE-A2.7B-Chat"
 EXPERTS = 60
 TRAIN_DATASET_NAME = {"path": "cais/mmlu", "name": "all", "split": "auxiliary_train"}
-TEST_DATASET_NAME = {"path": "cais/mmlu", "name": "all", "split": "test"}
+TEST_DATASET_NAME = {"path": "allenai/winogrande", "name": "winogrande_debiased", "split": "test"}
 
 TRAIN_SIZE = 1_024
 TEST_SIZE = TRAIN_SIZE
@@ -15,7 +15,7 @@ TOP_K = 4
 
 REPLACE_LAYERS_SEQUANTIAL = False
 REPLACE_BEST_LAYERS_SEQUANTIAL = True
-REPLACE_LAYERS_SMART_SEQUANTIAL = True
+REPLACE_LAYERS_SMART_SEQUANTIAL = False
 EVOLUTION_STEPS = 50
 
 SEED = 42

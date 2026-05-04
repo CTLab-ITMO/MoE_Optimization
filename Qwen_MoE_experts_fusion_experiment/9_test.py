@@ -7,7 +7,8 @@ import torch
 import transformers
 from matplotlib import pyplot as plt
 from tqdm import tqdm
-from config import MODEL_NAME, LAYERS, VALIDATION_SIZE, device, REPLACE_LAYERS_SEQUANTIAL, DATA_DIR, REPLACE_BEST_LAYERS_SEQUANTIAL, FILTER_FUSIONS, FILTER_METRICS, REPLACE_LAYERS_SMART_SEQUANTIAL, TEST_DATASET_NAME
+from config import MODEL_NAME, LAYERS, VALIDATION_SIZE, device, REPLACE_LAYERS_SEQUANTIAL, DATA_DIR, REPLACE_BEST_LAYERS_SEQUANTIAL, FILTER_FUSIONS, FILTER_METRICS, REPLACE_LAYERS_SMART_SEQUANTIAL, TRAIN_DATASET_NAME, TEST_DATASET_NAME
+import gc
 
 sys.path.append("..")
 from common.fusion_layer import get_fusion_layer_by_index
@@ -16,6 +17,16 @@ from common.qa_eval import evaluate_qa
 
 model_id = "Qwen/Qwen1.5-MoE-A2.7B-Chat"
 use_default_experts = False
+
+
+def _dataset_tag(ds):
+    return f"{ds['path'].split('/')[-1]}_{ds['split']}"
+
+
+TEST_RESULTS_DIR = (
+    f"test_result_{_dataset_tag(TRAIN_DATASET_NAME)}"
+    f"_{_dataset_tag(TEST_DATASET_NAME)}"
+)
 
 if FILTER_FUSIONS is not None:
     FUSION_METHODS = {k:v for k, v in FUSION_METHODS.items() if k in FILTER_FUSIONS}
@@ -28,6 +39,18 @@ sys.path.append("..")
 from common.seeding import set_seed
 from config import SEED
 set_seed(SEED)
+
+
+def free_model(model):
+    try:
+        model.cpu()
+    except Exception:
+        pass
+    del model
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
 
 
 tokenizer = transformers.AutoTokenizer.from_pretrained(MODEL_NAME)
@@ -98,10 +121,10 @@ for fusion_name, experts_fusion in experts_fusions.items():
 
     mode_str = 'seq' if REPLACE_LAYERS_SEQUANTIAL else 'single'
     print(f"model's accuracy list after {fusion_name} ({mode_str}):", accuracy_list)
-    os.makedirs("test_results/accuracy", exist_ok=True)
-    os.makedirs("test_results/model_size", exist_ok=True)
-    torch.save(accuracy_list, f"test_results/accuracy/accuracy_list_{mode_str}_{fusion_name}.pt")
-    torch.save(size_list, f"test_results/model_size/model_size_list_{mode_str}_{fusion_name}.pt")
+    os.makedirs(f"{TEST_RESULTS_DIR}/accuracy", exist_ok=True)
+    os.makedirs(f"{TEST_RESULTS_DIR}/model_size", exist_ok=True)
+    torch.save(accuracy_list, f"{TEST_RESULTS_DIR}/accuracy/accuracy_list_{mode_str}_{fusion_name}.pt")
+    torch.save(size_list, f"{TEST_RESULTS_DIR}/model_size/model_size_list_{mode_str}_{fusion_name}.pt")
 
     if REPLACE_BEST_LAYERS_SEQUANTIAL:
         best_layers = [x[0] for x in sorted(enumerate(accuracy_list[1:]), key=lambda x:-x[1])]
@@ -116,9 +139,10 @@ for fusion_name, experts_fusion in experts_fusions.items():
             new_accuracy_list.append(evaluate_qa(model, tokenizer, TEST_DATASET_NAME, VALIDATION_SIZE, seed=SEED))
             new_size_list.append(count_params(model))
         print(f"model's accuracy list after {fusion_name} (seq):", new_accuracy_list)
-        torch.save(new_accuracy_list, f"test_results/accuracy/accuracy_list_seq_{fusion_name}.pt")
-        torch.save(new_size_list, f"test_results/model_size/model_size_list_seq_{fusion_name}.pt")
-    del model
+        torch.save(new_accuracy_list, f"{TEST_RESULTS_DIR}/accuracy/accuracy_list_seq_{fusion_name}.pt")
+        torch.save(new_size_list, f"{TEST_RESULTS_DIR}/model_size/model_size_list_seq_{fusion_name}.pt")
+    free_model(model)
+    model = None
 
 
 if REPLACE_LAYERS_SMART_SEQUANTIAL:
@@ -152,9 +176,10 @@ if REPLACE_LAYERS_SMART_SEQUANTIAL:
             accuracy_list.append(best_score)
             size_list.append(count_params(model))
         print(f"model's accuracy list after {fusion_name} smart seq:", accuracy_list)
-        os.makedirs("test_results/accuracy", exist_ok=True)
-        os.makedirs("test_results/model_size", exist_ok=True)
-        torch.save(accuracy_list, f"test_results/accuracy/accuracy_list_smart_seq_{fusion_name}.pt")
-        torch.save(size_list, f"test_results/model_size/model_size_list_smart_seq_{fusion_name}.pt")
-        del model
+        os.makedirs(f"{TEST_RESULTS_DIR}/accuracy", exist_ok=True)
+        os.makedirs(f"{TEST_RESULTS_DIR}/model_size", exist_ok=True)
+        torch.save(accuracy_list, f"{TEST_RESULTS_DIR}/accuracy/accuracy_list_smart_seq_{fusion_name}.pt")
+        torch.save(size_list, f"{TEST_RESULTS_DIR}/model_size/model_size_list_smart_seq_{fusion_name}.pt")
+        free_model(model)
+        model = None
 
