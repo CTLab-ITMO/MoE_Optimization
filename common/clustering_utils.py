@@ -258,6 +258,10 @@ def _compute_metric_on_dense_cluster(mat, nodes, reduce="mean"):
 
     raise ValueError("reduce must be 'mean' or 'sum'")
     
+def _cluster_pair_count(nodes):
+    n = len(nodes)
+    return n * (n - 1) // 2    
+    
 def _weighted_average_cluster_metric(mat, clusters):
     if mat is None:
         return np.nan
@@ -272,6 +276,7 @@ def _weighted_average_cluster_metric(mat, clusters):
         sub = mat[np.ix_(nodes, nodes)]
         upper = np.triu(sub, 1)
         total_sum += float(upper.sum())
+        total_pairs += _cluster_pair_count(nodes)
 
     return total_sum / total_pairs if total_pairs > 0 else 0.0
     
@@ -301,8 +306,8 @@ def _make_iterative_clustering(adjacency_matrix_of_experts: np.ndarray,
     while True:
         objective_mat = adjacency_matrix_of_experts
         if (maximize_metric == False):
-            objective_mat = 1 / (objective_mat + 0.0001)
-            
+            objective_mat = objective_mat.max() - objective_mat
+
         candidates = [
             (_compute_metric_on_dense_cluster(objective_mat, cluster), len(cluster), idx)
             for idx, cluster in enumerate(clusters)
@@ -329,7 +334,7 @@ def _make_iterative_clustering(adjacency_matrix_of_experts: np.ndarray,
         if (log_history):
             step_dict = {
                     "step": step,
-                    "devided_cluster": cluster_to_divide,
+                    "divided_cluster": cluster_to_divide,
                     "left": left,
                     "right": right,
                     "metric_of_split_cluster": _compute_metric_on_dense_cluster(adjacency_matrix_of_experts, cluster_to_divide),

@@ -27,14 +27,18 @@ class ExpertClusterer:
         for target_layer_handler in target_layers:
             layer_gate_name = self.module2name[target_layer_handler.gate]
             gate_activations = name2activations[layer_gate_name]
-            gate_PI_matrix = ExpertLoggerDataConverter.compute_PI_matrix(self.model.num_experts, 
-                                                                         gate_activations, 
-                                                                         k = target_layer_handler.gate.top_k)
-            clusters, _ = ExpertMatcher.find_by_dividive_clustering(gate_PI_matrix, 
-                                                                    maximize_metric=False, 
-                                                                    log_history=False)
+            clusters, _ = self.create_clusters_by_PI_one_layer(target_layer_handler, gate_activations, log_history=False)
             layer_idx2clusters[target_layer_handler.layer_idx] = clusters
         return layer_idx2clusters
+    
+    def create_clusters_by_PI_one_layer(self, target_layer: MoeHandle, gate_activations: torch.Tensor, log_history=False):
+        gate_PI_matrix = ExpertLoggerDataConverter.compute_PI_matrix(self.model.num_experts, 
+                                                                     gate_activations, 
+                                                                     k = target_layer.gate.top_k)
+        clusters, history = ExpertMatcher.find_by_dividive_clustering(gate_PI_matrix, 
+                                                                maximize_metric=False, 
+                                                                log_history=log_history)
+        return clusters, history
 
     def _get_activations_from_gate(self, target_layers: list[MoeHandle]) -> dict[str, torch.Tensor]:
         name2activations = self.get_activations(target_layers, attach_to_gate_layer=True, attach_to_expert_layer=False)
