@@ -2,6 +2,8 @@ import torch
 from datasets import load_dataset
 from typing import Dict, List, Generator, Optional
 import numpy as np
+import copy
+import pandas as pd
 
 from transformers import BitsAndBytesConfig
 import torch
@@ -337,6 +339,7 @@ def _make_iterative_clustering(adjacency_matrix_of_experts: np.ndarray,
                     "divided_cluster": cluster_to_divide,
                     "left": left,
                     "right": right,
+                    "all_clusters": copy.copy(clusters),
                     "metric_of_split_cluster": _compute_metric_on_dense_cluster(adjacency_matrix_of_experts, cluster_to_divide),
                     "total_metric_after_split": _weighted_average_cluster_metric(adjacency_matrix_of_experts, clusters),
                     }
@@ -349,3 +352,134 @@ def _make_iterative_clustering(adjacency_matrix_of_experts: np.ndarray,
             history.append(step_dict)
 
     return clusters, history 
+
+def _make_greedy_agglomerative_pairs(
+    adjacency_matrix_of_experts,
+    maximize_metric=False,
+    log_history=False,
+    other_matrices_for_stats: Optional[dict[str, np.ndarray]] = None,
+):
+    '''
+    Greedy matching over all edges.
+
+    Build a queue of all expert pairs, sort it by PI, and then keep selecting
+    edges whose endpoints are still unused. The result is a set of disjoint
+    pairs plus singleton leftovers.
+
+    Signature intentionally matches find_by_dividive_clustering.
+    '''
+    if adjacency_matrix_of_experts.ndim != 2 or adjacency_matrix_of_experts.shape[0] != adjacency_matrix_of_experts.shape[1]:
+        raise ValueError('adjacency_matrix_of_experts must be a square matrix')
+
+    score_mat = np.asarray(adjacency_matrix_of_experts, dtype=np.float64)
+    n_experts = score_mat.shape[0]
+
+    if n_experts == 0:
+        return [], []
+    if n_experts == 1:
+        return [[0]], []
+
+    edge_queue = [
+        (float(score_mat[i, j]), i, j)
+        for i in range(n_experts)
+        for j in range(i + 1, n_experts)
+    ]
+
+    if maximize_metric:
+        edge_queue.sort(key=lambda item: (-item[0], item[1], item[2]))
+    else:
+        edge_queue.sort(key=lambda item: (item[0], item[1], item[2]))
+
+    used_vertices = set()
+    clusters = []
+    history = []
+
+    for score, i, j in edge_queue:
+        if i in used_vertices or j in used_vertices:
+            continue
+
+        used_vertices.add(i)
+        used_vertices.add(j)
+        clusters.append([i, j])
+
+    if log_history:
+        step_dict = {
+            'step': len(history) + 1,
+            'all_clusters': clusters,
+            "total_metric_after_split": _weighted_average_cluster_metric(adjacency_matrix_of_experts, clusters),
+
+        }
+        if other_matrices_for_stats is not None:
+            for key in other_matrices_for_stats.keys():
+                step_dict[f'total_{key}_after_split'] = _weighted_average_cluster_metric(other_matrices_for_stats[key], clusters)
+        history.append(step_dict)
+
+    return clusters, history
+
+
+def _detect_pi_front_points(
+    values,
+    skip_start=5, #tested in check_activations_of_clusters.ipynb (optimized for 60 experts Qwen! ~  30 steps)
+    radius=1, #tested in check_activations_of_clusters.ipynb
+    neighborhood=3,
+    z_threshold=0.5, #tested in check_activations_of_clusters.ipynb
+    min_curvature=0.0,
+    require_local_peak=True,
+):
+    """Detect local front points on a curve.
+    
+    Args:
+        values: numpy array or pandas Series of values
+        skip_start: skip first N points
+        radius: size of left/right window
+        neighborhood: neighborhood size for local z-score
+        z_threshold: z-score threshold for detection
+        min_curvature: minimum front_score threshold
+        require_local_peak: only accept local peaks
+    
+    Returns:
+        DataFrame with detected front points (indices and scores)
+    """
+    values = np.asarray(values, dtype=np.float64)
+
+    front_score = np.full(len(values), np.nan, dtype=np.float64)
+    left_delta = np.full(len(values), np.nan, dtype=np.float64)
+    right_delta = np.full(len(values), np.nan, dtype=np.float64)
+
+    start_idx = skip_start + radius
+    stop_idx = len(values) - radius
+    for idx in range(start_idx, stop_idx):
+        left_window = values[idx - radius:idx]
+        right_window = values[idx + 1:idx + 1 + radius]
+        if left_window.size == 0 or right_window.size == 0:
+            continue
+
+        left_delta[idx] = values[idx] - left_window.mean()
+        right_delta[idx] = values[idx] - right_window.mean()
+        front_score[idx] = left_delta[idx] + right_delta[idx]
+
+    score_series = pd.Series(front_score)
+    local_mean = score_series.rolling(window=2 * neighborhood + 1, center=True, min_periods=1).mean()
+    local_std = score_series.rolling(window=2 * neighborhood + 1, center=True, min_periods=1).std(ddof=0)
+    score_z = (score_series - local_mean) / (local_std + 1e-12)
+
+    if require_local_peak:
+        local_max = score_series.rolling(window=2 * neighborhood + 1, center=True, min_periods=1).max()
+        local_peak_mask = score_series.eq(local_max)
+    else:
+        local_peak_mask = pd.Series(True, index=score_series.index)
+
+    candidate_mask = (
+        np.arange(len(values)) >= start_idx
+    ) & np.isfinite(front_score) & (front_score > min_curvature) & (score_z.to_numpy() > z_threshold) & local_peak_mask.fillna(False).to_numpy()
+
+    indices = np.where(candidate_mask)[0]
+    result = pd.DataFrame({
+        'idx': indices,
+        'value': values[indices],
+        'left_delta': left_delta[indices],
+        'right_delta': right_delta[indices],
+        'front_score': front_score[indices],
+        'front_zscore': score_z.to_numpy()[indices],
+    })
+    return result

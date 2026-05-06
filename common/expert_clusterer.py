@@ -1,5 +1,7 @@
 from functools import partial
-from typing import Iterable, Literal
+from typing import Callable, Iterable, Literal
+
+from torch import func
 from MoE_Optimization.common.expert_logger import ExpertsLogger
 from MoE_Optimization.common.expert_logger_data_converter import ExpertLoggerDataConverter
 from MoE_Optimization.common.expert_matcher import ExpertMatcher
@@ -16,29 +18,178 @@ class ExpertClusterer:
         self.moe_handles: list[MoeHandle] = discover_moe_layers(model)
 
 
-    def create_clusters_by_PI(self, target_layers: list[MoeHandle]):
+    def create_clusters_by_PI(self, target_layers: list[MoeHandle], maximize_metric=False):
         '''Gather stats from model on it's gate, transform it to matrix of PI metric and make divisive clustering of that matrix to minimize PI
         
         Returns:
             moehandles2clusters: dict of layer_idx -> list of pairs or triplets of experts with minimal PI to merge
         '''
+        return self._create_clusters_by(self.create_clusters_by_PI_one_layer, target_layers=target_layers, maximize_metric=maximize_metric)
+
+    
+    def create_clusters_by_EC(self, target_layers: list[MoeHandle], maximize_metric=True): #TODO 1) different algo 2) hyperparameter or EC/PI comparsion of stopping (best point finding by history, check Leon's msgs about югозапад)
+        '''Gather stats from model on it's gate, transform it to matrix of PI metric and make divisive clustering of that matrix to minimize PI
+        
+        Returns:
+            moehandles2clusters: dict of layer_idx -> list of pairs or triplets of experts with minimal PI to merge
+        '''
+        return self._create_clusters_by(self.create_clusters_by_EC_one_layer, target_layers=target_layers, maximize_metric=maximize_metric)
+    
+    def _create_clusters_by(self, create_clusters_one_layer_func: Callable, target_layers: list[MoeHandle], **kwargs):
+        '''Universal method for creating clusters for each of supplied layers'''
         layer_idx2clusters = {}
         name2activations = self._get_activations_from_gate(target_layers)
         for target_layer_handler in target_layers:
             layer_gate_name = self.module2name[target_layer_handler.gate]
             gate_activations = name2activations[layer_gate_name]
-            clusters, _ = self.create_clusters_by_PI_one_layer(target_layer_handler, gate_activations, log_history=False)
+            
+            clusters, _ = create_clusters_one_layer_func(target_layer_handler, gate_activations, log_history=False, **kwargs)
+            
             layer_idx2clusters[target_layer_handler.layer_idx] = clusters
         return layer_idx2clusters
     
-    def create_clusters_by_PI_one_layer(self, target_layer: MoeHandle, gate_activations: torch.Tensor, log_history=False):
-        gate_PI_matrix = ExpertLoggerDataConverter.compute_PI_matrix(self.model.num_experts, 
-                                                                     gate_activations, 
-                                                                     k = target_layer.gate.top_k)
-        clusters, history = ExpertMatcher.find_by_dividive_clustering(gate_PI_matrix, 
-                                                                maximize_metric=False, 
-                                                                log_history=log_history)
+    def create_clusters_by_PI_one_layer(self, target_layer: MoeHandle, gate_activations: torch.Tensor, log_history=False, maximize_metric=False, **kwargs):
+        '''Gets last clustering of dividive clustering'''
+        clusters, history = self._create_clusters_by_metric_by_clustering_algo(
+            ExpertMatcher.find_by_dividive_clustering, 
+            ExpertLoggerDataConverter.compute_PI_matrix, 
+            target_layer, 
+            gate_activations, 
+            log_history=log_history, 
+            maximize_metric=maximize_metric
+            )
         return clusters, history
+    
+    def create_clusters_by_EC_one_layer(self, target_layer: MoeHandle, gate_activations: torch.Tensor, log_history=False, maximize_metric=True, **kwargs):
+        '''Gets last clustering of dividive clustering'''
+        clusters, history = self._create_clusters_by_metric_by_clustering_algo(
+            ExpertMatcher.find_by_dividive_clustering, 
+            ExpertLoggerDataConverter.compute_EC_matrix, 
+            target_layer, 
+            gate_activations, 
+            log_history=log_history, 
+            maximize_metric=maximize_metric
+            )
+        return clusters, history
+    
+    def create_clusters_by_PI_but_find_max_on_EC(self, target_layer: MoeHandle, gate_activations: torch.Tensor, **kwargs):
+        '''Gets best clustering of dividive clustering watching on EC'''
+        clusters, history = self._create_clusters_by_two_metric_by_clustering_algo(
+            ExpertMatcher.find_by_dividive_clustering_PI_and_max_EC,
+            ExpertLoggerDataConverter.compute_PI_matrix,
+            ExpertLoggerDataConverter.compute_EC_matrix, 
+            target_layer, 
+            gate_activations, 
+            maximize_metric=False
+            )
+        return clusters, history
+    
+    def create_clusters_by_EC_but_find_min_on_PI(self, target_layer: MoeHandle, gate_activations: torch.Tensor, **kwargs):
+        '''history will be inverted (pi and ec)'''
+        clusters, history = self._create_clusters_by_two_metric_by_clustering_algo(
+            ExpertMatcher.find_by_dividive_clustering_PI_and_max_EC,
+            ExpertLoggerDataConverter.compute_EC_matrix,
+            ExpertLoggerDataConverter.compute_PI_matrix,
+            target_layer, 
+            gate_activations, 
+            maximize_metric=True
+            )
+        return clusters, history
+    
+    def create_clusters_by_PI_objective_and_EC_product(self, target_layer: MoeHandle, gate_activations: torch.Tensor, **kwargs):
+        '''Gets best clustering of dividive clustering watching on EC * (1/PI) product'''
+        clusters, history = self._create_clusters_by_two_metric_by_clustering_algo(
+            ExpertMatcher.find_by_dividive_clustering_max_PI_and_EC_product,
+            ExpertLoggerDataConverter.compute_PI_matrix,
+            ExpertLoggerDataConverter.compute_EC_matrix, 
+            target_layer, 
+            gate_activations, 
+            maximize_metric=False
+            )
+        return clusters, history
+    
+    def create_clusters_by_EC_objective_and_PI_product(self, target_layer: MoeHandle, gate_activations: torch.Tensor, **kwargs):
+        '''history will be inverted pi and ec'''
+        clusters, history = self._create_clusters_by_two_metric_by_clustering_algo(
+            ExpertMatcher.find_by_dividive_clustering_max_PI_and_EC_product,
+            ExpertLoggerDataConverter.compute_EC_matrix,
+            ExpertLoggerDataConverter.compute_PI_matrix,
+            target_layer, 
+            gate_activations, 
+            maximize_metric=True
+            )
+        return clusters, history
+    
+    def create_clusters_by_PI_front_points(self, target_layer: MoeHandle, gate_activations: torch.Tensor, **kwargs) -> tuple[list[list[list[int]]], list]:
+        '''Returns many cases of best clusters depended on PI peak (front) points'''
+        cluster_cases, history = self._create_clusters_by_two_metric_by_clustering_algo(
+            ExpertMatcher.find_by_dividive_clustering_objective_EC_front_of_PI,
+            ExpertLoggerDataConverter.compute_PI_matrix,
+            ExpertLoggerDataConverter.compute_EC_matrix, 
+            target_layer, 
+            gate_activations, 
+            maximize_metric=True
+            )
+        return cluster_cases, history #TODO auto best matched clustering_case
+    
+    def create_clusters_by_PI_greedy_aglomerative(self, target_layer: MoeHandle, gate_activations: torch.Tensor, log_history=False, **kwargs):
+        '''Find clusters in one greedy step on min PI metric'''
+        clusters, history = self._create_clusters_by_metric_by_clustering_algo(
+            ExpertMatcher.find_by_aglomerative_clustering_greedy,
+            ExpertLoggerDataConverter.compute_PI_matrix,
+            target_layer, 
+            gate_activations, 
+            maximize_metric=False,
+            log_history=log_history,
+            )
+        return clusters, history
+    
+    def create_clusters_by_EC_greedy_aglomerative(self, target_layer: MoeHandle, gate_activations: torch.Tensor, log_history=False, **kwargs):
+        '''Find clusters in one greedy step on max EC metric. History (PI, EC) will be inverted'''
+        clusters, history = self._create_clusters_by_metric_by_clustering_algo(
+            ExpertMatcher.find_by_aglomerative_clustering_greedy,
+            ExpertLoggerDataConverter.compute_EC_matrix,
+            target_layer, 
+            gate_activations, 
+            maximize_metric=True,
+            log_history=log_history,
+            )
+        return clusters, history
+    
+    def _create_clusters_by_two_metric_by_clustering_algo(self, 
+                                                      clustering_algo: Callable, 
+                                                      metric_matrix_algo_pi: Callable,
+                                                      metric_matrix_algo_ec: Callable,
+                                                      target_layer: MoeHandle, 
+                                                      gate_activations: torch.Tensor, 
+                                                      maximize_metric=False) -> tuple[list[list[int]], list]:
+        metric_matrix_pi = metric_matrix_algo_pi(self.model.num_experts, 
+                                        gate_activations, 
+                                        k = target_layer.gate.top_k)
+        metric_matrix_ec = metric_matrix_algo_ec(self.model.num_experts, 
+                                        gate_activations, 
+                                        k = target_layer.gate.top_k)
+        clusters, history = clustering_algo(metric_matrix_pi,
+                                            metric_matrix_ec,
+                                        maximize_metric=maximize_metric, 
+                                        )
+        return clusters, history
+    
+    def _create_clusters_by_metric_by_clustering_algo(self, 
+                                                      clustering_algo: Callable, 
+                                                      metric_matrix_algo: Callable, 
+                                                      target_layer: MoeHandle, 
+                                                      gate_activations: torch.Tensor, 
+                                                      log_history=False, 
+                                                      maximize_metric=True) -> tuple[list[list[int]], list]:
+        metric_matrix = metric_matrix_algo(self.model.num_experts, 
+                                        gate_activations, 
+                                        k = target_layer.gate.top_k)
+        clusters, history = clustering_algo(metric_matrix, 
+                                        maximize_metric=maximize_metric, 
+                                        log_history=log_history)
+        return clusters, history
+        
 
     def _get_activations_from_gate(self, target_layers: list[MoeHandle]) -> dict[str, torch.Tensor]:
         name2activations = self.get_activations(target_layers, attach_to_gate_layer=True, attach_to_expert_layer=False)
