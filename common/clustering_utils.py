@@ -10,6 +10,7 @@ import torch
 
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from scipy.sparse.csgraph import laplacian
+from sklearn.metrics import silhouette_score, calinski_harabasz_score, davies_bouldin_score
 
 SELECTED_TASKS = ["anatomy",
             # "conceptual_physics",
@@ -483,3 +484,45 @@ def _detect_pi_front_points(
         'front_zscore': score_z.to_numpy()[indices],
     })
     return result
+
+def labels_from_clusters(clusters, row_experts):
+    '''transforms labels to merged labels'''
+    expert_to_cluster = {}
+    for cluster_id, cluster in enumerate(clusters):
+        for expert in cluster:
+            expert_to_cluster[expert] = cluster_id
+    return np.asarray([expert_to_cluster.get(expert, -1) for expert in row_experts], dtype=np.int64)
+
+def build_calinski_score_df(history: dict, X: pd.DataFrame, row_experts, some_popularity_metric_column='total_PI_after_split'):
+    '''Eats history of expert division to clusters and embeddings (X) of activations. Also eats row_experts - indexes of experts belonging to X
+    Returns:
+        another table with history and with calculated calinski_score metric for every cluster division
+    '''
+    rows = []
+
+    for step, entry in enumerate(history):
+        clusters = entry.get("all_clusters", entry.get("clusters"))
+        if clusters is None or len(clusters) < 2:
+            continue
+
+        labels = labels_from_clusters(clusters, row_experts) #insted of series of expert indices makes indices of clusters
+        valid_mask = labels >= 0
+        X_step = X[valid_mask]
+        labels_step = labels[valid_mask]
+
+        if X_step.shape[0] < 2 or np.unique(labels_step).size < 2:
+            continue
+
+        row = {
+            "step": step,
+            "n_clusters": len(clusters),
+            some_popularity_metric_column: entry[some_popularity_metric_column]
+        }
+
+        try:
+            row["calinski_harabasz"] = calinski_harabasz_score(X_step, labels_step)
+        except Exception:
+            row["calinski_harabasz"] = np.nan
+        rows.append(row)
+
+    return pd.DataFrame(rows)

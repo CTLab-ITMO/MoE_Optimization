@@ -105,6 +105,7 @@ class ExpertLoggerDataConverter:
     def _transform_activations_for_analysis(activations):
         '''Transform gate 3-tuples to just 1D vectors of expert's logits'''
         for layer_name in activations.keys():
-            if (is_gate(layer_name)):
-                activations[layer_name] = [gate[0] for gate in activations[layer_name]] #get raw logits from tuple (logits, topk scroes, topk indices)
-            activations[layer_name] = torch.cat(activations[layer_name])
+            # if (is_gate(layer_name)): #DONT NEED IN OLD VERSION OF transformers, but need in new ones
+            #     activations[layer_name] = [gate[0] for gate in activations[layer_name]] #get raw logits from tuple (logits, topk scroes, topk indices)
+            if (is_gate(layer_name)): #we need activations without batches on topics/tasks. but for embeddings we need distinct batches for mean aggregation in future
+                activations[layer_name] = torch.cat(activations[layer_name])

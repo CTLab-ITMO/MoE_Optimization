@@ -97,7 +97,7 @@ class ExpertMatcher:
                                     EC_matrix,
                                     maximize_metric=True,
                                     other_matrices_for_stats: dict[str, np.ndarray] = {}) -> tuple[list[list[list[int]]], list]:
-        '''Returns many clustering cases.
+        '''Returns many interesting point on some front.
         Automatically finds clusters with peak PI values on pi front. Objective is EC, maximize_metric=True.
         
         Works bad if change EC_matrix and PI, and maximize_metric=False!
@@ -115,11 +115,11 @@ class ExpertMatcher:
         pi_values = [step_dict[f'total_{PI_metric_key}_after_split'] for step_dict in history]
         front_points = clustering_utils._detect_pi_front_points(pi_values)
         interesting_steps = front_points['idx'].to_list()
-        clustering_cases = []
-        for i in interesting_steps:
-            clustering_cases.append(history[i]['all_clusters'])
-        clustering_cases.append(clusters) #last step also
-        return clustering_cases, history
+        # clustering_cases = []
+        # for i in interesting_steps:
+        #     clustering_cases.append(history[i]['all_clusters'])
+        # clustering_cases.append(clusters) #last step also
+        return interesting_steps, history
     
     @staticmethod
     def find_by_aglomerative_clustering_greedy(adjacency_matrix_of_experts, 

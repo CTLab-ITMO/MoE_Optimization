@@ -1,12 +1,17 @@
 from functools import partial
 from typing import Callable, Iterable, Literal
 
+from networkx import clustering
 from torch import func
 from MoE_Optimization.common.expert_logger import ExpertsLogger
 from MoE_Optimization.common.expert_logger_data_converter import ExpertLoggerDataConverter
 from MoE_Optimization.common.expert_matcher import ExpertMatcher
 from MoE_Optimization.common.moe_utils import MoeHandle, discover_moe_layers
+import MoE_Optimization.common.clustering_utils as clustering_utils
+import re
 import torch
+import pandas as pd
+import numpy as np
 
 
 class ExpertClusterer:
@@ -44,6 +49,39 @@ class ExpertClusterer:
             gate_activations = name2activations[layer_gate_name]
             
             clusters, _ = create_clusters_one_layer_func(target_layer_handler, gate_activations, log_history=False, **kwargs)
+            
+            layer_idx2clusters[target_layer_handler.layer_idx] = clusters
+        return layer_idx2clusters
+    
+    
+    def create_clusters_by_front_PI_and_max_Calinski(self, target_layers: list[MoeHandle]):
+        return self._create_clusters_with_embeddings(
+            self.create_clusters_by_PI_front_points,
+            target_layers
+        )
+    
+    #TODO make better
+    def _create_clusters_with_embeddings(self, find_front_points_func: Callable, target_layers: list[MoeHandle], **kwargs):
+        '''Universal method for creating clusters for each of supplied layers'''
+        layer_idx2clusters = {}
+        name2activations = self._get_all_activations(target_layers)
+        for target_layer_handler in target_layers:
+            layer_gate_name = self.module2name[target_layer_handler.gate]
+            gate_activations = name2activations[layer_gate_name]
+            
+            
+            interesting_steps, history = find_front_points_func(target_layer_handler, gate_activations, log_history=False, **kwargs)
+            
+            layer_expert_df = self._get_tasks_expert_embeddings(name2activations, layers=[target_layer_handler.layer_idx])
+            
+            step_PI_and_calinksi_score_df = clustering_utils.build_calinski_score_df(
+                history, 
+                layer_expert_df.drop(['layer', 'expert'], axis=1).to_numpy(dtype=np.float64), 
+                layer_expert_df['expert'].to_numpy(),
+                some_popularity_metric_column="total_PI_after_split")
+            
+            best_step = step_PI_and_calinksi_score_df['calinski_harabasz'][interesting_steps].idxmax()
+            clusters = history[int(best_step)]['all_clusters']
             
             layer_idx2clusters[target_layer_handler.layer_idx] = clusters
         return layer_idx2clusters
@@ -120,9 +158,9 @@ class ExpertClusterer:
             )
         return clusters, history
     
-    def create_clusters_by_PI_front_points(self, target_layer: MoeHandle, gate_activations: torch.Tensor, **kwargs) -> tuple[list[list[list[int]]], list]:
+    def create_clusters_by_PI_front_points(self, target_layer: MoeHandle, gate_activations: torch.Tensor, **kwargs):
         '''Returns many cases of best clusters depended on PI peak (front) points'''
-        cluster_cases, history = self._create_clusters_by_two_metric_by_clustering_algo(
+        interesting_points, history = self._create_clusters_by_two_metric_by_clustering_algo(
             ExpertMatcher.find_by_dividive_clustering_objective_EC_front_of_PI,
             ExpertLoggerDataConverter.compute_PI_matrix,
             ExpertLoggerDataConverter.compute_EC_matrix, 
@@ -130,7 +168,9 @@ class ExpertClusterer:
             gate_activations, 
             maximize_metric=True
             )
-        return cluster_cases, history #TODO auto best matched clustering_case
+        
+        
+        return interesting_points, history #TODO auto best matched clustering_case
     
     def create_clusters_by_PI_greedy_aglomerative(self, target_layer: MoeHandle, gate_activations: torch.Tensor, log_history=False, **kwargs):
         '''Find clusters in one greedy step on min PI metric'''
@@ -165,10 +205,10 @@ class ExpertClusterer:
                                                       maximize_metric=False) -> tuple[list[list[int]], list]:
         metric_matrix_pi = metric_matrix_algo_pi(self.model.num_experts, 
                                         gate_activations, 
-                                        k = target_layer.gate.top_k)
+                                        k = target_layer.moe.top_k)
         metric_matrix_ec = metric_matrix_algo_ec(self.model.num_experts, 
                                         gate_activations, 
-                                        k = target_layer.gate.top_k)
+                                        k = target_layer.moe.top_k)
         clusters, history = clustering_algo(metric_matrix_pi,
                                             metric_matrix_ec,
                                         maximize_metric=maximize_metric, 
@@ -184,7 +224,7 @@ class ExpertClusterer:
                                                       maximize_metric=True) -> tuple[list[list[int]], list]:
         metric_matrix = metric_matrix_algo(self.model.num_experts, 
                                         gate_activations, 
-                                        k = target_layer.gate.top_k)
+                                        k = target_layer.moe.top_k)
         clusters, history = clustering_algo(metric_matrix, 
                                         maximize_metric=maximize_metric, 
                                         log_history=log_history)
@@ -196,6 +236,10 @@ class ExpertClusterer:
         ExpertLoggerDataConverter._transform_activations_for_analysis(name2activations)
         return name2activations
     
+    def _get_all_activations(self, target_layers: list[MoeHandle]) -> dict[str, torch.Tensor]:
+        name2activations = self.get_activations(target_layers, attach_to_gate_layer=True, attach_to_expert_layer=True)
+        ExpertLoggerDataConverter._transform_activations_for_analysis(name2activations)
+        return name2activations
 
     @staticmethod
     def _get_aggregated_embedding(E: torch.Tensor, mode: Literal['pca', 'mean']):
@@ -244,7 +288,7 @@ class ExpertClusterer:
             layer_names += gate_names
         if (attach_to_expert_layer):
             experts_names = [self.module2name[expert]
-                             for handle in target_layers for expert in handle.children()]
+                                    for handle in target_layers for expert in handle.experts]
             layer_names += experts_names
         return self._get_activations(layer_names)
 
@@ -255,3 +299,38 @@ class ExpertClusterer:
         experts_logger.reset()
         name2activation = experts_logger.get_activations(self.example_inputs)
         return name2activation
+    
+    def _parse_experts(self, name2activations, layer: int):
+        pattern = re.compile(r"model\.layers\.(\d+)\.mlp\.experts\.(\d+)")
+        result = {}
+        for key in name2activations.keys():
+            m = pattern.match(key)
+            if m:
+                layer_found = int(m.group(1))
+                expert = int(m.group(2))
+                if layer_found == layer:
+                    result[expert] = name2activations[key]
+        return result #dict[expert_id, tensor] 60 items for qwen
+
+    def _get_tasks_expert_embeddings(self, name2activations, aggregation: Literal['mean', 'max']='mean', layers=None) -> pd.DataFrame:
+        res = []
+        layers = layers or [0]
+
+        for layer in layers:
+            experts = self._parse_experts(name2activations, layer)
+
+            if aggregation == 'max':
+                pass
+                #embeddings = {e: activations[torch.argmax(torch.linalg.norm(activations, dim=-1))] for e, activations in experts.items()}
+            elif aggregation == 'mean':
+                for e, e_vals in experts.items():
+                    for e_topic in e_vals:
+                        embedding = torch.mean(e_topic, dim=0)
+                        res.append(
+                            (layer, e, *embedding.cpu().numpy())
+                        )
+            else:
+                raise ValueError(f'Unknown aggregation: {aggregation}. Supported max, mean')
+                    
+        res = pd.DataFrame(res, columns=('layer', 'expert', *[f'emb_{i}' for i in range(len(res[-1]) - 2)]))
+        return res 
