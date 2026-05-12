@@ -1,8 +1,9 @@
-from MoE_Optimization.common.expert_logger import is_gate
+from MoE_Optimization.common.expert_utils.expert_logger import is_gate
 import torch
 
 
 class ExpertLoggerDataConverter:
+    '''Create matrices and other data from raw outputs (activations and gate tensors)'''
     
     @staticmethod  
     def _count_pair_occurrences(indices):
@@ -102,7 +103,7 @@ class ExpertLoggerDataConverter:
         return pi_matrix
 
     @staticmethod
-    def _transform_activations_for_analysis(activations):
+    def transform_activations_for_analysis(activations):
         '''Transform gate 3-tuples to just 1D vectors of expert's logits'''
         for layer_name in activations.keys():
             # if (is_gate(layer_name)): #DONT NEED IN OLD VERSION OF transformers, but need in new ones

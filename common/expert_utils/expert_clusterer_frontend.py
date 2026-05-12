@@ -1,6 +1,7 @@
-from MoE_Optimization.common.clustering_utils import SELECTED_TASKS, convert_inputs_to_tokens
-from MoE_Optimization.common.expert_clusterer import ExpertClusterer
-from MoE_Optimization.common.clustering_utils import MMLUBatchGenerator
+from MoE_Optimization.common.clustering_utils import SELECTED_TASKS
+from MoE_Optimization.common.expert_utils.expert_clusterer import ExpertClusterer
+from MoE_Optimization.common.input_data_utils.mmlu_batch_generator import MMLUBatchGenerator
+from MoE_Optimization.common.input_data_utils.tokenization_utils import convert_text_inputs_to_tokens
 
 one_layer_clustering_method = [
     'create_clusters_by_PI',
@@ -17,7 +18,7 @@ one_layer_clustering_method = [
 class ExpertClustererFrontend:
     def __init__(self, model, tokenizer):
         gen = MMLUBatchGenerator(subjects=SELECTED_TASKS, split='validation', batch_size=16, include_metadata=False)
-        example_inputs = convert_inputs_to_tokens(gen, tokenizer, model.device)
+        example_inputs = convert_text_inputs_to_tokens(gen, tokenizer, model.device)
         self.clusterer = ExpertClusterer(model, example_inputs)
     
     def match_experts(self, target_layers: list, clustering_method: str):

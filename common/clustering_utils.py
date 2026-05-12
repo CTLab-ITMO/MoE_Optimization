@@ -24,151 +24,6 @@ SELECTED_TASKS = ["anatomy",
               "world_religions"]
 
 
-class MMLUBatchGenerator:
-    """
-    Generator that yields batches of 64 questions for each MMLU subject
-    """
-
-    def __init__(self,
-                 subjects: Optional[List[str]] = None,
-                 split: str = "test",
-                 batch_size: int = 64,
-                 shuffle: bool = False,
-                 include_metadata: bool = True):
-        """
-        Initialize the MMLU batch generator
-
-        Args:
-            subjects: List of subject names (None = all 57 subjects)
-            split: "test", "validation", or "dev"
-            batch_size: Number of questions per batch (default: 64)
-            shuffle: Whether to shuffle questions within each subject
-            include_metadata: Whether to include subject name in output
-        """
-        self.split = split
-        self.batch_size = batch_size
-        self.shuffle = shuffle
-        self.include_metadata = include_metadata
-
-        # Load all subjects if none specified
-        if subjects is None:
-            # Get all available subjects
-            self.subjects = self._get_all_subjects()
-        else:
-            self.subjects = subjects
-
-        print(
-            f"Initialized MMLU batch generator with {len(self.subjects)} subjects")
-        print(f"Split: {split}, Batch size: {batch_size}")
-
-    def _get_all_subjects(self) -> List[str]:
-        """Get list of all 57 MMLU subjects"""
-        # This is a comprehensive list of all MMLU subjects
-        return [
-            "abstract_algebra", "anatomy", "astronomy", "business_ethics",
-            "clinical_knowledge", "college_biology", "college_chemistry",
-            "college_computer_science", "college_mathematics", "college_medicine",
-            "college_physics", "computer_security", "conceptual_physics",
-            "econometrics", "electrical_engineering", "elementary_mathematics",
-            "formal_logic", "global_facts", "high_school_biology",
-            "high_school_chemistry", "high_school_computer_science",
-            "high_school_european_history", "high_school_geography",
-            "high_school_government_and_politics", "high_school_macroeconomics",
-            "high_school_mathematics", "high_school_microeconomics",
-            "high_school_physics", "high_school_psychology",
-            "high_school_statistics", "high_school_us_history",
-            "high_school_world_history", "human_aging", "human_sexuality",
-            "international_law", "jurisprudence", "logical_fallacies",
-            "machine_learning", "management", "marketing", "medical_genetics",
-            "miscellaneous", "moral_disputes", "moral_scenarios",
-            "nutrition", "philosophy", "prehistory", "professional_accounting",
-            "professional_law", "professional_medicine", "professional_psychology",
-            "public_relations", "security_studies", "sociology",
-            "us_foreign_policy", "virology", "world_religions"
-        ]
-
-    def _format_question(self, example: Dict, subject: str) -> Dict:
-        """Format a single question with its choices"""
-        question = example['question']
-        choices = example['choices']
-        answer = example['answer']
-
-        # Format choices as A, B, C, D
-        formatted_choices = "\n".join(
-            [f"{chr(65+i)}. {choice}" for i, choice in enumerate(choices)])
-
-        if self.include_metadata:
-            return {
-                'subject': subject,
-                'question': question,
-                'choices': choices,
-                'formatted_question': f"{question}\n{formatted_choices}",
-                'answer': answer,
-                'answer_letter': chr(65 + answer) if answer < 4 else '?'
-            }
-        else:
-            return question
-
-    def __iter__(self) -> Generator:
-        """
-        Generator that yields batches of 64 questions for each subject
-        """
-        total_subjects = len(self.subjects)
-
-        for subject_idx, subject in enumerate(self.subjects, 1):
-            try:
-                print(
-                    f"\n📚 Loading subject {subject_idx}/{total_subjects}: {subject}")
-
-                # Load the subject
-                dataset = load_dataset(
-                    "cais/mmlu", subject, trust_remote_code=True)
-                split_data = dataset[self.split]
-
-                # Get first 64 questions (or all if less than 64)
-                num_questions = min(len(split_data), self.batch_size)
-                indices = list(range(num_questions))
-
-                if self.shuffle:
-                    import random
-                    random.shuffle(indices)
-
-                # Create batch
-                batch = []
-                for idx in indices:
-                    example = split_data[idx]
-                    formatted = self._format_question(example, subject)
-                    batch.append(formatted)
-
-                print(f"  ✓ Created batch with {len(batch)} questions")
-
-                # Yield the batch with metadata
-                if self.include_metadata:
-                    yield {
-                        'subject': subject,
-                        'batch_size': len(batch),
-                        'total_questions': len(split_data),
-                        'questions': batch
-                    }
-                else:
-                    yield batch
-
-            except Exception as e:
-                print(f"  ❌ Error loading {subject}: {e}")
-                continue
-
-    def __len__(self) -> int:
-        """Return number of subjects (number of batches)"""
-        return len(self.subjects)
-
-    def get_subject_batch(self, subject: str) -> Optional[Dict]:
-        """Get a single batch for a specific subject"""
-        for batch in self:
-            if batch['subject'] == subject:
-                return batch
-        return None
-
-
 def get_qwen(model=None, quantization_config=None, cache_dir=None):
 
     MODEL = "Qwen/Qwen1.5-MoE-A2.7B"
@@ -194,22 +49,14 @@ def get_qwen(model=None, quantization_config=None, cache_dir=None):
                                                 )
     return model, tokenizer
 
-def convert_inputs_to_tokens(gen: MMLUBatchGenerator, tokenizer, device):
-   converted_batches = []
-   for batch in gen:
-        inputs = tokenizer(batch, return_tensors="pt",
-                padding=True,  # Pad to longest in batch
-                truncation=True,
-                max_length=512,  # Adjust based on your needs
-                add_special_tokens=True
-        )
-        converted_batches.append({k: v.to(device) for k, v in inputs.items()})
-   return converted_batches
+
 
 
 def spectral_bisect(mat, nodes, min_cluster_size=2):
-    # make graph bisection using Laplase operator and Fielder vector
-    # more weight on edges - more connectivity. Bisectrion tries to delete weak edges to maximize weight on parts.
+    '''make graph bisection using Laplase operator and Fielder vector.
+    
+       More weight on edges - more connectivity. Bisectrion tries to delete weak edges to maximize weight on parts.
+    '''
     nodes = np.asarray(nodes)
     if len(nodes) < 2 * min_cluster_size:
         return nodes.tolist(), []
@@ -237,7 +84,7 @@ def spectral_bisect(mat, nodes, min_cluster_size=2):
 
     return left, right
 
-def _compute_metric_on_dense_cluster(mat, nodes, reduce="mean"):
+def compute_metric_on_dense_cluster(mat, nodes, reduce="mean"):
     '''
     Args:
         nodes: indexes of nodes in cluster
@@ -261,11 +108,11 @@ def _compute_metric_on_dense_cluster(mat, nodes, reduce="mean"):
 
     raise ValueError("reduce must be 'mean' or 'sum'")
     
-def _cluster_pair_count(nodes):
+def cluster_pair_count(nodes):
     n = len(nodes)
     return n * (n - 1) // 2    
     
-def _weighted_average_cluster_metric(mat, clusters):
+def weighted_average_cluster_metric(mat, clusters):
     if mat is None:
         return np.nan
 
@@ -279,11 +126,11 @@ def _weighted_average_cluster_metric(mat, clusters):
         sub = mat[np.ix_(nodes, nodes)]
         upper = np.triu(sub, 1)
         total_sum += float(upper.sum())
-        total_pairs += _cluster_pair_count(nodes)
+        total_pairs += cluster_pair_count(nodes)
 
     return total_sum / total_pairs if total_pairs > 0 else 0.0
     
-def _make_iterative_clustering(adjacency_matrix_of_experts: np.ndarray, 
+def make_iterative_clustering(adjacency_matrix_of_experts: np.ndarray, 
                               min_cluster_size=2,
                               maximize_metric=True, 
                               other_matrices_for_stats: Optional[dict[str, np.ndarray]] = None,
@@ -312,7 +159,7 @@ def _make_iterative_clustering(adjacency_matrix_of_experts: np.ndarray,
             objective_mat = objective_mat.max() - objective_mat
 
         candidates = [
-            (_compute_metric_on_dense_cluster(objective_mat, cluster), len(cluster), idx)
+            (compute_metric_on_dense_cluster(objective_mat, cluster), len(cluster), idx)
             for idx, cluster in enumerate(clusters)
             if len(cluster) >= 2 * min_cluster_size
         ]
@@ -341,20 +188,20 @@ def _make_iterative_clustering(adjacency_matrix_of_experts: np.ndarray,
                     "left": left,
                     "right": right,
                     "all_clusters": copy.copy(clusters),
-                    "metric_of_split_cluster": _compute_metric_on_dense_cluster(adjacency_matrix_of_experts, cluster_to_divide),
-                    "total_metric_after_split": _weighted_average_cluster_metric(adjacency_matrix_of_experts, clusters),
+                    "metric_of_split_cluster": compute_metric_on_dense_cluster(adjacency_matrix_of_experts, cluster_to_divide),
+                    "total_metric_after_split": weighted_average_cluster_metric(adjacency_matrix_of_experts, clusters),
                     }
             
             if (other_matrices_for_stats is not None):
                 for key in other_matrices_for_stats.keys():
-                    step_dict[f'{key}_of_split_cluster'] = _compute_metric_on_dense_cluster(other_matrices_for_stats[key], cluster_to_divide)
-                    step_dict[f'total_{key}_after_split'] = _weighted_average_cluster_metric(other_matrices_for_stats[key], clusters)
+                    step_dict[f'{key}_of_split_cluster'] = compute_metric_on_dense_cluster(other_matrices_for_stats[key], cluster_to_divide)
+                    step_dict[f'total_{key}_after_split'] = weighted_average_cluster_metric(other_matrices_for_stats[key], clusters)
                 
             history.append(step_dict)
 
     return clusters, history 
 
-def _make_greedy_agglomerative_pairs(
+def make_greedy_agglomerative_pairs(
     adjacency_matrix_of_experts,
     maximize_metric=False,
     log_history=False,
@@ -407,18 +254,18 @@ def _make_greedy_agglomerative_pairs(
         step_dict = {
             'step': len(history) + 1,
             'all_clusters': clusters,
-            "total_metric_after_split": _weighted_average_cluster_metric(adjacency_matrix_of_experts, clusters),
+            "total_metric_after_split": weighted_average_cluster_metric(adjacency_matrix_of_experts, clusters),
 
         }
         if other_matrices_for_stats is not None:
             for key in other_matrices_for_stats.keys():
-                step_dict[f'total_{key}_after_split'] = _weighted_average_cluster_metric(other_matrices_for_stats[key], clusters)
+                step_dict[f'total_{key}_after_split'] = weighted_average_cluster_metric(other_matrices_for_stats[key], clusters)
         history.append(step_dict)
 
     return clusters, history
 
 
-def _detect_pi_front_points(
+def detect_pi_front_points(
     values,
     skip_start=5, #tested in check_activations_of_clusters.ipynb (optimized for 60 experts Qwen! ~  30 steps)
     radius=1, #tested in check_activations_of_clusters.ipynb
@@ -493,7 +340,7 @@ def labels_from_clusters(clusters, row_experts):
             expert_to_cluster[expert] = cluster_id
     return np.asarray([expert_to_cluster.get(expert, -1) for expert in row_experts], dtype=np.int64)
 
-def build_calinski_score_df(history: dict, X: pd.DataFrame, row_experts, some_popularity_metric_column='total_PI_after_split'):
+def build_calinski_score_df(history: dict, X: np.ndarray | pd.DataFrame, row_experts, some_popularity_metric_column='total_PI_after_split'):
     '''Eats history of expert division to clusters and embeddings (X) of activations. Also eats row_experts - indexes of experts belonging to X
     Returns:
         another table with history and with calculated calinski_score metric for every cluster division

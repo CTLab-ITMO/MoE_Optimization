@@ -3,7 +3,7 @@ from typing import *
 from itertools import chain
 import torch
 
-def is_gate(name: str, layer: torch.nn.Module = None):
+def is_gate(name: str, layer: Optional[torch.nn.Module] = None):
     return name.endswith('gate')
 
 class ExpertsLogger():

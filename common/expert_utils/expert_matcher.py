@@ -3,6 +3,7 @@ from typing import Optional
 import numpy as np
 
 class ExpertMatcher:
+    '''Class that find matches of experts by matrices like PI or other data.'''
         
     @staticmethod
     def find_by_dividive_clustering(adjacency_matrix_of_experts, 
@@ -10,7 +11,7 @@ class ExpertMatcher:
                                     log_history=False,
                                     other_matrices_for_stats: Optional[dict[str, np.ndarray]] = None) -> tuple[list[list[int]], list]:
         '''Returns experts pairs or triplets after dividive clustering and history'''
-        clusters, history = clustering_utils._make_iterative_clustering(
+        clusters, history = clustering_utils.make_iterative_clustering(
             adjacency_matrix_of_experts,
             min_cluster_size=2,
             maximize_metric=maximize_metric,
@@ -31,7 +32,7 @@ class ExpertMatcher:
         If change PI and EC matrices, and set maximize_metric=True, than it will work in the same way, but for EC as objective
         '''
         EC_metric_key = 'EC'
-        clusters, history = clustering_utils._make_iterative_clustering(
+        clusters, history = clustering_utils.make_iterative_clustering(
             PI_matrix,
             min_cluster_size=2,
             maximize_metric=maximize_metric,
@@ -66,7 +67,7 @@ class ExpertMatcher:
         If change PI and EC matrices and set maximize_metric=True will be the same result, but for EC as objective.
         '''
         EC_metric_key = 'EC'
-        clusters, history = clustering_utils._make_iterative_clustering(
+        clusters, history = clustering_utils.make_iterative_clustering(
             PI_matrix,
             min_cluster_size=2,
             maximize_metric=maximize_metric,
@@ -103,7 +104,7 @@ class ExpertMatcher:
         Works bad if change EC_matrix and PI, and maximize_metric=False!
         '''
         PI_metric_key = 'PI'
-        clusters, history = clustering_utils._make_iterative_clustering(
+        clusters, history = clustering_utils.make_iterative_clustering(
             EC_matrix,
             min_cluster_size=2,
             maximize_metric=maximize_metric,
@@ -113,7 +114,7 @@ class ExpertMatcher:
             )
         
         pi_values = [step_dict[f'total_{PI_metric_key}_after_split'] for step_dict in history]
-        front_points = clustering_utils._detect_pi_front_points(pi_values)
+        front_points = clustering_utils.detect_pi_front_points(pi_values)
         interesting_steps = front_points['idx'].to_list()
         # clustering_cases = []
         # for i in interesting_steps:
@@ -127,7 +128,7 @@ class ExpertMatcher:
                                     log_history=False,
                                     other_matrices_for_stats: Optional[dict[str, np.ndarray]] = None) -> tuple[list[list[int]], list]:
         '''Returns pairs by creating them in order of min PI'''
-        clusters, history = clustering_utils._make_greedy_agglomerative_pairs(
+        clusters, history = clustering_utils.make_greedy_agglomerative_pairs(
             adjacency_matrix_of_experts,
             maximize_metric=maximize_metric,
             other_matrices_for_stats=other_matrices_for_stats,

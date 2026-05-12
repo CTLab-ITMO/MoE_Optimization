@@ -1,11 +1,9 @@
 from functools import partial
 from typing import Callable, Iterable, Literal
 
-from networkx import clustering
-from torch import func
-from MoE_Optimization.common.expert_logger import ExpertsLogger
-from MoE_Optimization.common.expert_logger_data_converter import ExpertLoggerDataConverter
-from MoE_Optimization.common.expert_matcher import ExpertMatcher
+from MoE_Optimization.common.expert_utils.expert_logger import ExpertsLogger
+from MoE_Optimization.common.expert_utils.expert_logger_data_converter import ExpertLoggerDataConverter
+from MoE_Optimization.common.expert_utils.expert_matcher import ExpertMatcher
 from MoE_Optimization.common.moe_utils import MoeHandle, discover_moe_layers
 import MoE_Optimization.common.clustering_utils as clustering_utils
 import re
@@ -77,7 +75,7 @@ class ExpertClusterer:
             step_PI_and_calinksi_score_df = clustering_utils.build_calinski_score_df(
                 history, 
                 layer_expert_df.drop(['layer', 'expert'], axis=1).to_numpy(dtype=np.float64), 
-                layer_expert_df['expert'].to_numpy(),
+                row_experts = layer_expert_df['expert'].to_numpy(),
                 some_popularity_metric_column="total_PI_after_split")
             
             best_step = step_PI_and_calinksi_score_df['calinski_harabasz'][interesting_steps].idxmax()
@@ -233,12 +231,12 @@ class ExpertClusterer:
 
     def _get_activations_from_gate(self, target_layers: list[MoeHandle]) -> dict[str, torch.Tensor]:
         name2activations = self.get_activations(target_layers, attach_to_gate_layer=True, attach_to_expert_layer=False)
-        ExpertLoggerDataConverter._transform_activations_for_analysis(name2activations)
+        ExpertLoggerDataConverter.transform_activations_for_analysis(name2activations)
         return name2activations
     
     def _get_all_activations(self, target_layers: list[MoeHandle]) -> dict[str, torch.Tensor]:
         name2activations = self.get_activations(target_layers, attach_to_gate_layer=True, attach_to_expert_layer=True)
-        ExpertLoggerDataConverter._transform_activations_for_analysis(name2activations)
+        ExpertLoggerDataConverter.transform_activations_for_analysis(name2activations)
         return name2activations
 
     @staticmethod
