@@ -1,7 +1,8 @@
 from typing import Iterable
 
 import torch
-from transformers import Optional, PreTrainedTokenizer
+from transformers import PreTrainedTokenizer
+from typing import Optional
 
 from MoE_Optimization.common.clustering_utils import SELECTED_TASKS
 from MoE_Optimization.common.expert_utils.expert_clusterer import ExpertClusterer
@@ -40,12 +41,28 @@ class ExpertClustererPipeline:
         self.clusterer = ExpertClusterer(model, example_inputs)
     
     
-    def match_experts(self, target_layers: list, clustering_method: str):
+    def match_experts(self, target_layers: list, clustering_method: str, max_cluster_size=None):
+        '''
+        
+        Params:
+            max_cluster_size: appliable only for algorithms that take last cluster solution from clustering history. 
+            For solutions with find different metrics doesn't works.
+        '''
+        
         match clustering_method:
             case 'create_clusters_by_PI':
-                return self.clusterer.create_clusters_by_PI(target_layers)
+                return self.clusterer._create_clusters_by(
+                    self.clusterer.create_clusters_by_PI_one_layer, 
+                    target_layers,
+                    max_cluster_size=max_cluster_size
+                )
+
             case 'create_clusters_by_EC':
-                return self.clusterer.create_clusters_by_EC(target_layers)
+                return self.clusterer._create_clusters_by(
+                    self.clusterer.create_clusters_by_EC_one_layer, 
+                    target_layers,
+                    max_cluster_size=max_cluster_size
+                )
             case 'create_clusters_by_PI_but_find_max_on_EC':
                 return self.clusterer._create_clusters_by(
                     self.clusterer.create_clusters_by_PI_but_find_max_on_EC,

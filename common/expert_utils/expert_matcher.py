@@ -9,11 +9,17 @@ class ExpertMatcher:
     def find_by_dividive_clustering(adjacency_matrix_of_experts, 
                                     maximize_metric=False, 
                                     log_history=False,
+                                    max_cluster_size: Optional[int] = 2,
                                     other_matrices_for_stats: Optional[dict[str, np.ndarray]] = None) -> tuple[list[list[int]], list]:
-        '''Returns experts pairs or triplets after dividive clustering and history'''
+        '''Returns experts pairs or triplets after dividive clustering and history
+        
+        Params:
+            max_cluster_size: the solution will be with that bound
+        '''
         clusters, history = clustering_utils.make_iterative_clustering(
             adjacency_matrix_of_experts,
             min_cluster_size=2,
+            max_cluster_size=max_cluster_size,
             maximize_metric=maximize_metric,
             devide_worst_candidate_first=True,
             other_matrices_for_stats=other_matrices_for_stats,
@@ -25,16 +31,21 @@ class ExpertMatcher:
     def find_by_dividive_clustering_PI_and_max_EC(PI_matrix, 
                                     EC_matrix: np.ndarray,
                                     maximize_metric=False,
+                                    max_cluster_size: Optional[int] = None,
                                     other_matrices_for_stats: dict[str, np.ndarray] = {}) -> tuple[list[list[int]], list]:
         '''Returns experts pairs or triplets after dividive clustering and history.
         Automatically finds num of clusters, where EC max.
         
         If change PI and EC matrices, and set maximize_metric=True, than it will work in the same way, but for EC as objective
+        
+        Params:
+            max_cluster_size: best solution can be without max_cluster_size bound
         '''
         EC_metric_key = 'EC'
         clusters, history = clustering_utils.make_iterative_clustering(
             PI_matrix,
             min_cluster_size=2,
+            max_cluster_size=max_cluster_size,
             maximize_metric=maximize_metric,
             devide_worst_candidate_first=True,
             other_matrices_for_stats= {EC_metric_key: EC_matrix} | other_matrices_for_stats,
@@ -60,17 +71,22 @@ class ExpertMatcher:
     def find_by_dividive_clustering_max_PI_and_EC_product(PI_matrix, 
                                     EC_matrix: np.ndarray,
                                     maximize_metric=False,
+                                    max_cluster_size: Optional[int] = None,
                                     other_matrices_for_stats: dict[str, np.ndarray] = {}) -> tuple[list[list[int]], list]:
         '''Returns experts pairs or triplets after dividive clustering and history.
         Automatically finds num of clusters, where EC * (1/PI) max.
         
         If change PI and EC matrices and set maximize_metric=True will be the same result, but for EC as objective.
+        
+        Params:
+            max_cluster_size: best solution can be without max_cluster_size bound
         '''
         EC_metric_key = 'EC'
         clusters, history = clustering_utils.make_iterative_clustering(
             PI_matrix,
             min_cluster_size=2,
             maximize_metric=maximize_metric,
+            max_cluster_size=max_cluster_size,
             devide_worst_candidate_first=True,
             other_matrices_for_stats= {EC_metric_key: EC_matrix} | other_matrices_for_stats,
             log_history=True
@@ -97,16 +113,21 @@ class ExpertMatcher:
     def find_by_dividive_clustering_objective_EC_front_of_PI(PI_matrix,
                                     EC_matrix,
                                     maximize_metric=True,
+                                    max_cluster_size: Optional[int]=None,
                                     other_matrices_for_stats: dict[str, np.ndarray] = {}) -> tuple[list[list[list[int]]], list]:
         '''Returns many interesting point on some front.
         Automatically finds clusters with peak PI values on pi front. Objective is EC, maximize_metric=True.
         
         Works bad if change EC_matrix and PI, and maximize_metric=False!
+        
+        Params:
+            max_cluster_size: bound the last dividive step, but dont guarantee that best solution will be bounded by that value.
         '''
         PI_metric_key = 'PI'
         clusters, history = clustering_utils.make_iterative_clustering(
             EC_matrix,
             min_cluster_size=2,
+            max_cluster_size=max_cluster_size,
             maximize_metric=maximize_metric,
             devide_worst_candidate_first=True,
             other_matrices_for_stats= {PI_metric_key: PI_matrix} | other_matrices_for_stats,
@@ -127,7 +148,7 @@ class ExpertMatcher:
                                     maximize_metric=False, 
                                     log_history=False,
                                     other_matrices_for_stats: Optional[dict[str, np.ndarray]] = None) -> tuple[list[list[int]], list]:
-        '''Returns pairs by creating them in order of min PI'''
+        '''Returns pairs (clusters of size=2) by creating them in order of min PI'''
         clusters, history = clustering_utils.make_greedy_agglomerative_pairs(
             adjacency_matrix_of_experts,
             maximize_metric=maximize_metric,

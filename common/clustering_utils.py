@@ -130,9 +130,10 @@ def weighted_average_cluster_metric(mat, clusters):
 
     return total_sum / total_pairs if total_pairs > 0 else 0.0
     
-def make_iterative_clustering(adjacency_matrix_of_experts: np.ndarray, 
+def make_iterative_clustering(adjacency_matrix_of_experts: np.ndarray,
                               min_cluster_size=2,
-                              maximize_metric=True, 
+                              max_cluster_size: Optional[int] = None,
+                              maximize_metric=False, #for PI for example want False
                               other_matrices_for_stats: Optional[dict[str, np.ndarray]] = None,
                               devide_worst_candidate_first = True,
                               log_history=False) -> tuple[list, list]:
@@ -140,10 +141,14 @@ def make_iterative_clustering(adjacency_matrix_of_experts: np.ndarray,
     Makes iterative deviding clustering using `adjacency_matrix_of_experts`.
     Additionally compute stats of main metric on every step. If `other_matrices_for_stats` provided then
     ads their metrics (using name of key) during clustering in history.
+    
+    Parameters:
+        min_cluster_size: cut cluster by bisection until current_cluster_size >= 2 * min_cluster_size
+        max_cluster_size: cut clusters at the end to small parts in random order
         
     Returns: 
-            clusters: as indexes
-            history: as dicts
+        clusters: as indexes
+        history: as dicts
     '''
 
     if adjacency_matrix_of_experts.ndim != 2 or adjacency_matrix_of_experts.shape[0] != adjacency_matrix_of_experts.shape[1]:
@@ -152,19 +157,47 @@ def make_iterative_clustering(adjacency_matrix_of_experts: np.ndarray,
     clusters = [list(range(adjacency_matrix_of_experts.shape[0]))]
     history = []
     step = 0
+    
+    objective_mat = adjacency_matrix_of_experts
+    if (maximize_metric == False):
+        objective_mat = objective_mat.max() - objective_mat
 
     while True:
-        objective_mat = adjacency_matrix_of_experts
-        if (maximize_metric == False):
-            objective_mat = objective_mat.max() - objective_mat
-
         candidates = [
             (compute_metric_on_dense_cluster(objective_mat, cluster), len(cluster), idx)
             for idx, cluster in enumerate(clusters)
             if len(cluster) >= 2 * min_cluster_size
         ]
         if not candidates:
-            break
+            if (max_cluster_size is not None):
+                split_idx = 0
+                while split_idx < len(clusters):
+                    cluster = clusters[split_idx]
+                    if len(cluster) > max_cluster_size:
+                        small_parts = [cluster[i:i+max_cluster_size] for i in range(0, len(cluster), max_cluster_size)]
+                        clusters.extend(small_parts)
+                        clusters.pop(split_idx)
+                    else:
+                        split_idx += 1
+                
+                if (log_history):
+                    step_dict = {
+                            "step": step,
+                            "divided_cluster": None,
+                            "left": None,
+                            "right": None,
+                            "all_clusters": copy.copy(clusters),
+                            "metric_of_split_cluster": None,
+                            "total_metric_after_split": weighted_average_cluster_metric(adjacency_matrix_of_experts, clusters),
+                            }
+                    
+                    if (other_matrices_for_stats is not None):
+                        for key in other_matrices_for_stats.keys():
+                            step_dict[f'{key}_of_split_cluster'] = None
+                            step_dict[f'total_{key}_after_split'] = weighted_average_cluster_metric(other_matrices_for_stats[key], clusters)
+                        
+                    history.append(step_dict)
+            break #ussualy finish here, when no candidates with right size remained.
 
         if (devide_worst_candidate_first):
             _, _, split_idx = max(candidates, key=lambda item: (-item[0], item[1]))
@@ -173,10 +206,6 @@ def make_iterative_clustering(adjacency_matrix_of_experts: np.ndarray,
             
         cluster_to_divide = clusters.pop(split_idx)
         left, right = spectral_bisect(objective_mat, cluster_to_divide, min_cluster_size=min_cluster_size)
-            
-        if len(left) < min_cluster_size or len(right) < min_cluster_size:
-            clusters.insert(split_idx, cluster_to_divide)
-            break
 
         clusters.extend([left, right])
         step += 1
