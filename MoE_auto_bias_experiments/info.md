@@ -3,10 +3,10 @@
 | Версия | Формула $\Delta b_i$ |
 | :----- | :---------- |
 | **v4** | $\Delta b_i = \frac{\sigma(\bar{z}_l)}{N/K} \cdot \hat{s}_i$ |
-| **v5** | $\Delta b_i = \max(\bar{z}_{l}^{(1)} - \bar{z}_{l}^{(K)}, 10^{-4}) \cdot \hat{s}_i$ |
+| **v5** | $\Delta b_i = \max(\bar{z}_l^1 - \bar{z}_l^K,\ 10^{-4}) \cdot \hat{s}_i$ |
 | **v6** | $\Delta b_i = \frac{4\,\sigma(z_l)}{N} \cdot \hat{s}_i$ |
 | **v7** | $\Delta b_i = \frac{Q_{75}(z_l) - Q_{25}(z_l)}{N} \cdot \hat{s}_i$ |
-| **v8** | $\Delta b_i = \frac{\bar{z}_{l}^{(1)} - \bar{z}_{l}^{(K)}}{N/K} \cdot \hat{s}_i$ |
+| **v8** | $\Delta b_i = \frac{\bar{z}_l^1 - \bar{z}_l^K}{N/K} \cdot \hat{s}_i$ |
 | **v9** | $\Delta b_i = \frac{\sigma(\bar{z}_l)}{N/K} \cdot \mathrm{sign}(\hat{s}_i) \cdot \hat{s}_i^{2}$ |
 | **v10** | $\Delta b_i = \frac{\sigma(\bar{z}_l)}{N/K} \cdot \tilde{s}_i$, где $\tilde{s}_i = \hat{s}_i$ для топ-$K$ и анти-топ-$K$ экспертов, иначе $0$ |
 
@@ -16,7 +16,7 @@
 | Режим | Формула $S_i$ |
 | :---- | :---- |
 | **standard** | $S_i = -\sum_t \left(\frac{\partial L}{\partial o_t}\right)^\top w_{t,i} \cdot e_i(h_t)$ |
-| **corrected** | $S_i = -\sum_t \left(\frac{\partial L}{\partial o_t}\right)^\top w_{t,i} \cdot (e_i(h_t) - o_t)$ — точная $\partial L / \partial b_i$ |
+| **corrected** | $S_i = -\sum_t \left(\frac{\partial L}{\partial o_t}\right)^\top w_{t,i} \cdot (e_i(h_t) - o_t)$ (по сути $\partial L / \partial b_i$) |
 
 $o_t$ — выход MoE-блока.
 
