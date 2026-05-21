@@ -218,12 +218,12 @@ class ExpertClusterer:
 
     def _get_activations_from_gate(self, target_layers: list[MoeHandle]) -> dict[str, torch.Tensor]:
         name2activations = self.get_activations(target_layers, attach_to_gate_layer=True, attach_to_expert_layer=False)
-        ExpertLoggerDataConverter.transform_activations_for_analysis(name2activations)
+        ExpertLoggerDataConverter.transform_gate_activations(name2activations, top_k = target_layers[0].moe.top_k)
         return name2activations
     
     def _get_all_activations(self, target_layers: list[MoeHandle]) -> dict[str, torch.Tensor]:
         name2activations = self.get_activations(target_layers, attach_to_gate_layer=True, attach_to_expert_layer=True)
-        ExpertLoggerDataConverter.transform_activations_for_analysis(name2activations)
+        ExpertLoggerDataConverter.transform_gate_activations(name2activations, top_k = target_layers[0].moe.top_k)
         return name2activations
 
     @staticmethod
@@ -295,7 +295,7 @@ class ExpertClusterer:
                 expert = int(m.group(2))
                 if layer_found == layer:
                     result[expert] = name2activations[key]
-        return result #dict[expert_id, tensor] 60 items for qwen
+        return result #dict[expert_id, (list of tensors for every batch-topic)] 60 items for qwen
 
     def _get_tasks_expert_embeddings(self, name2activations, aggregation: Literal['mean', 'max']='mean', layers=None) -> pd.DataFrame:
         res = []

@@ -39,10 +39,9 @@ class ExpertLoggerDataConverter:
         return unique_pairs, counts
         
     @staticmethod
-    def get_raw_cooc_counts(gate_indices: torch.Tensor, k=4) -> dict[tuple[int, int], int]:
+    def get_raw_cooc_counts(gate_topk_indices_for_each_token: torch.Tensor) -> dict[tuple[int, int], int]:
         """Returns dict with raw co-occurence count. pair -> count"""
-        G_k = torch.topk(gate_indices, k=k).indices
-        pairs, counts = ExpertLoggerDataConverter._count_pair_occurrences(G_k)
+        pairs, counts = ExpertLoggerDataConverter._count_pair_occurrences(gate_topk_indices_for_each_token)
         return dict(zip((tuple(p) for p in pairs.tolist()), counts.tolist()))
     
     @staticmethod
@@ -81,9 +80,9 @@ class ExpertLoggerDataConverter:
         return ec_value
     
     @staticmethod
-    def compute_EC_matrix(num_experts: int, gate: torch.Tensor, k: int=4) -> torch.Tensor:
+    def compute_EC_matrix(num_experts: int, gate_topk_indices_for_each_token: torch.Tensor, k: int=4) -> torch.Tensor:
         ec_matrix = torch.zeros((num_experts, num_experts))
-        raw_cooc = ExpertLoggerDataConverter.get_raw_cooc_counts(gate, k)   
+        raw_cooc = ExpertLoggerDataConverter.get_raw_cooc_counts(gate_topk_indices_for_each_token)   
         for i in range(num_experts):
             for j in range(i + 1, num_experts):
                 ec_value = ExpertLoggerDataConverter.EC_score(i, j, raw_cooc, k)
@@ -92,21 +91,40 @@ class ExpertLoggerDataConverter:
         return ec_matrix
 
     @staticmethod
-    def compute_PI_matrix(num_experts: int, gate: torch.Tensor, k: int=4) -> torch.Tensor:
+    def compute_PI_matrix(num_experts: int, gate_topk_indices_for_each_token: torch.Tensor, k: int=4) -> torch.Tensor:
         pi_matrix = torch.zeros((num_experts, num_experts))
-        raw_cooc = ExpertLoggerDataConverter.get_raw_cooc_counts(gate, k)
+        raw_cooc = ExpertLoggerDataConverter.get_raw_cooc_counts(gate_topk_indices_for_each_token)
         for i in range(num_experts):
             for j in range(i + 1, num_experts):
                 pi_value = ExpertLoggerDataConverter.PI_score(i, j, raw_cooc, k)
                 pi_matrix[i, j] = pi_value
                 pi_matrix[j, i] = pi_value  
         return pi_matrix
-
-    @staticmethod
-    def transform_activations_for_analysis(activations):
-        '''Transform gate 3-tuples to just 1D vectors of expert's logits'''
+    
+    @staticmethod            
+    def transform_gate_activations(activations: dict, top_k=4):
+        '''Transform gate's n-tuples to just 1D vectors of top_k expert's indices.
+        Note: in case of Qwen model - transform weight output vectors to expert indices.
+        In case of DeepSeek model, find in output tuple int tensor and return it as indices.
+        
+        Changed shape in dict with `gate` word: Tensor(n_batches * len_in_batch, top_k_indices_of_experts)
+        '''
         for layer_name in activations.keys():
-            # if (is_gate(layer_name)): #DONT NEED IN OLD VERSION OF transformers, but need in new ones
-            #     activations[layer_name] = [gate[0] for gate in activations[layer_name]] #get raw logits from tuple (logits, topk scroes, topk indices)
+        # if (is_gate(layer_name)): #DONT NEED IN OLD VERSION OF transformers, but need in new ones
+        #     activations[layer_name] = [gate[0] for gate in activations[layer_name]] #get raw logits from tuple (logits, topk scroes, topk indices)
             if (is_gate(layer_name)): #we need activations without batches on topics/tasks. but for embeddings we need distinct batches for mean aggregation in future
+                if (isinstance(activations[layer_name][0], tuple)):
+                    probable_index_of_gates_idx = None #check index
+                    for i, tuple_element in enumerate(activations[layer_name][0]): #heuristic for finding gate idx in case of tuple return
+                        if not tuple_element.dtype.is_floating_point:
+                            probable_index_of_gates_idx = i
+                            break
+                    if (probable_index_of_gates_idx is None):
+                        raise ValueError(f"Expert indices not found in gate activations tuple. Probably the model not supported yet for that algo.")
+                    activations[layer_name] = [gate_return[probable_index_of_gates_idx] 
+                                                        for gate_return in activations[layer_name]]
+                else:
+                    if (activations[layer_name][0].dtype.is_floating_point):
+                        activations[layer_name] = [torch.topk(gate_weights, k=top_k).indices for gate_weights in activations[layer_name]]
+                
                 activations[layer_name] = torch.cat(activations[layer_name])
