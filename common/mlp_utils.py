@@ -23,7 +23,9 @@ def _as_2d_tensor(data, device=None, dtype=None):
     if tensor.dim() == 1:
         tensor = tensor.unsqueeze(0)
     if device is not None or dtype is not None:
-        tensor = tensor.to(device=device if device is not None else tensor.device, dtype=dtype)
+        tensor = tensor.to(
+            device=device if device is not None else tensor.device, dtype=dtype
+        )
     return tensor
 
 
@@ -52,7 +54,9 @@ def _rank_hidden_channels(model: AdvancedMLP, x: torch.Tensor) -> torch.Tensor:
     return torch.argsort(scores, descending=True)
 
 
-def _reorder_advanced_mlp(model: AdvancedMLP, order: torch.Tensor, create_new: bool = True) -> AdvancedMLP:
+def _reorder_advanced_mlp(
+    model: AdvancedMLP, order: torch.Tensor, create_new: bool = True
+) -> AdvancedMLP:
     new_mlp = model if not create_new else copy.deepcopy(model)
     with torch.no_grad():
         new_mlp.gate.weight = nn.Parameter(model.gate.weight[order].clone())
@@ -82,7 +86,7 @@ def zipMLP(
     mlpA: MLP, mlpB: MLP, train_data: torch.Tensor, create_new: bool = True
 ) -> MLP:
     """Take two MLP models, zipit using train data. Return zipped MLP"""
-    if (len(train_data) == 0):
+    if len(train_data) == 0:
         return avgMLP(mlpA, mlpB, train_data, create_new)
     with torch.no_grad():
         new_mlp = mlpA
@@ -112,7 +116,10 @@ def avgMLP(
 
 
 def procrustesMLP(
-    mlpA: AdvancedMLP, mlpB: AdvancedMLP, train_data: torch.Tensor, create_new: bool = True
+    mlpA: AdvancedMLP,
+    mlpB: AdvancedMLP,
+    train_data: torch.Tensor,
+    create_new: bool = True,
 ) -> AdvancedMLP:
     """Align hidden channels by rank of activation signatures, then average.
 
@@ -149,7 +156,9 @@ def _estimate_fisher_diag(
     hidden_loss_weight: float = 0.25,
 ) -> dict[str, torch.Tensor]:
     params = {name: p for name, p in model.named_parameters() if p.requires_grad}
-    fisher = {name: torch.zeros_like(p, dtype=torch.float32) for name, p in params.items()}
+    fisher = {
+        name: torch.zeros_like(p, dtype=torch.float32) for name, p in params.items()
+    }
 
     model.zero_grad(set_to_none=True)
     was_training = model.training
@@ -164,9 +173,9 @@ def _estimate_fisher_diag(
             model.zero_grad(set_to_none=True)
             pred_out = model(batch_x)
             pred_hidden = _hidden_activations(model, batch_x)
-            loss = F.mse_loss(pred_out, batch_teacher_out) + hidden_loss_weight * F.mse_loss(
-                pred_hidden, batch_teacher_hidden
-            )
+            loss = F.mse_loss(
+                pred_out, batch_teacher_out
+            ) + hidden_loss_weight * F.mse_loss(pred_hidden, batch_teacher_hidden)
             grads = torch.autograd.grad(
                 loss,
                 tuple(params.values()),
@@ -185,7 +194,10 @@ def _estimate_fisher_diag(
 
 
 def fisherMLP(
-    mlpA: AdvancedMLP, mlpB: AdvancedMLP, train_data: torch.Tensor, create_new: bool = True
+    mlpA: AdvancedMLP,
+    mlpB: AdvancedMLP,
+    train_data: torch.Tensor,
+    create_new: bool = True,
 ) -> AdvancedMLP:
     """Merge experts with parameter-wise Fisher precision weighting.
 
@@ -198,7 +210,9 @@ def fisherMLP(
     with torch.no_grad():
         data = _as_2d_tensor(train_data, device=_model_device(mlpA))
         teacher_output = 0.5 * (mlpA(data) + mlpB(data))
-        teacher_hidden = 0.5 * (_hidden_activations(mlpA, data) + _hidden_activations(mlpB, data))
+        teacher_hidden = 0.5 * (
+            _hidden_activations(mlpA, data) + _hidden_activations(mlpB, data)
+        )
 
     fisher_a = _estimate_fisher_diag(mlpA, data, teacher_output, teacher_hidden)
     fisher_b = _estimate_fisher_diag(mlpB, data, teacher_output, teacher_hidden)
@@ -221,9 +235,8 @@ def fisherMLP(
         imp_a = imp_a / (imp_a.mean() + 1e-8)
         imp_b = imp_b / (imp_b.mean() + 1e-8)
         merged_state[key] = (
-            ((imp_a * state_a[key].float()) + (imp_b * state_b[key].float())) / (
-            imp_a + imp_b + 1e-8
-            )
+            ((imp_a * state_a[key].float()) + (imp_b * state_b[key].float()))
+            / (imp_a + imp_b + 1e-8)
         ).to(dtype=state_a[key].dtype)
 
     merged.load_state_dict(merged_state, strict=True)
@@ -231,8 +244,11 @@ def fisherMLP(
 
 
 def tiesMLP(
-    mlpA: AdvancedMLP, mlpB: AdvancedMLP, train_data: torch.Tensor, create_new: bool = True,
-    trim_ratio: float = 0.2
+    mlpA: AdvancedMLP,
+    mlpB: AdvancedMLP,
+    train_data: torch.Tensor,
+    create_new: bool = True,
+    trim_ratio: float = 0.2,
 ) -> AdvancedMLP:
     """Sparse sign-consensus merge inspired by TIES.
 
@@ -254,11 +270,15 @@ def tiesMLP(
             wa = state_a[key].float()
             wb = state_b[key].float()
             same_sign = torch.sign(wa) == torch.sign(wb)
-            chosen = torch.where(same_sign, 0.5 * (wa + wb), torch.where(wa.abs() >= wb.abs(), wa, wb))
+            chosen = torch.where(
+                same_sign, 0.5 * (wa + wb), torch.where(wa.abs() >= wb.abs(), wa, wb)
+            )
 
             if trim_ratio > 0:
                 threshold = torch.quantile(chosen.abs().flatten(), trim_ratio)
-                chosen = torch.where(chosen.abs() >= threshold, chosen, torch.zeros_like(chosen))
+                chosen = torch.where(
+                    chosen.abs() >= threshold, chosen, torch.zeros_like(chosen)
+                )
 
             merged_state[key] = chosen.to(dtype=state_a[key].dtype)
 
@@ -267,7 +287,10 @@ def tiesMLP(
 
 
 def distillMLP(
-    mlpA: AdvancedMLP, mlpB: AdvancedMLP, train_data: torch.Tensor, create_new: bool = True
+    mlpA: AdvancedMLP,
+    mlpB: AdvancedMLP,
+    train_data: torch.Tensor,
+    create_new: bool = True,
 ) -> AdvancedMLP:
     """Train a student expert to mimic the pairwise teacher ensemble.
 
@@ -285,7 +308,9 @@ def distillMLP(
 
     with torch.no_grad():
         teacher_out = 0.5 * (mlpA(data) + mlpB(data))
-        teacher_hidden = 0.5 * (_hidden_activations(mlpA, data) + _hidden_activations(mlpB, data))
+        teacher_hidden = 0.5 * (
+            _hidden_activations(mlpA, data) + _hidden_activations(mlpB, data)
+        )
 
     student.train()
     optimizer = torch.optim.AdamW(student.parameters(), lr=3e-4, weight_decay=0.0)
@@ -321,7 +346,7 @@ def solve_linear(X, Y, lambda_ridge=1e-3):
     d_in = X.shape[1]
     XtX = X.T @ X + lambda_ridge * torch.eye(d_in, device=X.device, dtype=X.dtype)
     rhs = X.T @ Y
-    
+
     W = torch.linalg.solve(XtX, rhs).T
     return W
 
@@ -333,10 +358,17 @@ def finetune(method):
             return newMlp
         newMlp.down = None
         all_tokens = _as_tensor(train_data)
-        real_res = torch.cat([mlpA.forward(all_tokens), mlpB.forward(all_tokens)], dim=-1)
+        real_res = torch.cat(
+            [mlpA.forward(all_tokens), mlpB.forward(all_tokens)], dim=-1
+        )
         new_res = newMlp.forward(all_tokens)
-        newMlp.U = torch.nn.Parameter(solve_linear(new_res.float(), real_res.float()).to(dtype=mlpA.down.weight.dtype))
+        newMlp.U = torch.nn.Parameter(
+            solve_linear(new_res.float(), real_res.float()).to(
+                dtype=mlpA.down.weight.dtype
+            )
+        )
         return newMlp
+
     return inner
 
 
@@ -506,11 +538,12 @@ def js_divergence_from_logits(logits_p, logits_q):
     m = 0.5 * (p + q)
 
     js = 0.5 * (
-        F.kl_div(m.log(), p, reduction='batchmean') +
-        F.kl_div(m.log(), q, reduction='batchmean')
+        F.kl_div(m.log(), p, reduction="batchmean")
+        + F.kl_div(m.log(), q, reduction="batchmean")
     )
 
     return js.mean().item()
+
 
 @torch.no_grad()
 def timer(mlp: MLP, test_data, iters=3) -> float:
@@ -529,7 +562,9 @@ def timer(mlp: MLP, test_data, iters=3) -> float:
 @torch.no_grad()
 def test_model_on_data(fused_mlp, mlp1, mlp2, test_data):
     all_tokens = _as_tensor(test_data)
-    real_res = torch.cat([mlp1.forward(all_tokens), mlp2.forward(all_tokens)], dim=-1).float()
+    real_res = torch.cat(
+        [mlp1.forward(all_tokens), mlp2.forward(all_tokens)], dim=-1
+    ).float()
     new_res = fused_mlp.forward_unzip(all_tokens).float()
     return {
         "MSE": mse(real_res, new_res),
@@ -545,7 +580,7 @@ def test_model_on_data(fused_mlp, mlp1, mlp2, test_data):
         "Top1": topk_agreement(real_res, new_res, k=1),
         "Top5": topk_agreement(real_res, new_res, k=min(5, real_res.shape[-1])),
         "EntropyGap": abs(prediction_entropy(real_res) - prediction_entropy(new_res)),
-        "Time": 1000 * timer(fused_mlp, all_tokens)
+        "Time": 1000 * timer(fused_mlp, all_tokens),
     }
 
 

@@ -14,20 +14,24 @@ from config import (
     LAYERS,
     TRAIN_SIZE,
     TEST_SIZE,
-    device, 
-    DATA_DIR
+    device,
+    DATA_DIR,
 )
 
 
 import sys
+
 sys.path.append("..")
 from common.seeding import set_seed
 from config import SEED
+
 set_seed(SEED)
 
 
 if "model" not in globals():
-    model = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map=device)
+    model = transformers.AutoModelForCausalLM.from_pretrained(
+        MODEL_NAME, device_map=device
+    )
 if "tokenizer" not in globals():
     tokenizer = transformers.AutoTokenizer.from_pretrained(MODEL_NAME)
 
@@ -81,4 +85,3 @@ for n_layer in LAYERS:
     torch.save(logger.get(), f"{DATA_DIR}/mlp_inputs/test_{n_layer}.pt")
 
     model.model.layers[n_layer].mlp = logger.model
-

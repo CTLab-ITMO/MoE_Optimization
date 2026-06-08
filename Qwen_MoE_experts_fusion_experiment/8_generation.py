@@ -15,9 +15,11 @@ EXAMPLES = 10
 
 
 import sys
+
 sys.path.append("..")
 from common.seeding import set_seed
 from config import SEED
+
 set_seed(SEED)
 
 
@@ -47,13 +49,15 @@ for ind in range(EXAMPLES):
     messages = [
         {"role": "user", "content": test_data[ind]},
     ]
-    examples.append(tokenizer.apply_chat_template(
-        messages,
-        add_generation_prompt=True,
-        tokenize=True,
-        return_dict=True,
-        return_tensors="pt",
-    ).to(model.device))
+    examples.append(
+        tokenizer.apply_chat_template(
+            messages,
+            add_generation_prompt=True,
+            tokenize=True,
+            return_dict=True,
+            return_tensors="pt",
+        ).to(model.device)
+    )
 
 
 base_examples = generate_examples(model, examples)
@@ -66,7 +70,7 @@ for layer in LAYERS:
         layer,
         f"{DATA_DIR}/fusion_experts/ZipIt",
         device=device,
-        use_default_experts=False
+        use_default_experts=False,
     ).to(device)
     model.model.layers[layer].mlp = new_mlp
 
@@ -79,6 +83,5 @@ for base_generation, new_generation in zip(base_examples, new_examples):
         base_generation,
         "\n" + "+" * 100 + "\n",
         new_generation,
-        "\n" + "-" * 100 + "\n"
+        "\n" + "-" * 100 + "\n",
     )
-

@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# Local environments
+.venv/
+venv/
+env/
+.env
+
+# Experiment artifacts
+data/
+data_*/
+plots/
+*.pt
+*.pth
+*.safetensors
+
+# System files
+.DS_Store

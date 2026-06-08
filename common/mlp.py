@@ -3,6 +3,7 @@ from torch import nn
 
 default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+
 def unite_matrix(mat1: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
     """Unite matrix A and B in block format:
     A 0
@@ -15,7 +16,7 @@ def unite_matrix(mat1: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
 
 
 def build_matches(corr_matrix):
-    """Get a matrix of correlations and 
+    """Get a matrix of correlations and
     build matching with most sum of correlations (greedy)"""
     matches = []
     n = corr_matrix.shape[0]
@@ -90,7 +91,9 @@ class MLP(nn.Module):
         if self.U is not None:
             y = y.to(dtype=self.U.dtype)
             if out is not None:
-                return torch.nn.functional.linear(y, torch.chunk(self.U, 2, dim=0)[out]).to(dtype=x.dtype)
+                return torch.nn.functional.linear(
+                    y, torch.chunk(self.U, 2, dim=0)[out]
+                ).to(dtype=x.dtype)
             return torch.nn.functional.linear(y, self.U).to(dtype=x.dtype)
         if out is not None:
             return y.to(dtype=x.dtype)
@@ -119,7 +122,12 @@ class SimpleMLP(MLP):
     """MLP with two hidden linear layers"""
 
     def __init__(
-        self, in_features: int, hid_features: int, out_features: int, bias: bool = False, device = default_device
+        self,
+        in_features: int,
+        hid_features: int,
+        out_features: int,
+        bias: bool = False,
+        device=default_device,
     ):
         super().__init__()
         self.fc1 = nn.Linear(in_features, hid_features, bias=bias, device=device)
@@ -158,7 +166,9 @@ class SimpleMLP(MLP):
         self.fc1.weight = nn.Parameter(
             self.zip1.M
             @ self.fc1.weight
-            @ torch.cat(2 * [torch.eye(self.fc1.in_features, device=self.fc1.weight.device)])
+            @ torch.cat(
+                2 * [torch.eye(self.fc1.in_features, device=self.fc1.weight.device)]
+            )
         )
         self.fc2.weight = nn.Parameter(self.zip2.M @ self.fc2.weight @ self.zip1.U)
 
@@ -174,7 +184,12 @@ class AdvancedMLP(MLP):
     """MLP with up, down and proj linear layers"""
 
     def __init__(
-        self, in_features: int, hid_features: int, out_features: int, bias: bool = False, device = default_device
+        self,
+        in_features: int,
+        hid_features: int,
+        out_features: int,
+        bias: bool = False,
+        device=default_device,
     ):
         super().__init__()
         self.in_features = in_features
@@ -227,12 +242,16 @@ class AdvancedMLP(MLP):
         self.gate.weight = nn.Parameter(
             self.zip1.M
             @ self.gate.weight
-            @ torch.cat(2 * [torch.eye(self.gate.in_features, device=self.gate.weight.device)])
+            @ torch.cat(
+                2 * [torch.eye(self.gate.in_features, device=self.gate.weight.device)]
+            )
         )
         self.up.weight = nn.Parameter(
             self.zip1.M
             @ self.up.weight
-            @ torch.cat(2 * [torch.eye(self.up.in_features, device=self.gate.weight.device)])
+            @ torch.cat(
+                2 * [torch.eye(self.up.in_features, device=self.gate.weight.device)]
+            )
         )
         self.down.weight = nn.Parameter(self.zip2.M @ self.down.weight @ self.zip1.U)
 

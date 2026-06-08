@@ -9,14 +9,18 @@ from config import MODEL_NAME, LAYERS, TOP_K, device, DATA_DIR
 
 
 import sys
+
 sys.path.append("..")
 from common.seeding import set_seed
 from config import SEED
+
 set_seed(SEED)
 
 
 if "model" not in globals():
-    model = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map=device)
+    model = transformers.AutoModelForCausalLM.from_pretrained(
+        MODEL_NAME, device_map=device
+    )
 if "tokenizer" not in globals():
     tokenizer = transformers.AutoTokenizer.from_pretrained(MODEL_NAME)
 
@@ -39,11 +43,7 @@ for layer in LAYERS:
 def count_activations(data, layer):
     res = []
     for example in tqdm(data):
-        router_output = (model
-                        .model
-                        .layers[layer]
-                        .mlp
-                        .gate(example.to(device)))
+        router_output = model.model.layers[layer].mlp.gate(example.to(device))
         if isinstance(router_output, tuple):
             selected = router_output[-1]
         else:
@@ -66,7 +66,9 @@ for layer in LAYERS:
 train_activations = {}
 test_activations = {}
 for layer in LAYERS:
-    train_activations[layer] = torch.load(f"{DATA_DIR}/activations/train_all_{layer}.pt")
+    train_activations[layer] = torch.load(
+        f"{DATA_DIR}/activations/train_all_{layer}.pt"
+    )
     test_activations[layer] = torch.load(f"{DATA_DIR}/activations/test_all_{layer}.pt")
 
 
@@ -85,10 +87,7 @@ def get_pairs_activations(activations, layer):
     for _ in range(len(pairs[layer])):
         pairs_activations.append(set())
 
-    for ind, activation in tqdm(
-        enumerate(activations),
-        total=len(activations)
-    ):
+    for ind, activation in tqdm(enumerate(activations), total=len(activations)):
         topk = len(activation)
         for i in range(topk):
             activated_expert = pairs_ind[layer][activation[i]]
@@ -106,10 +105,9 @@ def get_pairs_activations(activations, layer):
 for layer in LAYERS:
     torch.save(
         get_pairs_activations(train_activations[layer], layer),
-        f"{DATA_DIR}/activations/pairs_train_{layer}.pt"
+        f"{DATA_DIR}/activations/pairs_train_{layer}.pt",
     )
     torch.save(
         get_pairs_activations(test_activations[layer], layer),
-        f"{DATA_DIR}/activations/pairs_test_{layer}.pt"
+        f"{DATA_DIR}/activations/pairs_test_{layer}.pt",
     )
-

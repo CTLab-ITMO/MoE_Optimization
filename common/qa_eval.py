@@ -65,7 +65,9 @@ def _format_prompt(sample: dict, tokenizer, letters: list) -> str:
         f"Your task is to answer with ONLY the letter corresponding to the correct option ({_join_or(letters)}). "
         "Do not write the full answer, do not write explanations. Output only one character."
     )
-    user_message = f"Question: {_extract_question(sample)}\nOptions:\n{options_text}\nAnswer:"
+    user_message = (
+        f"Question: {_extract_question(sample)}\nOptions:\n{options_text}\nAnswer:"
+    )
     messages = [
         {"role": "system", "content": system_message},
         {"role": "user", "content": user_message},

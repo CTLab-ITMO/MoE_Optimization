@@ -58,8 +58,10 @@ def evolutionary_match(
 
             def win_from_swap(i, j):
                 return (
-                    sim_matrix[i, j] + sim_matrix[friend[i], friend[j]]
-                    - sim_matrix[i, friend[i]] - sim_matrix[j, friend[j]]
+                    sim_matrix[i, j]
+                    + sim_matrix[friend[i], friend[j]]
+                    - sim_matrix[i, friend[i]]
+                    - sim_matrix[j, friend[j]]
                 ).item()
 
             while True:
@@ -101,13 +103,9 @@ def compute_output_similarity_matrix(
     experts_dir = f"{data_dir}/experts/{layer}"
     inputs_path = f"{data_dir}/mlp_inputs/train_{layer}.pt"
     if not os.path.isdir(experts_dir):
-        raise FileNotFoundError(
-            "PAIRING_METHOD='output_similarity' requires step 3 "
-        )
+        raise FileNotFoundError("PAIRING_METHOD='output_similarity' requires step 3 ")
     if not os.path.isfile(inputs_path):
-        raise FileNotFoundError(
-            "PAIRING_METHOD='output_similarity' requires step 4 "
-        )
+        raise FileNotFoundError("PAIRING_METHOD='output_similarity' requires step 4 ")
 
     raw_inputs = torch.load(inputs_path)
     if isinstance(raw_inputs, list):

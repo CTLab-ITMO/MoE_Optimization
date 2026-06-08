@@ -18,22 +18,30 @@ import numpy as np
 
 sys.path.append("..")
 from common.mlp import MLP, AdvancedMLP
-from common.mlp_utils import FUSION_METHODS, turn_in_mlp, test_model_on_data, best_metrics
+from common.mlp_utils import (
+    FUSION_METHODS,
+    turn_in_mlp,
+    test_model_on_data,
+    best_metrics,
+)
 
 if FILTER_FUSIONS is not None:
-    FUSION_METHODS = {k:v for k, v in FUSION_METHODS.items() if k in FILTER_FUSIONS}
+    FUSION_METHODS = {k: v for k, v in FUSION_METHODS.items() if k in FILTER_FUSIONS}
 if FILTER_METRICS is not None:
-    best_metrics = {k:v for k, v in best_metrics.items() if k in FILTER_METRICS}
+    best_metrics = {k: v for k, v in best_metrics.items() if k in FILTER_METRICS}
 
 
 import sys
+
 sys.path.append("..")
 from common.seeding import set_seed
 from config import SEED
+
 set_seed(SEED)
 
 
 # # Classes
+
 
 class Logger(nn.Module):
     """Simple class for saving passing values"""
@@ -51,14 +59,15 @@ class Logger(nn.Module):
 
 # # Fusion
 
+
 @torch.no_grad()
 def compare_fusions_error_and_time(
     mlp1, mlp2, train_data, test_data, fusion_experts=None, ind=None
 ) -> dict[str, dict[str, list[float]]]:
-    """Take two experts from model first layer 
+    """Take two experts from model first layer
     and count MSE and time for existed fusion methods"""
     fusions = {}
-    for fusion_name, fusion_methos in FUSION_METHODS.items():        
+    for fusion_name, fusion_methos in FUSION_METHODS.items():
         fusions[fusion_name] = fusion_methos(mlp1, mlp2, train_data)
     if fusion_experts is not None:
         fusion_experts[ind] = fusions
@@ -73,7 +82,9 @@ def compare_fusions_error_and_time(
         for metric, inverse in best_metrics.items():
             best_name = list(results.keys())[0]
             for fusion_name in FUSION_METHODS.keys():
-                if (results[fusion_name][metric] > results[best_name][metric]) == inverse:
+                if (
+                    results[fusion_name][metric] > results[best_name][metric]
+                ) == inverse:
                     best_name = fusion_name
             fusions[f"Best_{metric}"] = fusions[best_name]
             results[f"Best_{metric}"] = results[best_name]
@@ -93,7 +104,9 @@ for layer in tqdm(LAYERS):
     train_data = torch.load(f"{DATA_DIR}/mlp_inputs/train_{layer}.pt")
     test_data = torch.load(f"{DATA_DIR}/mlp_inputs/test_{layer}.pt")
     pairs = torch.load(f"{DATA_DIR}/pairs/{layer}.pt")
-    train_pairs_activations = torch.load(f"{DATA_DIR}/activations/pairs_train_{layer}.pt")
+    train_pairs_activations = torch.load(
+        f"{DATA_DIR}/activations/pairs_train_{layer}.pt"
+    )
     test_pairs_activations = torch.load(f"{DATA_DIR}/activations/pairs_test_{layer}.pt")
 
     fusion_experts = [None] * len(pairs)
@@ -123,10 +136,15 @@ for layer in tqdm(LAYERS):
         del x
     for i, fused in enumerate(fusion_experts):
         for fusion_name, fusion_expert in fused.items():
-            os.makedirs(f"{DATA_DIR}/fusion_experts/{fusion_name}/{layer}", exist_ok=True)
+            os.makedirs(
+                f"{DATA_DIR}/fusion_experts/{fusion_name}/{layer}", exist_ok=True
+            )
             while True:
                 try:
-                    torch.save(fusion_expert.cpu(), f"{DATA_DIR}/fusion_experts/{fusion_name}/{layer}/{i}.pt")
+                    torch.save(
+                        fusion_expert.cpu(),
+                        f"{DATA_DIR}/fusion_experts/{fusion_name}/{layer}/{i}.pt",
+                    )
                     break
                 except Exception as e:
                     print(f"[DEBUG] {e}")
@@ -147,12 +165,26 @@ experiment_results = torch.load(f"logs/fusion/{time}.pt")
 
 
 metrics = list(best_metrics.keys()) + ["Time"]
-log_safe_metrics = {"MSE", "RMSE", "MAE", "RelMSE", "JS", "KL", "CKA", "EntropyGap", "Time"}
-data = {    
+log_safe_metrics = {
+    "MSE",
+    "RMSE",
+    "MAE",
+    "RelMSE",
+    "JS",
+    "KL",
+    "CKA",
+    "EntropyGap",
+    "Time",
+}
+data = {
     metric: {
-        fusion_name: [experiment_result[fusion_name][metric] for experiment_result in experiment_results]
+        fusion_name: [
+            experiment_result[fusion_name][metric]
+            for experiment_result in experiment_results
+        ]
         for fusion_name in FUSION_METHODS.keys()
-    } for metric in metrics
+    }
+    for metric in metrics
 }
 
 
@@ -169,7 +201,9 @@ for i, layer in enumerate(LAYERS):
     for metric in metrics:
         print(f"{metric} results for fusion methods:")
         for method_name in FUSION_METHODS.keys():
-            print(f"For {method_name} - {np.median(data[metric][method_name][i*experts:(i+1)*experts]):.3f}")
+            print(
+                f"For {method_name} - {np.median(data[metric][method_name][i * experts : (i + 1) * experts]):.3f}"
+            )
 
 
 for values in data.values():
@@ -179,13 +213,23 @@ for values in data.values():
 
 plt.figure(figsize=(6 * len(metrics), 6))
 for i, metric in enumerate(metrics):
-    plt.subplot(1, len(metrics), i+1)
+    plt.subplot(1, len(metrics), i + 1)
     plt.title(metric)
     for name, values in data[metric].items():
         plot_values = values
         if metric in log_safe_metrics and metric != "Cosine":
-            plot_values = np.log(np.maximum(np.asarray(values, dtype=np.float64), 1e-12))
-        plt.hist(plot_values, label=name, bins=100, density=True, alpha=0.5, cumulative=True, histtype="stepfilled")
+            plot_values = np.log(
+                np.maximum(np.asarray(values, dtype=np.float64), 1e-12)
+            )
+        plt.hist(
+            plot_values,
+            label=name,
+            bins=100,
+            density=True,
+            alpha=0.5,
+            cumulative=True,
+            histtype="stepfilled",
+        )
     plt.legend()
     plt.title(metric)
 plt.savefig(f"{_plot_dir}/hist_stepfilled_1.png")
@@ -194,13 +238,23 @@ plt.close()
 
 plt.figure(figsize=(6 * len(metrics), 6))
 for i, metric in enumerate(metrics):
-    plt.subplot(1, len(metrics), i+1)
+    plt.subplot(1, len(metrics), i + 1)
     plt.title(metric)
     for name, values in data[metric].items():
         plot_values = values
         if metric in log_safe_metrics and metric != "Cosine":
-            plot_values = np.log(np.maximum(np.asarray(values, dtype=np.float64), 1e-12))
-        plt.hist(plot_values, label=name, bins=100, density=True, alpha=0.5, cumulative=True, histtype="stepfilled")
+            plot_values = np.log(
+                np.maximum(np.asarray(values, dtype=np.float64), 1e-12)
+            )
+        plt.hist(
+            plot_values,
+            label=name,
+            bins=100,
+            density=True,
+            alpha=0.5,
+            cumulative=True,
+            histtype="stepfilled",
+        )
     plt.legend()
     plt.title(metric)
 plt.savefig(f"{_plot_dir}/hist_stepfilled_2.png")
@@ -209,7 +263,7 @@ plt.close()
 
 plt.figure(figsize=(6 * len(metrics), 6))
 for i, metric in enumerate(metrics):
-    plt.subplot(1, len(metrics), i+1)
+    plt.subplot(1, len(metrics), i + 1)
     plt.title(metric)
     names = list(data[metric].keys())
 
@@ -219,7 +273,7 @@ for i, metric in enumerate(metrics):
         if metric in log_safe_metrics and metric != "Cosine":
             values = np.log(np.maximum(np.asarray(values, dtype=np.float64), 1e-12))
         vp = plt.violinplot(values, positions=[j])
-        handles.append(vp['bodies'][0])
+        handles.append(vp["bodies"][0])
 
     plt.legend(handles, names)
     plt.title(metric)
@@ -230,7 +284,7 @@ plt.close()
 
 plt.figure(figsize=(6 * len(metrics), 6))
 for i, metric in enumerate(metrics):
-    plt.subplot(1, len(metrics), i+1)
+    plt.subplot(1, len(metrics), i + 1)
     plt.title(metric)
     names = list(data[metric].keys())
 
@@ -240,7 +294,7 @@ for i, metric in enumerate(metrics):
         if metric in log_safe_metrics and metric != "Cosine":
             values = np.log(np.maximum(np.asarray(values, dtype=np.float64), 1e-12))
         vp = plt.violinplot(values, positions=[j])
-        handles.append(vp['bodies'][0])
+        handles.append(vp["bodies"][0])
 
     plt.legend(handles, names)
     plt.title(metric)
@@ -251,14 +305,22 @@ plt.close()
 
 plt.figure(figsize=(6 * len(metrics), 6))
 for i, metric in enumerate(metrics):
-    plt.subplot(1, len(metrics), i+1)
+    plt.subplot(1, len(metrics), i + 1)
     plt.title(metric)
     names = list(data[metric].keys())
     if metric in log_safe_metrics and metric != "Cosine":
-        sns.kdeplot([np.log(np.maximum(np.asarray(data[metric][key], dtype=np.float64), 1e-12)) for key in names], fill=True, alpha=0.3)
+        sns.kdeplot(
+            [
+                np.log(
+                    np.maximum(np.asarray(data[metric][key], dtype=np.float64), 1e-12)
+                )
+                for key in names
+            ],
+            fill=True,
+            alpha=0.3,
+        )
     else:
         sns.kdeplot([data[metric][key] for key in names], fill=True, alpha=0.3)
     plt.legend(names)
 plt.savefig(f"{_plot_dir}/kdeplot.png")
 plt.close()
-

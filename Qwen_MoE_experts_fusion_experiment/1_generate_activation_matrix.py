@@ -16,21 +16,25 @@ from config import (
     LAYERS,
     TOP_K,
     device,
-    DATA_DIR
+    DATA_DIR,
 )
 
 print("Device:", device)
 
 
 import sys
+
 sys.path.append("..")
 from common.seeding import set_seed
 from config import SEED
+
 set_seed(SEED)
 
 
 if "model" not in globals():
-    model = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map=device)
+    model = transformers.AutoModelForCausalLM.from_pretrained(
+        MODEL_NAME, device_map=device
+    )
 if "tokenizer" not in globals():
     tokenizer = transformers.AutoTokenizer.from_pretrained(MODEL_NAME)
 
@@ -172,7 +176,7 @@ write_activations(train_data, test_data, loggers)
 
 
 # def build_matches(corr_matrix):
-#     """Get a matrix of correlations and build 
+#     """Get a matrix of correlations and build
 #     matching with most sum of correlations (greedy)"""
 #     matches = []
 #     n = corr_matrix.shape[0]
@@ -304,4 +308,3 @@ write_activations(train_data, test_data, loggers)
 
 
 # torch.cosine_similarity(corr.flatten(), acts.flatten(), dim=0)
-

@@ -5,7 +5,17 @@ import torch.nn.functional as F
 
 
 class FusionLayer(nn.Module):
-    def __init__(self, *, experts, expert_pairs, fusion_experts, gate, shared_expert, shared_expert_gate, use_default_experts):
+    def __init__(
+        self,
+        *,
+        experts,
+        expert_pairs,
+        fusion_experts,
+        gate,
+        shared_expert,
+        shared_expert_gate,
+        use_default_experts,
+    ):
         super().__init__()
         self.gate = gate
         if use_default_experts:
@@ -30,9 +40,14 @@ class FusionLayer(nn.Module):
         hidden_states_reshaped = hidden_states.view(-1, hidden_dim)
         shared_expert_output = self.shared_expert(hidden_states_reshaped)
         _, routing_weights, selected_experts = self.gate(hidden_states_reshaped)
-        expert_output = self._forward(hidden_states_reshaped, selected_experts, routing_weights)
+        expert_output = self._forward(
+            hidden_states_reshaped, selected_experts, routing_weights
+        )
 
-        shared_expert_output = F.sigmoid(self.shared_expert_gate(hidden_states_reshaped)) * shared_expert_output
+        shared_expert_output = (
+            F.sigmoid(self.shared_expert_gate(hidden_states_reshaped))
+            * shared_expert_output
+        )
 
         expert_output = expert_output + shared_expert_output
         expert_output = expert_output.reshape(batch_size, sequence_length, hidden_dim)
@@ -46,7 +61,9 @@ class FusionLayer(nn.Module):
     ) -> torch.Tensor:
         final_hidden_states = torch.zeros_like(hidden_states)
         with torch.no_grad():
-            expert_mask = torch.nn.functional.one_hot(top_k_index, num_classes=self.num_experts)
+            expert_mask = torch.nn.functional.one_hot(
+                top_k_index, num_classes=self.num_experts
+            )
             expert_mask = expert_mask.permute(2, 1, 0)
             expert_hit = torch.greater(expert_mask.sum(dim=(-1, -2)), 0).nonzero()
 
@@ -58,23 +75,33 @@ class FusionLayer(nn.Module):
             current_state = hidden_states[token_idx]
             pair_idx = self.pair_idx[expert_idx]
             pair = self.expert_pairs[pair_idx]
-            current_hidden_states = (
-                            self.fusion_experts[pair_idx]
-                            .forward_unzip(current_state, out=(0 if expert_idx == pair[0] else 1))
+            current_hidden_states = self.fusion_experts[pair_idx].forward_unzip(
+                current_state, out=(0 if expert_idx == pair[0] else 1)
             )
-            current_hidden_states = current_hidden_states * top_k_weights[token_idx, top_k_pos, None]
-            final_hidden_states.index_add_(0, token_idx, current_hidden_states.to(final_hidden_states.dtype))
+            current_hidden_states = (
+                current_hidden_states * top_k_weights[token_idx, top_k_pos, None]
+            )
+            final_hidden_states.index_add_(
+                0, token_idx, current_hidden_states.to(final_hidden_states.dtype)
+            )
 
         return final_hidden_states
 
-    def forward_default(self, hidden_states: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward_default(
+        self, hidden_states: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         batch_size, sequence_length, hidden_dim = hidden_states.shape
         hidden_states_reshaped = hidden_states.view(-1, hidden_dim)
         shared_expert_output = self.shared_expert(hidden_states_reshaped)
         _, routing_weights, selected_experts = self.gate(hidden_states_reshaped)
-        expert_output = self._forward_default(hidden_states_reshaped, selected_experts, routing_weights)
+        expert_output = self._forward_default(
+            hidden_states_reshaped, selected_experts, routing_weights
+        )
 
-        shared_expert_output = F.sigmoid(self.shared_expert_gate(hidden_states_reshaped)) * shared_expert_output
+        shared_expert_output = (
+            F.sigmoid(self.shared_expert_gate(hidden_states_reshaped))
+            * shared_expert_output
+        )
 
         expert_output = expert_output + shared_expert_output
         expert_output = expert_output.reshape(batch_size, sequence_length, hidden_dim)
@@ -88,7 +115,9 @@ class FusionLayer(nn.Module):
     ) -> torch.Tensor:
         final_hidden_states = torch.zeros_like(hidden_states)
         with torch.no_grad():
-            expert_mask = torch.nn.functional.one_hot(top_k_index, num_classes=self.num_experts)
+            expert_mask = torch.nn.functional.one_hot(
+                top_k_index, num_classes=self.num_experts
+            )
             expert_mask = expert_mask.permute(2, 1, 0)
             expert_hit = torch.greater(expert_mask.sum(dim=(-1, -2)), 0).nonzero()
 
@@ -99,27 +128,41 @@ class FusionLayer(nn.Module):
             top_k_pos, token_idx = torch.where(expert_mask[expert_idx])
             current_state = hidden_states[token_idx]
             current_hidden_states = self.experts[expert_idx](current_state)
-            current_hidden_states = current_hidden_states * top_k_weights[token_idx, top_k_pos, None]
-            final_hidden_states.index_add_(0, token_idx, current_hidden_states.to(final_hidden_states.dtype))
+            current_hidden_states = (
+                current_hidden_states * top_k_weights[token_idx, top_k_pos, None]
+            )
+            final_hidden_states.index_add_(
+                0, token_idx, current_hidden_states.to(final_hidden_states.dtype)
+            )
 
         return final_hidden_states
 
 
-def get_fusion_layer_by_index(index, experts_dir, device=torch.device("cpu"), use_default_experts = True):
+def get_fusion_layer_by_index(
+    index, experts_dir, device=torch.device("cpu"), use_default_experts=True
+):
     expert_pairs = torch.load(f"{DATA_DIR}/pairs/{index}.pt")
     if use_default_experts:
         experts = [
-            torch.load(f"{DATA_DIR}/experts/{index}/expert_{i}.pt", weights_only=False).to(device)
+            torch.load(
+                f"{DATA_DIR}/experts/{index}/expert_{i}.pt", weights_only=False
+            ).to(device)
             for i in range(EXPERTS)
         ]
     else:
         experts = [None] * EXPERTS
     fusion_experts = [
-        torch.load(f"{DATA_DIR}/{experts_dir}/{index}/{i}.pt", weights_only=False).to(device)
+        torch.load(f"{DATA_DIR}/{experts_dir}/{index}/{i}.pt", weights_only=False).to(
+            device
+        )
         for i in range(len(expert_pairs))
     ]
-    gate = torch.load(f"{DATA_DIR}/experts/{index}/gate.pt", weights_only=False).to(device)
-    shared_expert = torch.load(f"{DATA_DIR}/experts/{index}/shared_expert.pt", weights_only=False).to(device)
+    gate = torch.load(f"{DATA_DIR}/experts/{index}/gate.pt", weights_only=False).to(
+        device
+    )
+    shared_expert = torch.load(
+        f"{DATA_DIR}/experts/{index}/shared_expert.pt", weights_only=False
+    ).to(device)
     shared_expert_gate = torch.load(
         f"{DATA_DIR}/experts/{index}/shared_expert_gate.pt", weights_only=False
     ).to(device)
@@ -131,5 +174,5 @@ def get_fusion_layer_by_index(index, experts_dir, device=torch.device("cpu"), us
         gate=gate,
         shared_expert=shared_expert,
         shared_expert_gate=shared_expert_gate,
-        use_default_experts=use_default_experts
+        use_default_experts=use_default_experts,
     )
