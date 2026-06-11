@@ -15,8 +15,10 @@ from config import (
     TEST_SIZE,
     LAYERS,
     TOP_K,
+    correct_model_loading,
     device,
-    DATA_DIR
+    DATA_DIR,
+    is_deepseek_experiment
 )
 
 print("Device:", device)
@@ -30,9 +32,7 @@ set_seed(SEED)
 
 
 if "model" not in globals():
-    model = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map=device)
-if "tokenizer" not in globals():
-    tokenizer = transformers.AutoTokenizer.from_pretrained(MODEL_NAME)
+    model, tokenizer = correct_model_loading()
 
 # Remove extra layers
 MAX_LAYERS = max(LAYERS) + 1
@@ -46,7 +46,7 @@ model = model.to(device)
 if "_train_data" not in globals():
     _train_data = datasets.load_dataset(**TRAIN_DATASET_NAME)["question"]
 if "_test_data" not in globals():
-    _test_data = datasets.load_dataset(**TEST_DATASET_NAME)["question"]
+    _test_data = datasets.load_dataset(**TEST_DATASET_NAME)["question"] #TODO
 train_data = _train_data[:TRAIN_SIZE]
 test_data = _test_data[:TEST_SIZE]
 print("Example of train data:", train_data[0])
@@ -56,10 +56,10 @@ print("Example of test data:", test_data[0])
 class ExpertsLogger(nn.Module):
     """Simple class for saving activated experts based on gate"""
 
-    def __init__(self, gate: nn.Module):
+    def __init__(self, gate: nn.Module, num_experts: int):
         super().__init__()
         self.gate = gate
-        self.num_experts = gate.num_experts
+        self.num_experts = num_experts
         self.experts: torch.Tensor | None = torch.zeros(
             (self.num_experts, self.num_experts)
         )
@@ -67,17 +67,23 @@ class ExpertsLogger(nn.Module):
     def forward(self, x: torch.Tensor):
         router_logits = self.gate(x)
 
-        if isinstance(router_logits, tuple):
-            routing_weights = router_logits[0]
-            selected_experts = router_logits[-1]
+        if isinstance(router_logits, tuple): #TODO DON'T WORK FOR DEEPSEEK-v2-lite-chat!!! see MoEGate class in it
+            if (is_deepseek_experiment()):
+                routing_weights = router_logits[1]
+                selected_experts = router_logits[0]
+            else:
+                routing_weights = router_logits[0]
+                selected_experts = router_logits[-1]
         else:
             routing_weights = router_logits.softmax(dim=1, dtype=torch.float)
             _, selected_experts = torch.topk(routing_weights, TOP_K, dim=-1)
+            
         if self.experts is not None:
             for experts_stack in selected_experts:
                 for expert1 in experts_stack:
                     for expert2 in experts_stack:
                         self.experts[expert1, expert2] += 1
+                        
 
         del routing_weights, selected_experts
         torch.cuda.empty_cache()
@@ -94,12 +100,17 @@ class ExpertsLogger(nn.Module):
         self.experts = None
 
 
-loggers = dict()
+loggers = dict()    
 for i in LAYERS:
     if isinstance(model.model.layers[i].mlp.gate, ExpertsLogger):
         loggers[i] = ExpertsLogger(model.model.layers[i].mlp.gate.gate)
     else:
-        loggers[i] = ExpertsLogger(model.model.layers[i].mlp.gate)
+        if (hasattr(model.model.layers[i].mlp, 'num_experts')):
+            loggers[i] = ExpertsLogger(model.model.layers[i].mlp.gate, model.model.layers[i].mlp.num_experts)
+        elif (hasattr(model.model.layers[i].mlp, 'config')):
+            loggers[i] = ExpertsLogger(model.model.layers[i].mlp.gate, model.model.layers[i].mlp.config.n_routed_experts)
+        else:
+            raise AttributeError("Can't find num_experts or num_experts_per_tok attribute in model!")
     model.model.layers[i].mlp.gate = loggers[i]
 
 

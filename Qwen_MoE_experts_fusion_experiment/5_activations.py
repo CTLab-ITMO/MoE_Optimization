@@ -4,8 +4,7 @@
 import torch
 import os
 from tqdm import tqdm
-import transformers
-from config import MODEL_NAME, LAYERS, TOP_K, device, DATA_DIR
+from config import LAYERS, correct_model_loading, device, DATA_DIR
 
 
 import sys
@@ -16,9 +15,7 @@ set_seed(SEED)
 
 
 if "model" not in globals():
-    model = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map=device)
-if "tokenizer" not in globals():
-    tokenizer = transformers.AutoTokenizer.from_pretrained(MODEL_NAME)
+    model, tokenizer = correct_model_loading()
 
 # Remove extra layers
 MAX_LAYERS = max(LAYERS) + 1
@@ -29,52 +26,19 @@ torch.cuda.empty_cache()
 model = model.to(device)
 
 
-train_data = {}
-test_data = {}
-for layer in LAYERS:
-    train_data[layer] = torch.load(f"{DATA_DIR}/mlp_inputs/train_{layer}.pt")
-    test_data[layer] = torch.load(f"{DATA_DIR}/mlp_inputs/test_{layer}.pt")
-
-
-def count_activations(data, layer):
-    res = []
-    for example in tqdm(data):
-        router_output = (model
-                        .model
-                        .layers[layer]
-                        .mlp
-                        .gate(example.to(device)))
-        if isinstance(router_output, tuple):
-            selected = router_output[-1]
-        else:
-            _, selected = router_output.topk(TOP_K, dim=-1)
-
-        res.append(selected.cpu().flatten())
-    return res
-
-
-os.makedirs(f"{DATA_DIR}/mlp_inputs", exist_ok=True)
-
-for layer in LAYERS:
-    data = count_activations(train_data[layer], layer)
-    torch.save(data, f"{DATA_DIR}/activations/train_all_{layer}.pt")
-
-    data = count_activations(test_data[layer], layer)
-    torch.save(data, f"{DATA_DIR}/activations/test_all_{layer}.pt")
-
 
 train_activations = {}
 test_activations = {}
 for layer in LAYERS:
-    train_activations[layer] = torch.load(f"{DATA_DIR}/activations/train_all_{layer}.pt")
-    test_activations[layer] = torch.load(f"{DATA_DIR}/activations/test_all_{layer}.pt")
+    train_activations[layer] = torch.load(f"{DATA_DIR}/activations/all/train_all_{layer}.pt")
+    test_activations[layer] = torch.load(f"{DATA_DIR}/activations/all/test_all_{layer}.pt")
 
 
 pairs = {}
 pairs_ind = {}
 for layer in LAYERS:
     pairs[layer] = torch.load(f"{DATA_DIR}/pairs/{layer}.pt")
-    pairs_ind[layer] = [-1] * (2 * len(pairs[layer]))
+    pairs_ind[layer] = [-1] * (2 * len(pairs[layer])) #index of pair for each expert. Len=n_experts
     for i, (x, y) in enumerate(pairs[layer]):
         pairs_ind[layer][x] = i
         pairs_ind[layer][y] = i
@@ -91,8 +55,9 @@ def get_pairs_activations(activations, layer):
     ):
         topk = len(activation)
         for i in range(topk):
-            activated_expert = pairs_ind[layer][activation[i]]
-            pairs_activations[activated_expert].add(ind)
+            activated_expert = pairs_ind[layer][activation[i]] #pairs activations (if expert from pair was activated than +1. Index is 'pair')
+            pairs_activations[activated_expert].add(ind) #indexes of activations for each pair. If one of experts in pair was in current activation
+            #add the index of that activation (n_activation = seq_len)
         # for i in range(topk):
         #     for j in range(i + 1, topk):
         #         if (pairs_ind[layer][activation[i]]
@@ -103,13 +68,14 @@ def get_pairs_activations(activations, layer):
     return list(map(list, pairs_activations))
 
 
+os.makedirs(f"{DATA_DIR}/activations/pairs", exist_ok=True)
 for layer in LAYERS:
     torch.save(
         get_pairs_activations(train_activations[layer], layer),
-        f"{DATA_DIR}/activations/pairs_train_{layer}.pt"
+        f"{DATA_DIR}/activations/pairs/train_{layer}.pt"
     )
     torch.save(
         get_pairs_activations(test_activations[layer], layer),
-        f"{DATA_DIR}/activations/pairs_test_{layer}.pt"
+        f"{DATA_DIR}/activations/pairs/test_{layer}.pt"
     )
 

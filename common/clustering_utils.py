@@ -130,6 +130,7 @@ def weighted_average_cluster_metric(mat, clusters):
 
     return total_sum / total_pairs if total_pairs > 0 else 0.0
     
+ #TODO BAD algorithm for considering max and min cluster size
 def make_iterative_clustering(adjacency_matrix_of_experts: np.ndarray,
                               min_cluster_size=2,
                               max_cluster_size: Optional[int] = None,
@@ -170,6 +171,8 @@ def make_iterative_clustering(adjacency_matrix_of_experts: np.ndarray,
         ]
         if not candidates:
             if (max_cluster_size is not None):
+                
+                #destroy huge clusters on smaller parts
                 split_idx = 0
                 while split_idx < len(clusters):
                     cluster = clusters[split_idx]
@@ -179,6 +182,19 @@ def make_iterative_clustering(adjacency_matrix_of_experts: np.ndarray,
                         clusters.pop(split_idx)
                     else:
                         split_idx += 1
+                       
+                #merge the small shards
+                small_shards = [cluster for cluster in clusters if len(cluster) < min_cluster_size]
+                clusters = [cluster for cluster in clusters if len(cluster) >= min_cluster_size]
+
+                small_pool = [expert for shard in small_shards for expert in shard]
+                if small_pool:
+                    for start in range(0, len(small_pool), min_cluster_size):
+                        chunk = small_pool[start:start + min_cluster_size]
+                        if len(chunk) < min_cluster_size and clusters:
+                            clusters[-1].extend(chunk)
+                        else:
+                            clusters.append(chunk)
                 
                 if (log_history):
                     step_dict = {

@@ -1,1 +1,4 @@
 __pycache__
+data_MMLU_1k
+Qwen_MoE_experts_fusion_experiment/logs
+Qwen_MoE_experts_fusion_experiment/plots

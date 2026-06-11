@@ -93,8 +93,8 @@ for layer in tqdm(LAYERS):
     train_data = torch.load(f"{DATA_DIR}/mlp_inputs/train_{layer}.pt")
     test_data = torch.load(f"{DATA_DIR}/mlp_inputs/test_{layer}.pt")
     pairs = torch.load(f"{DATA_DIR}/pairs/{layer}.pt")
-    train_pairs_activations = torch.load(f"{DATA_DIR}/activations/pairs_train_{layer}.pt")
-    test_pairs_activations = torch.load(f"{DATA_DIR}/activations/pairs_test_{layer}.pt")
+    train_pairs_activations = torch.load(f"{DATA_DIR}/activations/pairs/train_{layer}.pt")
+    test_pairs_activations = torch.load(f"{DATA_DIR}/activations/pairs/test_{layer}.pt")
 
     fusion_experts = [None] * len(pairs)
 

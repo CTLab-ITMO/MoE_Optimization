@@ -15,11 +15,15 @@ import numpy as np
 class ExpertClusterer:
     def __init__(self, model: torch.nn.Module, example_inputs: Iterable, ):
         self.module2name = {m: n for n, m in model.named_modules()}
-        self.model = model
+        if ('deepseek' in model._get_name().lower()):
+            self.num_experts = model.model.layers[0].mlp.config.n_routed_experts
+            self.top_k = model.model.layers[0].mlp.config.num_experts_per_tok
+        else:
+            self.num_experts = model.num_experts
+            self.top_k = model.num_experts_per_tok
         self.example_inputs = example_inputs
         self.experts_logger = partial(ExpertsLogger, model=model)
         self.moe_handles: list[MoeHandle] = discover_moe_layers(model)
-    
     def _create_clusters_by(self, create_clusters_one_layer_func: Callable, target_layers: list[MoeHandle], **kwargs):
         '''Universal method for creating clusters for each of supplied layers'''
         layer_idx2clusters = {}
@@ -73,6 +77,32 @@ class ExpertClusterer:
             ExpertLoggerDataConverter.compute_PI_matrix,
             target_layer, 
             gate_activations, 
+            log_history=log_history, 
+            maximize_metric=maximize_metric,
+            **kwargs
+            )
+        return clusters, history
+    
+    def create_clusters_by_PI_one_layer_based_on_freqencies(self, target_layer: MoeHandle, coocurencies_matrix: torch.Tensor, log_history=False, maximize_metric=False, **kwargs):
+        '''Gets last clustering of dividive clustering'''
+        clusters, history = self._create_clusters_by_metric_by_clustering_algo(
+            ExpertMatcher.find_by_dividive_clustering, 
+            ExpertLoggerDataConverter.compute_PI_matrix_based_on_cooc,
+            target_layer, 
+            coocurencies_matrix, 
+            log_history=log_history, 
+            maximize_metric=maximize_metric,
+            **kwargs
+            )
+        return clusters, history
+    
+    def create_clusters_by_EC_one_layer_based_on_freqencies(self, target_layer: MoeHandle, coocurencies_matrix: torch.Tensor, log_history=False, maximize_metric=True, **kwargs):
+        '''Gets last clustering of dividive clustering'''
+        clusters, history = self._create_clusters_by_metric_by_clustering_algo(
+            ExpertMatcher.find_by_dividive_clustering, 
+            ExpertLoggerDataConverter.compute_EC_matrix_based_on_cooc,
+            target_layer, 
+            coocurencies_matrix, 
             log_history=log_history, 
             maximize_metric=maximize_metric,
             **kwargs
@@ -166,6 +196,30 @@ class ExpertClusterer:
             )
         return clusters, history
     
+    def create_clusters_by_PI_greedy_aglomerative_based_on_freq(self, target_layer: MoeHandle, coocurencies_matrix: torch.Tensor, log_history=False, **kwargs):
+        '''Find clusters in one greedy step on min PI metric'''
+        clusters, history = self._create_clusters_by_metric_by_clustering_algo(
+            ExpertMatcher.find_by_aglomerative_clustering_greedy,
+            ExpertLoggerDataConverter.compute_PI_matrix_based_on_cooc,
+            target_layer, 
+            coocurencies_matrix, 
+            maximize_metric=False,
+            log_history=log_history,
+            )
+        return clusters, history
+    
+    def create_clusters_by_EC_greedy_aglomerative_based_on_freq(self, target_layer: MoeHandle, coocurencies_matrix: torch.Tensor, log_history=False, **kwargs):
+        '''Find clusters in one greedy step on min PI metric'''
+        clusters, history = self._create_clusters_by_metric_by_clustering_algo(
+            ExpertMatcher.find_by_aglomerative_clustering_greedy,
+            ExpertLoggerDataConverter.compute_EC_matrix_based_on_cooc,
+            target_layer, 
+            coocurencies_matrix, 
+            maximize_metric=True,
+            log_history=log_history,
+            )
+        return clusters, history
+    
     def create_clusters_by_EC_greedy_aglomerative(self, target_layer: MoeHandle, gate_activations: torch.Tensor, log_history=False, **kwargs):
         '''Find clusters in one greedy step on max EC metric. History (PI, EC) will be inverted'''
         clusters, history = self._create_clusters_by_metric_by_clustering_algo(
@@ -186,12 +240,12 @@ class ExpertClusterer:
                                                       gate_activations: torch.Tensor, 
                                                       maximize_metric=False,
                                                       ) -> tuple[list[list[int]], list]:
-        metric_matrix_pi = metric_matrix_algo_pi(self.model.num_experts, 
+        metric_matrix_pi = metric_matrix_algo_pi(self.num_experts, 
                                         gate_activations, 
-                                        k = target_layer.moe.top_k)
-        metric_matrix_ec = metric_matrix_algo_ec(self.model.num_experts, 
+                                        k = self.top_k)
+        metric_matrix_ec = metric_matrix_algo_ec(self.num_experts, 
                                         gate_activations, 
-                                        k = target_layer.moe.top_k)
+                                        k = self.top_k)
         clusters, history = clustering_algo(metric_matrix_pi,
                                             metric_matrix_ec,
                                         maximize_metric=maximize_metric, 
@@ -206,9 +260,9 @@ class ExpertClusterer:
                                                       log_history=False, 
                                                       maximize_metric=True,
                                                       **kwargs) -> tuple[list[list[int]], list]:
-        metric_matrix = metric_matrix_algo(self.model.num_experts, 
+        metric_matrix = metric_matrix_algo(self.num_experts, 
                                         gate_activations, 
-                                        k = target_layer.moe.top_k)
+                                        k = self.top_k)
         clusters, history = clustering_algo(metric_matrix, 
                                         maximize_metric=maximize_metric, 
                                         log_history=log_history,

@@ -17,10 +17,16 @@ from config import (
     LAYERS,
     EVOLUTION_STEPS,
     EXPERTS,
-    PAIRING_METHOD,
+    # PAIRING_METHOD,
     DATA_DIR,
+    correct_model_loading,
     device,
 )
+
+PAIRING_METHOD = os.getenv("PAIRING_METHOD")
+
+if "model" not in globals():
+    model, _ = correct_model_loading()
 
 print(f"PAIRING_METHOD = {PAIRING_METHOD}")
 
@@ -30,8 +36,6 @@ sys.path.append("..")
 from common.seeding import set_seed
 from config import SEED
 set_seed(SEED)
-
-    from moe_opt_runner.legacy import find_pairs_from_config
 
 if PAIRING_METHOD == "activation_correlation":
     sim0 = compute_activation_correlation_matrix(LAYERS[0], DATA_DIR)
@@ -55,6 +59,7 @@ for layer in LAYERS:
         device=device,
         evolution_steps=evolution_steps,
         progress=True,
+        model=model
     )
     best_pairs[layer] = pairs
     print(f"layer {layer}: {len(pairs)} pairs")

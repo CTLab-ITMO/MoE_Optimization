@@ -2,6 +2,13 @@ import os
 from typing import Optional
 import torch
 from tqdm import tqdm
+
+import sys
+sys.path.append("../../")
+
+from MoE_Optimization.common.expert_utils.expert_clusterer_pipeline import ONE_LAYER_CLUSTERING_METHOD, ExpertClustererPipeline
+from MoE_Optimization.common.expert_utils.expert_clusterer_pipeline_presaved import ExpertClustererPipelinePresaved
+from MoE_Optimization.common.moe_utils import discover_moe_layers
 from .mlp import build_matches
 
 
@@ -14,7 +21,7 @@ def eval_match(sim_matrix: torch.Tensor, matches, top_k: int = 8) -> float:
     win = 0.0
     for i, j in matches:
         win += float(sim_matrix[i, j])
-    return win / (float(sim_matrix.sum()) / top_k)
+    return win / (float(sim_matrix.sum()) / top_k) #TODO ask why divide on top_k and not on top_k^2???
 
 
 def evolutionary_match(
@@ -151,22 +158,37 @@ def get_pairs(
     device: Optional[torch.device] = None,
     evolution_steps: int = 0,
     progress: bool = False,
+    model=None,
 ) -> list[tuple[int, int]]:
     if method == "random":
         return random_pairs(n_experts)
 
-    if method == "activation_correlation":
-        sim = compute_activation_correlation_matrix(layer, data_dir)
-    elif method == "output_similarity":
-        if device is None:
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        sim = compute_output_similarity_matrix(layer, data_dir, n_experts, device)
-    else:
-        raise ValueError(
-            f"Unknown PAIRING_METHOD: {method!r}. "
-            f"Expected: 'activation_correlation', 'random', 'output_similarity'."
-        )
 
-    if evolution_steps > 0:
-        return evolutionary_match(sim, evolution_steps, progress=progress)
-    return build_matches(sim)
+    if method not in ONE_LAYER_CLUSTERING_METHOD:
+        if method == "activation_correlation":
+            sim = compute_activation_correlation_matrix(layer, data_dir)
+        elif method == "output_similarity":
+            if device is None:
+                device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            sim = compute_output_similarity_matrix(layer, data_dir, n_experts, device)
+        else:
+            raise ValueError(
+                f"Unknown PAIRING_METHOD: {method!r}. "
+                f"Expected: 'activation_correlation', 'random', 'output_similarity'."
+            )
+
+        if evolution_steps > 0:
+            return evolutionary_match(sim, evolution_steps, progress=progress)
+        return build_matches(sim)
+    
+    else:
+        expertClustererPipelinePresaved = ExpertClustererPipelinePresaved(model)
+        layers = discover_moe_layers(model)
+        path = f"{data_dir}/activations/train_matrix_{layer}.pt"
+        coocurencies_matrix = torch.load(path).cpu().float()
+        pairs, history = expertClustererPipelinePresaved.match_experts_one_layer_saved_gate(layers[layer], method, coocurencies_matrix, max_cluster_size=2)
+        tuple_pairs = []
+        print(pairs)
+        for pair in pairs:
+            tuple_pairs.append((pair[0], pair[1]))
+        return tuple_pairs

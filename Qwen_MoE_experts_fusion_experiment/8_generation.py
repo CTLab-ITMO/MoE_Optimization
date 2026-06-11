@@ -4,9 +4,8 @@
 import torch
 from tqdm import tqdm
 import sys
-import transformers
 import datasets
-from config import LAYERS, MODEL_NAME, TEST_DATASET_NAME, device, DATA_DIR
+from config import LAYERS, TEST_DATASET_NAME, correct_model_loading, device, DATA_DIR
 
 _THIS = os.path.dirname(__file__)
 _PARENT = os.path.abspath(os.path.join(_THIS, ".."))
@@ -24,9 +23,9 @@ set_seed(SEED)
 
 
 if "model" not in globals():
-    model = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME)
-if "tokenizer" not in globals():
-    tokenizer = transformers.AutoTokenizer.from_pretrained(MODEL_NAME)
+    model, tokenizer = correct_model_loading()
+
+    
 model = model.to(device)
 
 

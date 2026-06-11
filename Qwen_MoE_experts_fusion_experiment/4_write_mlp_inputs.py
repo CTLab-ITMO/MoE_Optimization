@@ -5,15 +5,14 @@ import torch
 import torch.nn as nn
 import os
 from tqdm import tqdm
-import transformers
 import datasets
 from config import (
-    MODEL_NAME,
     TRAIN_DATASET_NAME,
     TEST_DATASET_NAME,
     LAYERS,
     TRAIN_SIZE,
     TEST_SIZE,
+    correct_model_loading,
     device, 
     DATA_DIR
 )
@@ -27,9 +26,8 @@ set_seed(SEED)
 
 
 if "model" not in globals():
-    model = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map=device)
-if "tokenizer" not in globals():
-    tokenizer = transformers.AutoTokenizer.from_pretrained(MODEL_NAME)
+    model, tokenizer = correct_model_loading()
+
 
 # Remove extra layers
 MAX_LAYERS = max(LAYERS) + 1
@@ -43,7 +41,7 @@ model = model.to(device)
 if "_train_data" not in globals():
     _train_data = datasets.load_dataset(**TRAIN_DATASET_NAME)["question"]
 if "_test_data" not in globals():
-    _test_data = datasets.load_dataset(**TEST_DATASET_NAME)["question"]
+    _test_data = datasets.load_dataset(**TEST_DATASET_NAME)["question"] #TODO
 train_data = _train_data[:TRAIN_SIZE]
 test_data = _test_data[:TEST_SIZE]
 

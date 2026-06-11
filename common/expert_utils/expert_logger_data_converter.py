@@ -101,6 +101,44 @@ class ExpertLoggerDataConverter:
                 pi_matrix[j, i] = pi_value  
         return pi_matrix
     
+    @staticmethod
+    def _convert_coocurencies_matrix_to_dict(coocurencies_matrix: torch.Tensor):
+        """Convert an upper-triangular co-occurrence matrix to a pair->value dict.
+
+        The diagonal is ignored. Only entries with i < j are included.
+        """
+        if coocurencies_matrix.dim() != 2 or coocurencies_matrix.shape[0] != coocurencies_matrix.shape[1]:
+            raise ValueError("coocurencies_matrix must be a square 2D tensor")
+
+        num_experts = coocurencies_matrix.shape[0]
+        cooc_dict: dict[tuple[int, int], float] = {}
+        for i in range(num_experts):
+            for j in range(i + 1, num_experts):
+                cooc_dict[(i, j)] = coocurencies_matrix[i, j].item()
+        return cooc_dict
+    
+    @staticmethod
+    def compute_PI_matrix_based_on_cooc(num_experts: int, coocurencies_matrix: torch.Tensor, k: int=4) -> torch.Tensor:
+        pi_matrix = torch.zeros((num_experts, num_experts))
+        raw_cooc = ExpertLoggerDataConverter._convert_coocurencies_matrix_to_dict(coocurencies_matrix)
+        for i in range(num_experts):
+            for j in range(i + 1, num_experts):
+                pi_value = ExpertLoggerDataConverter.PI_score(i, j, raw_cooc, k)
+                pi_matrix[i, j] = pi_value
+                pi_matrix[j, i] = pi_value  
+        return pi_matrix
+    
+    @staticmethod
+    def compute_EC_matrix_based_on_cooc(num_experts: int, coocurencies_matrix: torch.Tensor, k: int=4) -> torch.Tensor:
+        ec_matrix = torch.zeros((num_experts, num_experts))
+        raw_cooc = ExpertLoggerDataConverter._convert_coocurencies_matrix_to_dict(coocurencies_matrix)
+        for i in range(num_experts):
+            for j in range(i + 1, num_experts):
+                ec_value = ExpertLoggerDataConverter.EC_score(i, j, raw_cooc, k)
+                ec_matrix[i, j] = ec_value
+                ec_matrix[j, i] = ec_value  
+        return ec_matrix
+    
     @staticmethod            
     def transform_gate_activations(activations: dict, top_k=4):
         '''Transform gate's n-tuples to just 1D vectors of top_k expert's indices.

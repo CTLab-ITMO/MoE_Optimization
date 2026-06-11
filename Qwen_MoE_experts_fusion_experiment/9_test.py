@@ -7,24 +7,24 @@ import torch
 import transformers
 from matplotlib import pyplot as plt
 from tqdm import tqdm
-from config import MODEL_NAME, LAYERS, VALIDATION_SIZE, device, REPLACE_LAYERS_SEQUANTIAL, DATA_DIR, REPLACE_BEST_LAYERS_SEQUANTIAL, FILTER_FUSIONS, FILTER_METRICS, REPLACE_LAYERS_SMART_SEQUANTIAL, TRAIN_DATASET_NAME, TEST_DATASET_NAME
+from config import COMPARE_WITH_ZERO_FUSION_IN_9_SCRIPT, MODEL_NAME, LAYERS, VALIDATION_SIZE, correct_model_loading, REPLACE_LAYERS_SEQUANTIAL, DATA_DIR, REPLACE_BEST_LAYERS_SEQUANTIAL, FILTER_FUSIONS, FILTER_METRICS, REPLACE_LAYERS_SMART_SEQUANTIAL, TRAIN_DATASET_NAME, TEST_DATASET_NAME, is_deepseek_experiment
 import gc
+import numpy as np
 
 sys.path.append("..")
 from common.fusion_layer import get_fusion_layer_by_index
 from common.mlp_utils import FUSION_METHODS, best_metrics
 from common.qa_eval import evaluate_qa
 
-model_id = "Qwen/Qwen1.5-MoE-A2.7B-Chat"
 use_default_experts = False
 
 
 def _dataset_tag(ds):
     return f"{ds['path'].split('/')[-1]}_{ds['split']}"
 
-
+PAIRING_METHOD = os.getenv("PAIRING_METHOD")
 TEST_RESULTS_DIR = (
-    f"test_result_{_dataset_tag(TRAIN_DATASET_NAME)}"
+    f"{DATA_DIR}/results/{PAIRING_METHOD}/test_result_{_dataset_tag(TRAIN_DATASET_NAME)}"
     f"_{_dataset_tag(TEST_DATASET_NAME)}"
 )
 
@@ -77,25 +77,30 @@ def zero_fusion(model, layer):
 def default_fusion(name):
     def inner(model, layer):
         new_layer = get_fusion_layer_by_index(layer, f"fusion_experts/{name}", device=model.device,
-                                            use_default_experts=use_default_experts
+                                            use_default_experts=use_default_experts, model=model
                                             ).to(model.device, dtype=model.dtype)
         for expert in new_layer.fusion_experts:
             if expert.U is not None:
                 expert.U = expert.U.to(model.device, dtype=model.dtype)
+        
+        if (is_deepseek_experiment()):
+            new_layer.forward = new_layer.forward_deepseek
+        
         return new_layer
 
     return inner
 
 
 experts_fusions = {name:default_fusion(name) for name in FUSION_METHODS.keys()}
-experts_fusions["zero"] = zero_fusion
+if (COMPARE_WITH_ZERO_FUSION_IN_9_SCRIPT):
+    experts_fusions["zero"] = zero_fusion
 for best_metric in best_metrics.keys():
     experts_fusions[f"Best_{best_metric}"] = default_fusion(f"Best_{best_metric}")
 
 
 for fusion_name, experts_fusion in experts_fusions.items():
     print(f"Testing {fusion_name}")
-    model = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map=device)
+    model, _ = correct_model_loading()
 
     if base_accuracy is None:
         base_accuracy = evaluate_qa(model, tokenizer, TEST_DATASET_NAME, VALIDATION_SIZE, seed=SEED)
@@ -127,7 +132,8 @@ for fusion_name, experts_fusion in experts_fusions.items():
     torch.save(size_list, f"{TEST_RESULTS_DIR}/model_size/model_size_list_{mode_str}_{fusion_name}.pt")
 
     if REPLACE_BEST_LAYERS_SEQUANTIAL:
-        best_layers = [x[0] for x in sorted(enumerate(accuracy_list[1:]), key=lambda x:-x[1])]
+        best_layers_indexes = [x[0] for x in sorted(enumerate(accuracy_list[1:]), key=lambda x:-x[1])]
+        best_layers = np.array(LAYERS)[best_layers_indexes]
         print("Best layers:", best_layers)
         new_accuracy_list = [base_accuracy]
         new_size_list = [base_size]
@@ -150,7 +156,7 @@ if REPLACE_LAYERS_SMART_SEQUANTIAL:
         changed = set()
         remain = set(LAYERS)
         print(f"Testing {fusion_name}")
-        model = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map=device)
+        model, _ = correct_model_loading()
         if base_accuracy is None:
             base_accuracy = evaluate_qa(model, tokenizer, TEST_DATASET_NAME, VALIDATION_SIZE, seed=SEED)
             base_size = count_params(model)

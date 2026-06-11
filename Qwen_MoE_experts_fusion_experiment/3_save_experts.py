@@ -4,8 +4,7 @@
 import sys
 import torch
 import os
-import transformers
-from config import MODEL_NAME, LAYERS, DATA_DIR
+from config import LAYERS, DATA_DIR, correct_model_loading, is_deepseek_experiment
 from tqdm import tqdm
 
 sys.path.append("..")
@@ -23,7 +22,7 @@ set_seed(SEED)
 
 
 if "model" not in globals():
-    model = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map=device)
+    model, _ = correct_model_loading()
 
 
 for n_layer in tqdm(LAYERS):
@@ -50,12 +49,14 @@ for n_layer in tqdm(LAYERS):
         model.model.layers[n_layer].mlp.gate.cpu(),
         f"{DATA_DIR}/experts/{n_layer}/gate.pt"
     )
-    torch.save(
-        model.model.layers[n_layer].mlp.shared_expert.cpu(),
-        f"{DATA_DIR}/experts/{n_layer}/shared_expert.pt",
-    )
-    torch.save(
-        model.model.layers[n_layer].mlp.shared_expert_gate.cpu(),
-        f"{DATA_DIR}/experts/{n_layer}/shared_expert_gate.pt",
-    )
+    if (is_deepseek_experiment()):
+        torch.save(
+            model.model.layers[n_layer].mlp.shared_experts.cpu(),
+            f"{DATA_DIR}/experts/{n_layer}/shared_expert.pt",
+        )
+    else:
+        torch.save(
+            model.model.layers[n_layer].mlp.shared_expert.cpu(),
+            f"{DATA_DIR}/experts/{n_layer}/shared_expert.pt",
+        )
 
