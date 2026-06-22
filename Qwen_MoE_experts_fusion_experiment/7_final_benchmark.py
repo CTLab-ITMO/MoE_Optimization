@@ -29,25 +29,26 @@ train_data = torch.load(f"{DATA_DIR}/mlp_inputs/train_{LAYER}.pt")
 test_data = torch.load(f"{DATA_DIR}/mlp_inputs/test_{LAYER}.pt")
 
 
-model = get_fusion_layer_by_index(LAYER, f"fusion_experts/ZipIt", device=device)
+model = get_fusion_layer_by_index(LAYER, f"fusion_experts/ZipIt", DATA_DIR, device=device)
 
 
 batch_size = 128
 total = 100
+total = min(total, len(train_data) // batch_size)
 
 
 with torch.no_grad():
-    with torch.autocast("cuda"):
+    with torch.autocast(device.type):
         for ind in tqdm(range(0, batch_size * total, batch_size)):
-            batch = torch.stack(train_data[ind: ind + batch_size])
+            batch = torch.stack(train_data[ind: ind + batch_size]).unsqueeze(0)
             batch = batch.to(device)
             model.forward(batch)[0]
 
 
 with torch.no_grad():
-    with torch.autocast("cuda"):
+    with torch.autocast(device.type):
         for ind in tqdm(range(0, batch_size * total, batch_size)):
-            batch = torch.stack(train_data[ind: ind + batch_size])
+            batch = torch.stack(train_data[ind: ind + batch_size]).unsqueeze(0)
             batch = batch.to(device)
             model.forward_default(batch)[0]
 
@@ -60,13 +61,13 @@ time_new = []
 time_base = []
 
 with torch.no_grad():
-    with torch.autocast("cuda"):
+    with torch.autocast(device.type):
         for ind in tqdm(range(0, batch_size * total, batch_size)):
-            input = torch.stack(train_data[ind: ind + batch_size]).to(device)
+            input = torch.stack(train_data[ind: ind + batch_size]).to(device).unsqueeze(0)
             time_start = time.perf_counter()
-            x = model.forward(input)[0][0]
+            x = model.forward(input)[0]
             time_middle = time.perf_counter()
-            y = model.forward_default(input)[0][0]
+            y = model.forward_default(input)[0]
             time_end = time.perf_counter()
             for i in range(y.shape[0]):
                 norm.append(y[i].square().sum().sqrt().cpu().detach().item())
@@ -95,12 +96,6 @@ os.makedirs(_plot_dir, exist_ok=True)
 
 sns.kdeplot(cos_sim, label='Cosine similarity',
             fill=True, alpha=0.3, log_scale=True)
-# plt.xlabel('Norm')
-# plt.ylabel('Density')
-# plt.title('Density of norms')
-# plt.legend()
-# plt.grid(True, alpha=0.3)
-
 plt.savefig(f"{_plot_dir}/kdeplot.png")
 plt.close()
 

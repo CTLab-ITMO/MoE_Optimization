@@ -1,89 +1,24 @@
 import os
 from typing import Optional
 import torch
-from tqdm import tqdm
-from .mlp import build_matches
 
 
 def random_pairs(n_experts: int) -> list[tuple[int, int]]:
+    """Use random split of n experts in n//2 pairs."""
     perm = torch.randperm(n_experts).tolist()
     return [(perm[2 * i], perm[2 * i + 1]) for i in range(n_experts // 2)]
 
 
 def eval_match(sim_matrix: torch.Tensor, matches, top_k: int = 8) -> float:
+    """For a goal matrix and chosen pairs count sum of edges. Top-k used for normalise of result."""
     win = 0.0
     for i, j in matches:
         win += float(sim_matrix[i, j])
     return win / (float(sim_matrix.sum()) / top_k)
 
 
-def evolutionary_match(
-    sim_matrix: torch.Tensor,
-    evolution_steps: int,
-    progress: bool = False,
-) -> list[tuple[int, int]]:
-    assert sim_matrix.dim() == 2 and sim_matrix.shape[0] == sim_matrix.shape[1]
-    n = sim_matrix.shape[0]
-
-    best_win = -float("inf")
-    best_pairs: list[tuple[int, int]] = []
-
-    iterator = range(evolution_steps)
-    if progress:
-        iterator = tqdm(iterator)
-
-    with torch.no_grad():
-        for _ in iterator:
-            perm = torch.randperm(n).tolist()
-            pairs = set((perm[2 * i], perm[2 * i + 1]) for i in range(n // 2))
-            friend = [-1] * n
-            for i, j in pairs:
-                friend[i] = j
-                friend[j] = i
-
-            def swap(i, j):
-                if (i, friend[i]) in pairs:
-                    pairs.remove((i, friend[i]))
-                else:
-                    pairs.remove((friend[i], i))
-                if (j, friend[j]) in pairs:
-                    pairs.remove((j, friend[j]))
-                else:
-                    pairs.remove((friend[j], j))
-                pairs.add((i, j))
-                pairs.add((friend[i], friend[j]))
-                fi, fj = friend[i], friend[j]
-                friend[fi], friend[fj] = fj, fi
-                friend[i], friend[j] = j, i
-
-            def win_from_swap(i, j):
-                return (
-                    sim_matrix[i, j] + sim_matrix[friend[i], friend[j]]
-                    - sim_matrix[i, friend[i]] - sim_matrix[j, friend[j]]
-                ).item()
-
-            while True:
-                delta = 0.0
-                bi, bj = -1, -1
-                for i in range(n):
-                    for j in range(i + 1, n):
-                        d = win_from_swap(i, j)
-                        if d > delta:
-                            delta = d
-                            bi, bj = i, j
-                if delta < 1e-6:
-                    break
-                swap(bi, bj)
-
-            win = eval_match(sim_matrix, pairs)
-            if win > best_win:
-                best_win = win
-                best_pairs = list(pairs)
-
-    return best_pairs
-
-
 def compute_activation_correlation_matrix(layer: int, data_dir: str) -> torch.Tensor:
+    """Load and normalise activation matrix."""
     path = f"{data_dir}/activations/train_matrix_{layer}.pt"
     matrix = torch.load(path).cpu().float()
     matrix = matrix / matrix.sum()
@@ -98,6 +33,7 @@ def compute_output_similarity_matrix(
     num_samples: int = 4096,
     batch_size: int = 512,
 ) -> torch.Tensor:
+    """<In development>"""
     experts_dir = f"{data_dir}/experts/{layer}"
     inputs_path = f"{data_dir}/mlp_inputs/train_{layer}.pt"
     if not os.path.isdir(experts_dir):
@@ -143,6 +79,352 @@ def compute_output_similarity_matrix(
     return sim
 
 
+def build_matches(
+    weights: torch.Tensor
+) -> list[tuple[int, int]]:
+    """Get a matrix of correlations and 
+    build matching with most sum of correlations.
+    Based on existed algorithm for best match seek (See https://jorisvr.nl/article/maximum-matching)."""
+    M = weights.detach().cpu().tolist()
+    n = len(M)
+    edges = [(i, j, M[i][j]) for i in range(n) for j in range(i + 1, n)]
+    m = len(edges)
+    if m == 0:
+        return []
+
+    max_weight = max(0, max(w for _, _, w in edges))
+
+    endpoint = [edges[p // 2][p % 2] for p in range(2 * m)]
+    neighbor_ends = [[] for _ in range(n)]
+    for k, (i, j, _) in enumerate(edges):
+        neighbor_ends[i].append(2 * k + 1)
+        neighbor_ends[j].append(2 * k)
+
+    mate = n * [-1]
+    label = (2 * n) * [0]            
+    label_end = (2 * n) * [-1]
+    in_blossom = list(range(n))
+    blossom_parent = (2 * n) * [-1]
+    blossom_children = (2 * n) * [None]
+    blossom_base = list(range(n)) + n * [-1]
+    blossom_ends = (2 * n) * [None]
+    best_edge = (2 * n) * [-1]
+    blossom_best_edges = (2 * n) * [None]
+    unused_blossoms = list(range(n, 2 * n))
+    dual = n * [max_weight] + n * [0]
+    allow_edge = m * [False]
+    queue = []
+
+    def slack(k):
+        i, j, w = edges[k]
+        return dual[i] + dual[j] - 2 * w
+
+    def leaves(b):
+        if b < n:
+            yield b
+        else:
+            for t in blossom_children[b]:
+                if t < n:
+                    yield t
+                else:
+                    yield from leaves(t)
+
+    def assign_label(w, t, p):
+        b = in_blossom[w]
+        label[w] = label[b] = t
+        label_end[w] = label_end[b] = p
+        best_edge[w] = best_edge[b] = -1
+        if t == 1:
+            queue.extend(leaves(b))
+        elif t == 2:
+            base = blossom_base[b]
+            assign_label(endpoint[mate[base]], 1, mate[base] ^ 1)
+
+    def scan_blossom(v, w):
+        path = []
+        base = -1
+        while v != -1 or w != -1:
+            b = in_blossom[v]
+            if label[b] & 4:
+                base = blossom_base[b]
+                break
+            path.append(b)
+            label[b] = 5
+            if label_end[b] == -1:
+                v = -1
+            else:
+                v = endpoint[label_end[b]]
+                b = in_blossom[v]
+                v = endpoint[label_end[b]]
+            if w != -1:
+                v, w = w, v
+        for b in path:
+            label[b] = 1
+        return base
+
+    def add_blossom(base, k):
+        v, w, _ = edges[k]
+        bb, bv, bw = in_blossom[base], in_blossom[v], in_blossom[w]
+        b = unused_blossoms.pop()
+        blossom_base[b] = base
+        blossom_parent[b] = -1
+        blossom_parent[bb] = b
+        blossom_children[b] = path = []
+        blossom_ends[b] = ends = []
+        while bv != bb:
+            blossom_parent[bv] = b
+            path.append(bv)
+            ends.append(label_end[bv])
+            v = endpoint[label_end[bv]]
+            bv = in_blossom[v]
+        path.append(bb)
+        path.reverse()
+        ends.reverse()
+        ends.append(2 * k)
+        while bw != bb:
+            blossom_parent[bw] = b
+            path.append(bw)
+            ends.append(label_end[bw] ^ 1)
+            w = endpoint[label_end[bw]]
+            bw = in_blossom[w]
+        label[b] = 1
+        label_end[b] = label_end[bb]
+        dual[b] = 0
+        for x in leaves(b):
+            if label[in_blossom[x]] == 2:
+                queue.append(x)
+            in_blossom[x] = b
+        best_to = (2 * n) * [-1]
+        for sub in path:
+            if blossom_best_edges[sub] is None:
+                lists = [[p // 2 for p in neighbor_ends[x]] for x in leaves(sub)]
+            else:
+                lists = [blossom_best_edges[sub]]
+            for lst in lists:
+                for e in lst:
+                    i, j, _ = edges[e]
+                    if in_blossom[j] == b:
+                        i, j = j, i
+                    bj = in_blossom[j]
+                    if bj != b and label[bj] == 1 and (
+                        best_to[bj] == -1 or slack(e) < slack(best_to[bj])
+                    ):
+                        best_to[bj] = e
+            blossom_best_edges[sub] = None
+            best_edge[sub] = -1
+        blossom_best_edges[b] = [e for e in best_to if e != -1]
+        best_edge[b] = -1
+        for e in blossom_best_edges[b]:
+            if best_edge[b] == -1 or slack(e) < slack(best_edge[b]):
+                best_edge[b] = e
+
+    def expand_blossom(b, end_stage):
+        for s in blossom_children[b]:
+            blossom_parent[s] = -1
+            if s < n:
+                in_blossom[s] = s
+            elif end_stage and dual[s] == 0:
+                expand_blossom(s, end_stage)
+            else:
+                for x in leaves(s):
+                    in_blossom[x] = s
+        if not end_stage and label[b] == 2:
+            entry = in_blossom[endpoint[label_end[b] ^ 1]]
+            j = blossom_children[b].index(entry)
+            if j & 1:
+                j -= len(blossom_children[b])
+                jstep, end_trick = 1, 0
+            else:
+                jstep, end_trick = -1, 1
+            p = label_end[b]
+            while j != 0:
+                label[endpoint[p ^ 1]] = 0
+                label[endpoint[blossom_ends[b][j - end_trick] ^ end_trick ^ 1]] = 0
+                assign_label(endpoint[p ^ 1], 2, p)
+                allow_edge[blossom_ends[b][j - end_trick] // 2] = True
+                j += jstep
+                p = blossom_ends[b][j - end_trick] ^ end_trick
+                allow_edge[p // 2] = True
+                j += jstep
+            bv = blossom_children[b][j]
+            label[endpoint[p ^ 1]] = label[bv] = 2
+            label_end[endpoint[p ^ 1]] = label_end[bv] = p
+            best_edge[bv] = -1
+            j += jstep
+            while blossom_children[b][j] != entry:
+                bv = blossom_children[b][j]
+                if label[bv] == 1:
+                    j += jstep
+                    continue
+                for x in leaves(bv):
+                    if label[x] != 0:
+                        break
+                if label[x] != 0:
+                    label[x] = 0
+                    label[endpoint[mate[blossom_base[bv]]]] = 0
+                    assign_label(x, 2, label_end[x])
+                j += jstep
+        label[b] = label_end[b] = -1
+        blossom_children[b] = blossom_ends[b] = None
+        blossom_base[b] = -1
+        blossom_best_edges[b] = None
+        best_edge[b] = -1
+        unused_blossoms.append(b)
+
+    def augment_blossom(b, v):
+        t = v
+        while blossom_parent[t] != b:
+            t = blossom_parent[t]
+        if t >= n:
+            augment_blossom(t, v)
+        i = j = blossom_children[b].index(t)
+        if i & 1:
+            j -= len(blossom_children[b])
+            jstep, end_trick = 1, 0
+        else:
+            jstep, end_trick = -1, 1
+        while j != 0:
+            j += jstep
+            t = blossom_children[b][j]
+            p = blossom_ends[b][j - end_trick] ^ end_trick
+            if t >= n:
+                augment_blossom(t, endpoint[p])
+            j += jstep
+            t = blossom_children[b][j]
+            if t >= n:
+                augment_blossom(t, endpoint[p ^ 1])
+            mate[endpoint[p]] = p ^ 1
+            mate[endpoint[p ^ 1]] = p
+        blossom_children[b] = blossom_children[b][i:] + blossom_children[b][:i]
+        blossom_ends[b] = blossom_ends[b][i:] + blossom_ends[b][:i]
+        blossom_base[b] = blossom_base[blossom_children[b][0]]
+
+    def augment_matching(k):
+        v, w, _ = edges[k]
+        for s, p in ((v, 2 * k + 1), (w, 2 * k)):
+            while True:
+                bs = in_blossom[s]
+                if bs >= n:
+                    augment_blossom(bs, s)
+                mate[s] = p
+                if label_end[bs] == -1:
+                    break
+                t = endpoint[label_end[bs]]
+                bt = in_blossom[t]
+                s = endpoint[label_end[bt]]
+                u = endpoint[label_end[bt] ^ 1]
+                if bt >= n:
+                    augment_blossom(bt, u)
+                mate[u] = label_end[bt]
+                p = label_end[bt] ^ 1
+
+    for _ in range(n):
+        label[:] = (2 * n) * [0]
+        best_edge[:] = (2 * n) * [-1]
+        for b in range(n, 2 * n):
+            blossom_best_edges[b] = None
+        allow_edge[:] = m * [False]
+        queue[:] = []
+        for v in range(n):
+            if mate[v] == -1 and label[in_blossom[v]] == 0:
+                assign_label(v, 1, -1)
+
+        augmented = False
+        while True:
+            while queue and not augmented:
+                v = queue.pop()
+                for p in neighbor_ends[v]:
+                    k = p // 2
+                    w = endpoint[p]
+                    if in_blossom[v] == in_blossom[w]:
+                        continue
+                    if not allow_edge[k]:
+                        kslack = slack(k)
+                        if kslack <= 0:
+                            allow_edge[k] = True
+                    if allow_edge[k]:
+                        if label[in_blossom[w]] == 0:
+                            assign_label(w, 2, p ^ 1)
+                        elif label[in_blossom[w]] == 1:
+                            base = scan_blossom(v, w)
+                            if base >= 0:
+                                add_blossom(base, k)
+                            else:
+                                augment_matching(k)
+                                augmented = True
+                                break
+                        elif label[w] == 0:
+                            label[w] = 2
+                            label_end[w] = p ^ 1
+                    elif label[in_blossom[w]] == 1:
+                        b = in_blossom[v]
+                        if best_edge[b] == -1 or kslack < slack(best_edge[b]):
+                            best_edge[b] = k
+                    elif label[w] == 0:
+                        if best_edge[w] == -1 or kslack < slack(best_edge[w]):
+                            best_edge[w] = k
+
+            if augmented:
+                break
+
+            delta_type = -1
+            delta = delta_edge = delta_blossom = None
+            for v in range(n):
+                if label[in_blossom[v]] == 0 and best_edge[v] != -1:
+                    d = slack(best_edge[v])
+                    if delta_type == -1 or d < delta:
+                        delta, delta_type, delta_edge = d, 2, best_edge[v]
+            for b in range(2 * n):
+                if blossom_parent[b] == -1 and label[b] == 1 and best_edge[b] != -1:
+                    d = slack(best_edge[b]) / 2
+                    if delta_type == -1 or d < delta:
+                        delta, delta_type, delta_edge = d, 3, best_edge[b]
+            for b in range(n, 2 * n):
+                if (blossom_base[b] >= 0 and blossom_parent[b] == -1
+                        and label[b] == 2 and (delta_type == -1 or dual[b] < delta)):
+                    delta, delta_type, delta_blossom = dual[b], 4, b
+            if delta_type == -1:
+                delta_type = 1
+                delta = max(0, min(dual[:n]))
+
+            for v in range(n):
+                if label[in_blossom[v]] == 1:
+                    dual[v] -= delta
+                elif label[in_blossom[v]] == 2:
+                    dual[v] += delta
+            for b in range(n, 2 * n):
+                if blossom_base[b] >= 0 and blossom_parent[b] == -1:
+                    if label[b] == 1:
+                        dual[b] += delta
+                    elif label[b] == 2:
+                        dual[b] -= delta
+
+            if delta_type == 1:
+                break
+            elif delta_type == 2:
+                allow_edge[delta_edge] = True
+                i, j, _ = edges[delta_edge]
+                if label[in_blossom[i]] == 0:
+                    i, j = j, i
+                queue.append(i)
+            elif delta_type == 3:
+                allow_edge[delta_edge] = True
+                i, _, _ = edges[delta_edge]
+                queue.append(i)
+            elif delta_type == 4:
+                expand_blossom(delta_blossom, False)
+
+        if not augmented:
+            break
+
+        for b in range(n, 2 * n):
+            if (blossom_parent[b] == -1 and blossom_base[b] >= 0
+                    and label[b] == 1 and dual[b] == 0):
+                expand_blossom(b, True)
+
+    return [(v, endpoint[mate[v]]) for v in range(n)
+            if mate[v] >= 0 and endpoint[mate[v]] > v]
+
 def get_pairs(
     method: str,
     layer: int,
@@ -152,6 +434,7 @@ def get_pairs(
     evolution_steps: int = 0,
     progress: bool = False,
 ) -> list[tuple[int, int]]:
+    """For a given method and layer return list of pairs."""
     if method == "random":
         return random_pairs(n_experts)
 
@@ -167,6 +450,4 @@ def get_pairs(
             f"Expected: 'activation_correlation', 'random', 'output_similarity'."
         )
 
-    if evolution_steps > 0:
-        return evolutionary_match(sim, evolution_steps, progress=progress)
     return build_matches(sim)

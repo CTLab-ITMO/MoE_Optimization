@@ -6,7 +6,6 @@
 import torch
 from datetime import datetime
 import torch.nn as nn
-import copy
 from matplotlib import pyplot as plt
 from tqdm import tqdm
 import time
@@ -17,8 +16,7 @@ import seaborn as sns
 import numpy as np
 
 sys.path.append("..")
-from common.mlp import MLP, AdvancedMLP
-from common.mlp_utils import FUSION_METHODS, turn_in_mlp, test_model_on_data, best_metrics
+from common.mlp_utils import FUSION_METHODS, test_model_on_data, best_metrics
 
 if FILTER_FUSIONS is not None:
     FUSION_METHODS = {k:v for k, v in FUSION_METHODS.items() if k in FILTER_FUSIONS}
@@ -31,22 +29,6 @@ sys.path.append("..")
 from common.seeding import set_seed
 from config import SEED
 set_seed(SEED)
-
-
-# # Classes
-
-class Logger(nn.Module):
-    """Simple class for saving passing values"""
-
-    def __init__(self, model: nn.Module):
-        super().__init__()
-        self.model = model
-        self.xs: list[torch.Tensor] | None = None
-
-    def forward(self, x: torch.Tensor):
-        if self.xs is not None:
-            self.xs.append(x)
-        return self.model(x)
 
 
 # # Fusion
@@ -124,12 +106,16 @@ for layer in tqdm(LAYERS):
     for i, fused in enumerate(fusion_experts):
         for fusion_name, fusion_expert in fused.items():
             os.makedirs(f"{DATA_DIR}/fusion_experts/{fusion_name}/{layer}", exist_ok=True)
-            while True:
+            for _ in range(3):  # Here sometimes were IO mistakes, try few times
                 try:
                     torch.save(fusion_expert.cpu(), f"{DATA_DIR}/fusion_experts/{fusion_name}/{layer}/{i}.pt")
+                    _io_err = None
                     break
                 except Exception as e:
+                    _io_err = e
                     print(f"[DEBUG] {e}")
+            if _io_err is not None:
+                raise _io_err
             del fusion_expert
     torch.cuda.empty_cache()
 
@@ -202,6 +188,7 @@ for i, metric in enumerate(metrics):
             plot_values = np.log(np.maximum(np.asarray(values, dtype=np.float64), 1e-12))
         plt.hist(plot_values, label=name, bins=100, density=True, alpha=0.5, cumulative=True, histtype="stepfilled")
     plt.legend()
+    plt.yscale("log")
     plt.title(metric)
 plt.savefig(f"{_plot_dir}/hist_stepfilled_2.png")
 plt.close()

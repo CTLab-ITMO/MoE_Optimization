@@ -89,7 +89,6 @@ def _prepare(dataset_kwargs: dict, n: int, tokenizer, seed: int) -> dict:
     indices = sorted(random.Random(seed).sample(range(len(full)), n))
     subset = full.select(indices)
 
-    # Per-dataset letter set: assume every sample shares the schema of subset[0].
     answer_letters, _ = _extract_choices(subset[0])
     letter_to_idx = {letter: i for i, letter in enumerate(answer_letters)}
 
@@ -117,6 +116,9 @@ def evaluate_qa(
     batch_size: int = 16,
     max_length: int = 512,
 ) -> float:
+    """Evaluate accuracy (number from 0 to 1) of a model in a given question-answer dataset.
+    
+    Result is constant with a fixed seed."""
     set_seed(seed)
     tokenizer.padding_side = "left"
     tokenizer.truncation_side = "left"

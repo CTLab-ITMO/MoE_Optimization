@@ -49,6 +49,7 @@ test_data = _test_data[:TEST_SIZE]
 
 
 class Logger(nn.Module):
+    """Save all hidden states."""
     def __init__(self, model):
         super().__init__()
         self.model = model

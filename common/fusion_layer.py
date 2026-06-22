@@ -1,10 +1,11 @@
 from torch import nn
 import torch
-from config import TOP_K, EXPERTS, DATA_DIR
+from config import EXPERTS
 import torch.nn.functional as F
 
 
 class FusionLayer(nn.Module):
+    """New version of MLP layer after fusion of experts"""
     def __init__(self, *, experts, expert_pairs, fusion_experts, gate, shared_expert, shared_expert_gate, use_default_experts):
         super().__init__()
         self.gate = gate
@@ -18,14 +19,11 @@ class FusionLayer(nn.Module):
 
         self.num_experts = len(experts)
         self.pair_idx = [None] * len(experts)
-        self.friend = [None] * len(experts)
         for i, (x, y) in enumerate(expert_pairs):
-            self.friend[x] = y
-            self.friend[y] = x
             self.pair_idx[x] = i
             self.pair_idx[y] = i
 
-    def forward(self, hidden_states: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         batch_size, sequence_length, hidden_dim = hidden_states.shape
         hidden_states_reshaped = hidden_states.view(-1, hidden_dim)
         shared_expert_output = self.shared_expert(hidden_states_reshaped)
@@ -67,7 +65,9 @@ class FusionLayer(nn.Module):
 
         return final_hidden_states
 
-    def forward_default(self, hidden_states: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward_default(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        """Used for simulation of old version of MLP layer if default experts are provided.
+        Can be used for comparing previous and new version of layer in one model."""
         batch_size, sequence_length, hidden_dim = hidden_states.shape
         hidden_states_reshaped = hidden_states.view(-1, hidden_dim)
         shared_expert_output = self.shared_expert(hidden_states_reshaped)
@@ -105,23 +105,24 @@ class FusionLayer(nn.Module):
         return final_hidden_states
 
 
-def get_fusion_layer_by_index(index, experts_dir, device=torch.device("cpu"), use_default_experts = True):
-    expert_pairs = torch.load(f"{DATA_DIR}/pairs/{index}.pt")
+def get_fusion_layer_by_index(layer_index, experts_dir, data_dir, device=torch.device("cpu"), use_default_experts = True):
+    """After fusion of experts allow to load new layer with given layer index and data dirs."""
+    expert_pairs = torch.load(f"{data_dir}/pairs/{layer_index}.pt")
     if use_default_experts:
         experts = [
-            torch.load(f"{DATA_DIR}/experts/{index}/expert_{i}.pt", weights_only=False).to(device)
+            torch.load(f"{data_dir}/experts/{layer_index}/expert_{i}.pt", weights_only=False).to(device)
             for i in range(EXPERTS)
         ]
     else:
         experts = [None] * EXPERTS
     fusion_experts = [
-        torch.load(f"{DATA_DIR}/{experts_dir}/{index}/{i}.pt", weights_only=False).to(device)
+        torch.load(f"{data_dir}/{experts_dir}/{layer_index}/{i}.pt", weights_only=False).to(device)
         for i in range(len(expert_pairs))
     ]
-    gate = torch.load(f"{DATA_DIR}/experts/{index}/gate.pt", weights_only=False).to(device)
-    shared_expert = torch.load(f"{DATA_DIR}/experts/{index}/shared_expert.pt", weights_only=False).to(device)
+    gate = torch.load(f"{data_dir}/experts/{layer_index}/gate.pt", weights_only=False).to(device)
+    shared_expert = torch.load(f"{data_dir}/experts/{layer_index}/shared_expert.pt", weights_only=False).to(device)
     shared_expert_gate = torch.load(
-        f"{DATA_DIR}/experts/{index}/shared_expert_gate.pt", weights_only=False
+        f"{data_dir}/experts/{layer_index}/shared_expert_gate.pt", weights_only=False
     ).to(device)
 
     return FusionLayer(

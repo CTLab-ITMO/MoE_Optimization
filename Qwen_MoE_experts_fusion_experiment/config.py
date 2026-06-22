@@ -5,7 +5,7 @@ DATA_DIR = "./data_MMLU_1k"
 MODEL_NAME = "Qwen/Qwen1.5-MoE-A2.7B-Chat"
 EXPERTS = 60
 TRAIN_DATASET_NAME = {"path": "cais/mmlu", "name": "all", "split": "auxiliary_train"}
-TEST_DATASET_NAME = {"path": "allenai/winogrande", "name": "winogrande_debiased", "split": "test"}
+TEST_DATASET_NAME = {"path": "cais/mmlu", "name": "all", "split": "test"}
 
 TRAIN_SIZE = 1_024
 TEST_SIZE = TRAIN_SIZE
@@ -23,7 +23,7 @@ SEED = 42
 # "activation_correlation", "random", "output_similarity"
 PAIRING_METHOD = "activation_correlation"
 
-device = torch.device("cuda")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 FILTER_FUSIONS = None
 FILTER_METRICS = None

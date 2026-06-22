@@ -62,7 +62,7 @@ def _reorder_advanced_mlp(model: AdvancedMLP, order: torch.Tensor, create_new: b
 
 
 def count_mse(f, x, y):
-    """Count MSE if f(x) and y"""
+    """Count MSE between f(x) and y"""
     return torch.mean((f(x) - y) ** 2)
 
 
@@ -115,12 +115,7 @@ def procrustesMLP(
     mlpA: AdvancedMLP, mlpB: AdvancedMLP, train_data: torch.Tensor, create_new: bool = True
 ) -> AdvancedMLP:
     """Align hidden channels by rank of activation signatures, then average.
-
-    This is a lightweight, architecture-safe substitute for a full orthogonal
-    Procrustes alignment: with gated MLP experts we can only permute hidden
-    channels without breaking the nonlinearity structure, so we align by
-    importance rank instead of applying a dense rotation.
-    """
+    This is a Procrustes alignment using permute hidden channels."""
     if len(train_data) == 0:
         return avgMLP(mlpA, mlpB, train_data, create_new)
 
@@ -187,11 +182,7 @@ def _estimate_fisher_diag(
 def fisherMLP(
     mlpA: AdvancedMLP, mlpB: AdvancedMLP, train_data: torch.Tensor, create_new: bool = True
 ) -> AdvancedMLP:
-    """Merge experts with parameter-wise Fisher precision weighting.
-
-    We approximate Fisher information by squared gradients of a self-supervised
-    distillation objective against the pairwise teacher ensemble.
-    """
+    """Merge experts with parameter-wise Fisher precision weighting."""
     if len(train_data) == 0:
         return avgMLP(mlpA, mlpB, train_data, create_new)
 
@@ -217,7 +208,6 @@ def fisherMLP(
 
         imp_a = imp_a.float()
         imp_b = imp_b.float()
-        # Normalize each tensor locally to keep the weighting numerically stable.
         imp_a = imp_a / (imp_a.mean() + 1e-8)
         imp_b = imp_b / (imp_b.mean() + 1e-8)
         merged_state[key] = (
@@ -234,13 +224,9 @@ def tiesMLP(
     mlpA: AdvancedMLP, mlpB: AdvancedMLP, train_data: torch.Tensor, create_new: bool = True,
     trim_ratio: float = 0.2
 ) -> AdvancedMLP:
-    """Sparse sign-consensus merge inspired by TIES.
+    """Sparse sign-consensus TIES merge.
 
-    The original TIES formulation assumes task vectors from a shared base model.
-    In this project we only have a pair of experts, so we adapt the idea to a
-    pairwise merge: keep strong updates, resolve sign conflicts by magnitude,
-    and trim small-magnitude entries.
-    """
+    Idea is: keep strong updates, resolve sign conflicts by magnitude and trim small-magnitude entries."""
     if len(train_data) == 0:
         return avgMLP(mlpA, mlpB, train_data, create_new)
 
@@ -269,12 +255,7 @@ def tiesMLP(
 def distillMLP(
     mlpA: AdvancedMLP, mlpB: AdvancedMLP, train_data: torch.Tensor, create_new: bool = True
 ) -> AdvancedMLP:
-    """Train a student expert to mimic the pairwise teacher ensemble.
-
-    This is the most expensive merge rule, but it is usually the strongest when
-    the two experts are meaningfully different and you care about actual output
-    preservation more than a closed-form weight merge.
-    """
+    """Train a student expert to mimic the pairwise teacher ensemble. Deprecated due to too much training."""
     if len(train_data) == 0:
         return avgMLP(mlpA, mlpB, train_data, create_new)
 
@@ -314,10 +295,11 @@ def distillMLP(
 def proj(
     mlpA: MLP, mlpB: MLP, train_data: torch.Tensor, create_new: bool = True
 ) -> MLP:
-    return copy.deepcopy(mlpA)
+    """Return first of two given models."""
+    return copy.deepcopy(mlpA) if create_new else mlpA
 
 
-def solve_linear(X, Y, lambda_ridge=1e-3):
+def _solve_linear(X, Y, lambda_ridge=1e-3):
     d_in = X.shape[1]
     XtX = X.T @ X + lambda_ridge * torch.eye(d_in, device=X.device, dtype=X.dtype)
     rhs = X.T @ Y
@@ -326,7 +308,10 @@ def solve_linear(X, Y, lambda_ridge=1e-3):
     return W
 
 
-def finetune(method):
+def LS(method):
+    """Add LS-adaptation after method's running.
+    
+    LS-adaptation is renew of last linear layer using least square method."""
     def inner(mlpA: MLP, mlpB: MLP, train_data: torch.Tensor, create_new: bool = True):
         newMlp = method(mlpA, mlpB, train_data, create_new)
         if len(train_data) < 2 * mlpA.down.out_features:
@@ -335,7 +320,7 @@ def finetune(method):
         all_tokens = _as_tensor(train_data)
         real_res = torch.cat([mlpA.forward(all_tokens), mlpB.forward(all_tokens)], dim=-1)
         new_res = newMlp.forward(all_tokens)
-        newMlp.U = torch.nn.Parameter(solve_linear(new_res.float(), real_res.float()).to(dtype=mlpA.down.weight.dtype))
+        newMlp.U = torch.nn.Parameter(_solve_linear(new_res.float(), real_res.float()).to(dtype=mlpA.down.weight.dtype))
         return newMlp
     return inner
 
@@ -348,13 +333,13 @@ FUSION_METHODS["Fisher"] = fisherMLP
 FUSION_METHODS["TIES"] = tiesMLP
 FUSION_METHODS["Distillation"] = distillMLP
 
-FUSION_METHODS["FineTune_ZipIt"] = finetune(zipMLP)
-FUSION_METHODS["FineTune_Average"] = finetune(avgMLP)
-FUSION_METHODS["FineTune_Projection"] = finetune(proj)
-FUSION_METHODS["FineTune_Procrustes"] = finetune(procrustesMLP)
-FUSION_METHODS["FineTune_Fisher"] = finetune(fisherMLP)
-FUSION_METHODS["FineTune_TIES"] = finetune(tiesMLP)
-FUSION_METHODS["FineTune_Distillation"] = finetune(distillMLP)
+FUSION_METHODS["LS_ZipIt"] = LS(zipMLP)
+FUSION_METHODS["LS_Average"] = LS(avgMLP)
+FUSION_METHODS["LS_Projection"] = LS(proj)
+FUSION_METHODS["LS_Procrustes"] = LS(procrustesMLP)
+FUSION_METHODS["LS_Fisher"] = LS(fisherMLP)
+FUSION_METHODS["LS_TIES"] = LS(tiesMLP)
+FUSION_METHODS["LS_Distillation"] = LS(distillMLP)
 
 
 @torch.no_grad()
@@ -497,9 +482,6 @@ def linear_cka(X, Y):
 
 
 def js_divergence_from_logits(logits_p, logits_q):
-    """
-    logits_p, logits_q: (N, M)
-    """
     p = F.softmax(logits_p, dim=-1)
     q = F.softmax(logits_q, dim=-1)
 
@@ -549,7 +531,7 @@ def test_model_on_data(fused_mlp, mlp1, mlp2, test_data):
     }
 
 
-# True is greater is better
+# True if greater value is better
 best_metrics = {
     "MSE": False,
     "RMSE": False,

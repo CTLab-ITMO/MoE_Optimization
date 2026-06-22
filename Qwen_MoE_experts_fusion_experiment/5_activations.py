@@ -37,13 +37,14 @@ for layer in LAYERS:
 
 
 def count_activations(data, layer):
+    """Return sequance of top-k expert on each data example."""
     res = []
     for example in tqdm(data):
         router_output = (model
-                        .model
-                        .layers[layer]
-                        .mlp
-                        .gate(example.to(device)))
+                            .model
+                            .layers[layer]
+                            .mlp
+                            .gate(example.to(device)))
         if isinstance(router_output, tuple):
             selected = router_output[-1]
         else:
@@ -81,6 +82,7 @@ for layer in LAYERS:
 
 
 def get_pairs_activations(activations, layer):
+    """Return indexes of all data examples which activate given expert."""
     pairs_activations = []
     for _ in range(len(pairs[layer])):
         pairs_activations.append(set())
@@ -93,12 +95,6 @@ def get_pairs_activations(activations, layer):
         for i in range(topk):
             activated_expert = pairs_ind[layer][activation[i]]
             pairs_activations[activated_expert].add(ind)
-        # for i in range(topk):
-        #     for j in range(i + 1, topk):
-        #         if (pairs_ind[layer][activation[i]]
-        #                 == pairs_ind[layer][activation[j]]):
-        #             activated_expert = pairs_ind[layer][activation[i]]
-        #             pairs_activations[activated_expert].append(ind)
 
     return list(map(list, pairs_activations))
 

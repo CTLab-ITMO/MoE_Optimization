@@ -33,7 +33,7 @@ if "_test_data" not in globals():
 test_data = _test_data[:EXAMPLES]
 
 
-@torch.autocast("cuda")
+@torch.autocast(device.type)
 def generate_examples(model, examples):
     res = []
     for example in tqdm(examples):
@@ -64,7 +64,8 @@ for layer in LAYERS:
     torch.cuda.empty_cache()
     new_mlp = get_fusion_layer_by_index(
         layer,
-        f"{DATA_DIR}/fusion_experts/ZipIt",
+        f"fusion_experts/ZipIt",
+        DATA_DIR,
         device=device,
         use_default_experts=False
     ).to(device)

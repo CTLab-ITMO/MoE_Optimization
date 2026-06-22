@@ -3,6 +3,7 @@ from torch import nn
 
 default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+
 def unite_matrix(mat1: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
     """Unite matrix A and B in block format:
     A 0
@@ -44,7 +45,7 @@ def build_matches(corr_matrix):
 
 
 class Zipper(nn.Linear):
-    """Save all inputs and build M and U matrix
+    """Save all inputs and build M and U matrices
     based on greedy matching in correlation matrix"""
 
     def __init__(self, features):

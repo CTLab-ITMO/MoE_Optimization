@@ -33,7 +33,7 @@ set_seed(SEED)
 
 
 if PAIRING_METHOD == "activation_correlation":
-    sim0 = compute_activation_correlation_matrix(LAYERS[0], DATA_DIR)
+    sim0 = compute_activation_correlation_matrix(LAYERS[0], DATA_DIR).tolist()
     now = datetime.now()
     _plot_dir = f"plots/activation_correlation/{now.strftime('%Y_%m_%d_%H_%M_%S')}"
     os.makedirs(_plot_dir, exist_ok=True)
