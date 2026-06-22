@@ -33,7 +33,16 @@ def compute_output_similarity_matrix(
     num_samples: int = 4096,
     batch_size: int = 512,
 ) -> torch.Tensor:
-    """<In development>"""
+    """Build an EXPERTS x EXPERTS expert-output similarity matrix.
+
+    Each expert is run on a shared sample of MLP inputs (step 4 outputs); its
+    per-token outputs are L2-normalized and the matrix entry ``(i, j)`` is the
+    mean cosine similarity between expert ``i`` and ``j`` outputs over the
+    sample. This is the ``output_similarity`` pairing signal -- an alternative
+    to ``activation_correlation`` (gate co-activation) for the P0 ablation.
+
+    Requires step 3 (saved experts) and step 4 (saved MLP inputs).
+    """
     experts_dir = f"{data_dir}/experts/{layer}"
     inputs_path = f"{data_dir}/mlp_inputs/train_{layer}.pt"
     if not os.path.isdir(experts_dir):
