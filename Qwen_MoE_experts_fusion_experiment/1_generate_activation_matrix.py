@@ -10,9 +10,9 @@ import datasets
 from config import (
     MODEL_NAME,
     TRAIN_DATASET_NAME,
-    TEST_DATASET_NAME,
+    VALIDATION_DATASET_NAME,
     TRAIN_SIZE,
-    TEST_SIZE,
+    VALIDATION_SIZE,
     LAYERS,
     TOP_K,
     device,
@@ -45,12 +45,12 @@ model = model.to(device)
 
 if "_train_data" not in globals():
     _train_data = datasets.load_dataset(**TRAIN_DATASET_NAME)["question"]
-if "_test_data" not in globals():
-    _test_data = datasets.load_dataset(**TEST_DATASET_NAME)["question"]
+if "_validation_data" not in globals():
+    _validation_data = datasets.load_dataset(**VALIDATION_DATASET_NAME)["question"]
 train_data = _train_data[:TRAIN_SIZE]
-test_data = _test_data[:TEST_SIZE]
+validation_data = _validation_data[:VALIDATION_SIZE]
 print("Example of train data:", train_data[0])
-print("Example of test data:", test_data[0])
+print("Example of validation data:", validation_data[0])
 
 
 class ExpertsLogger(nn.Module):
@@ -119,15 +119,15 @@ def get_experts(data, loggers):
     return experts
 
 
-def write_activations(train_data, test_data, loggers):
+def write_activations(train_data, validation_data, loggers):
     act_dir = f"{DATA_DIR}/activations"
     os.makedirs(act_dir, exist_ok=True)
     train_activations = get_experts(train_data, loggers)
     for i, activations in train_activations.items():
         torch.save(activations, f"{act_dir}/train_matrix_{i}.pt")
-    test_activations = get_experts(test_data, loggers)
-    for i, activations in test_activations.items():
-        torch.save(activations, f"{act_dir}/test_matrix_{i}.pt")
+    validation_activations = get_experts(validation_data, loggers)
+    for i, activations in validation_activations.items():
+        torch.save(activations, f"{act_dir}/validation_matrix_{i}.pt")
 
 
-write_activations(train_data, test_data, loggers)
+write_activations(train_data, validation_data, loggers)

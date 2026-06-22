@@ -5,11 +5,12 @@ DATA_DIR = "./data_MMLU_1k"
 MODEL_NAME = "Qwen/Qwen1.5-MoE-A2.7B-Chat"
 EXPERTS = 60
 TRAIN_DATASET_NAME = {"path": "cais/mmlu", "name": "all", "split": "auxiliary_train"}
+VALIDATION_DATASET_NAME = {"path": "cais/mmlu", "name": "all", "split": "validation"}
 TEST_DATASET_NAME = {"path": "cais/mmlu", "name": "all", "split": "test"}
 
-TRAIN_SIZE = 1_024
-TEST_SIZE = TRAIN_SIZE
-VALIDATION_SIZE = 1_000
+TRAIN_SIZE = 1_024       # reconstruction train + stage-9 order-selection QA
+VALIDATION_SIZE = 1_024  # reconstruction validation (held-out, stages 1-8)
+TEST_SIZE = 15_000       # final accuracy QA (stage 9), large for tight CI
 LAYERS = list(range(24))
 TOP_K = 4
 

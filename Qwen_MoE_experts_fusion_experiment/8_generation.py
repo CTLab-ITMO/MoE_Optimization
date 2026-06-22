@@ -6,7 +6,7 @@ from tqdm import tqdm
 import sys
 import transformers
 import datasets
-from config import LAYERS, MODEL_NAME, TEST_DATASET_NAME, device, DATA_DIR
+from config import LAYERS, MODEL_NAME, VALIDATION_DATASET_NAME, device, DATA_DIR
 
 sys.path.append("..")
 from common.fusion_layer import get_fusion_layer_by_index
@@ -28,9 +28,9 @@ if "tokenizer" not in globals():
 model = model.to(device)
 
 
-if "_test_data" not in globals():
-    _test_data = datasets.load_dataset(**TEST_DATASET_NAME)["question"]
-test_data = _test_data[:EXAMPLES]
+if "_validation_data" not in globals():
+    _validation_data = datasets.load_dataset(**VALIDATION_DATASET_NAME)["question"]
+validation_data = _validation_data[:EXAMPLES]
 
 
 @torch.autocast(device.type)
@@ -45,7 +45,7 @@ def generate_examples(model, examples):
 examples = []
 for ind in range(EXAMPLES):
     messages = [
-        {"role": "user", "content": test_data[ind]},
+        {"role": "user", "content": validation_data[ind]},
     ]
     examples.append(tokenizer.apply_chat_template(
         messages,

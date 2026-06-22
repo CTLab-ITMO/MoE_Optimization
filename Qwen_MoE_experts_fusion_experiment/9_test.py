@@ -9,7 +9,8 @@ from tqdm import tqdm
 from config import (
     MODEL_NAME,
     LAYERS,
-    VALIDATION_SIZE,
+    TRAIN_SIZE,
+    TEST_SIZE,
     device,
     REPLACE_LAYERS_SEQUANTIAL,
     REPLACE_BEST_LAYERS_SEQUANTIAL,
@@ -68,7 +69,8 @@ def free_model(model):
 tokenizer = transformers.AutoTokenizer.from_pretrained(MODEL_NAME)
 
 
-base_accuracy = None
+base_train_accuracy = None
+base_test_accuracy = None
 base_size = None
 
 def count_params(model):
@@ -113,10 +115,11 @@ for fusion_name, experts_fusion in experts_fusions.items():
     print(f"Testing {fusion_name}")
     model = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map=device)
 
-    if base_accuracy is None:
-        base_accuracy = evaluate_qa(model, tokenizer, TRAIN_DATASET_NAME, VALIDATION_SIZE, seed=SEED)
+    if base_train_accuracy is None:
+        base_train_accuracy = evaluate_qa(model, tokenizer, TRAIN_DATASET_NAME, TRAIN_SIZE, seed=SEED)
+        base_test_accuracy = evaluate_qa(model, tokenizer, TEST_DATASET_NAME, TEST_SIZE, seed=SEED)
         base_size = count_params(model)
-    accuracy_list = [base_accuracy]
+    accuracy_list = [base_train_accuracy]
     size_list = [base_size]
 
     for layer in tqdm(LAYERS):
@@ -124,12 +127,12 @@ for fusion_name, experts_fusion in experts_fusions.items():
             del model.model.layers[layer].mlp
             torch.cuda.empty_cache()
             model.model.layers[layer].mlp = experts_fusion(model, layer)
-            accuracy_list.append(evaluate_qa(model, tokenizer, TRAIN_DATASET_NAME, VALIDATION_SIZE, seed=SEED))
+            accuracy_list.append(evaluate_qa(model, tokenizer, TRAIN_DATASET_NAME, TRAIN_SIZE, seed=SEED))
             size_list.append(count_params(model))
         else:
             old_mlp = model.model.layers[layer].mlp
             model.model.layers[layer].mlp = experts_fusion(model, layer)
-            accuracy_list.append(evaluate_qa(model, tokenizer, TRAIN_DATASET_NAME, VALIDATION_SIZE, seed=SEED))
+            accuracy_list.append(evaluate_qa(model, tokenizer, TRAIN_DATASET_NAME, TRAIN_SIZE, seed=SEED))
             size_list.append(count_params(model))
             del model.model.layers[layer].mlp
             torch.cuda.empty_cache()
@@ -145,14 +148,14 @@ for fusion_name, experts_fusion in experts_fusions.items():
     if REPLACE_BEST_LAYERS_SEQUANTIAL:
         best_layers = [x[0] for x in sorted(zip(LAYERS, accuracy_list[1:]), key=lambda x:-x[1])]
         print("Best layers:", best_layers)
-        new_accuracy_list = [base_accuracy]
+        new_accuracy_list = [base_test_accuracy]
         new_size_list = [base_size]
 
         for layer in tqdm(best_layers):
             del model.model.layers[layer].mlp
             torch.cuda.empty_cache()
             model.model.layers[layer].mlp = experts_fusion(model, layer)
-            new_accuracy_list.append(evaluate_qa(model, tokenizer, TEST_DATASET_NAME, VALIDATION_SIZE, seed=SEED))
+            new_accuracy_list.append(evaluate_qa(model, tokenizer, TEST_DATASET_NAME, TEST_SIZE, seed=SEED))
             new_size_list.append(count_params(model))
         print(f"model's accuracy list after {fusion_name} (seq):", new_accuracy_list)
         torch.save(new_accuracy_list, f"{TEST_RESULTS_DIR}/accuracy/accuracy_list_seq_{fusion_name}.pt")
@@ -167,10 +170,11 @@ if REPLACE_LAYERS_SMART_SEQUANTIAL:
         remain = set(LAYERS)
         print(f"Testing {fusion_name}")
         model = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map=device)
-        if base_accuracy is None:
-            base_accuracy = evaluate_qa(model, tokenizer, TRAIN_DATASET_NAME, VALIDATION_SIZE, seed=SEED)
+        if base_train_accuracy is None:
+            base_train_accuracy = evaluate_qa(model, tokenizer, TRAIN_DATASET_NAME, TRAIN_SIZE, seed=SEED)
+            base_test_accuracy = evaluate_qa(model, tokenizer, TEST_DATASET_NAME, TEST_SIZE, seed=SEED)
             base_size = count_params(model)
-        accuracy_list = [base_accuracy]
+        accuracy_list = [base_test_accuracy]
         size_list = [base_size]
         for _ in tqdm(LAYERS):
             best_ind = -1
@@ -179,7 +183,7 @@ if REPLACE_LAYERS_SMART_SEQUANTIAL:
             for layer in remain:
                 old_mlp = model.model.layers[layer].mlp
                 model.model.layers[layer].mlp = experts_fusion(model, layer)
-                new_score = evaluate_qa(model, tokenizer, TRAIN_DATASET_NAME, VALIDATION_SIZE, seed=SEED)
+                new_score = evaluate_qa(model, tokenizer, TRAIN_DATASET_NAME, TRAIN_SIZE, seed=SEED)
                 if new_score > best_score:
                     best_score = new_score
                     best_ind = layer
@@ -189,7 +193,7 @@ if REPLACE_LAYERS_SMART_SEQUANTIAL:
             remain.remove(best_ind)
             changed.add(best_ind)
             model.model.layers[best_ind].mlp = experts_fusion(model, best_ind)
-            accuracy_list.append(evaluate_qa(model, tokenizer, TEST_DATASET_NAME, VALIDATION_SIZE, seed=SEED))
+            accuracy_list.append(evaluate_qa(model, tokenizer, TEST_DATASET_NAME, TEST_SIZE, seed=SEED))
             size_list.append(count_params(model))
         print(f"model's accuracy list after {fusion_name} smart seq:", accuracy_list)
         os.makedirs(f"{TEST_RESULTS_DIR}/accuracy", exist_ok=True)

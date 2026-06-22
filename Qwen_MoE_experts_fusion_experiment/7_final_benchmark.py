@@ -26,7 +26,7 @@ LAYER = LAYERS[0]
 
 
 train_data = torch.load(f"{DATA_DIR}/mlp_inputs/train_{LAYER}.pt")
-test_data = torch.load(f"{DATA_DIR}/mlp_inputs/test_{LAYER}.pt")
+validation_data = torch.load(f"{DATA_DIR}/mlp_inputs/validation_{LAYER}.pt")
 
 
 model = get_fusion_layer_by_index(LAYER, f"fusion_experts/ZipIt", DATA_DIR, device=device)

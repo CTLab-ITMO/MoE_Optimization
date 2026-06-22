@@ -10,10 +10,10 @@ import datasets
 from config import (
     MODEL_NAME,
     TRAIN_DATASET_NAME,
-    TEST_DATASET_NAME,
+    VALIDATION_DATASET_NAME,
     LAYERS,
     TRAIN_SIZE,
-    TEST_SIZE,
+    VALIDATION_SIZE,
     device, 
     DATA_DIR
 )
@@ -42,10 +42,10 @@ model = model.to(device)
 
 if "_train_data" not in globals():
     _train_data = datasets.load_dataset(**TRAIN_DATASET_NAME)["question"]
-if "_test_data" not in globals():
-    _test_data = datasets.load_dataset(**TEST_DATASET_NAME)["question"]
+if "_validation_data" not in globals():
+    _validation_data = datasets.load_dataset(**VALIDATION_DATASET_NAME)["question"]
 train_data = _train_data[:TRAIN_SIZE]
-test_data = _test_data[:TEST_SIZE]
+validation_data = _validation_data[:VALIDATION_SIZE]
 
 
 class Logger(nn.Module):
@@ -76,10 +76,10 @@ for n_layer in LAYERS:
         model.forward(input_ids.to(device))
     torch.save(logger.get(), f"{DATA_DIR}/mlp_inputs/train_{n_layer}.pt")
 
-    for data in tqdm(test_data):
+    for data in tqdm(validation_data):
         input_ids = tokenizer(data, return_tensors="pt")["input_ids"]
         model.forward(input_ids.to(device))
-    torch.save(logger.get(), f"{DATA_DIR}/mlp_inputs/test_{n_layer}.pt")
+    torch.save(logger.get(), f"{DATA_DIR}/mlp_inputs/validation_{n_layer}.pt")
 
     model.model.layers[n_layer].mlp = logger.model
 

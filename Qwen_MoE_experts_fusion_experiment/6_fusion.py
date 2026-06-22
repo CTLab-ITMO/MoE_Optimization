@@ -35,21 +35,21 @@ set_seed(SEED)
 
 @torch.no_grad()
 def compare_fusions_error_and_time(
-    mlp1, mlp2, train_data, test_data, fusion_experts=None, ind=None
+    mlp1, mlp2, train_data, validation_data, fusion_experts=None, ind=None
 ) -> dict[str, dict[str, list[float]]]:
-    """Take two experts from model first layer 
+    """Take two experts from model first layer
     and count MSE and time for existed fusion methods"""
     fusions = {}
-    for fusion_name, fusion_methos in FUSION_METHODS.items():        
+    for fusion_name, fusion_methos in FUSION_METHODS.items():
         fusions[fusion_name] = fusion_methos(mlp1, mlp2, train_data)
     if fusion_experts is not None:
         fusion_experts[ind] = fusions
 
     for metric, inverse in best_metrics.items():
-        fusions[f"Best_{metric}"] = fusions["Projection"]
-    if len(test_data) > 10:
+        fusions[f"Best_{metric}"] = fusions["Pruning"]
+    if len(validation_data) > 10:
         results = {
-            fusion_name: test_model_on_data(fusions[fusion_name], mlp1, mlp2, test_data)
+            fusion_name: test_model_on_data(fusions[fusion_name], mlp1, mlp2, validation_data)
             for fusion_name, _ in FUSION_METHODS.items()
         }
         for metric, inverse in best_metrics.items():
@@ -73,10 +73,10 @@ for layer in tqdm(LAYERS):
         for i in range(EXPERTS)
     ]
     train_data = torch.load(f"{DATA_DIR}/mlp_inputs/train_{layer}.pt")
-    test_data = torch.load(f"{DATA_DIR}/mlp_inputs/test_{layer}.pt")
+    validation_data = torch.load(f"{DATA_DIR}/mlp_inputs/validation_{layer}.pt")
     pairs = torch.load(f"{DATA_DIR}/pairs/{layer}.pt")
     train_pairs_activations = torch.load(f"{DATA_DIR}/activations/pairs_train_{layer}.pt")
-    test_pairs_activations = torch.load(f"{DATA_DIR}/activations/pairs_test_{layer}.pt")
+    validation_pairs_activations = torch.load(f"{DATA_DIR}/activations/pairs_validation_{layer}.pt")
 
     fusion_experts = [None] * len(pairs)
 
@@ -85,23 +85,23 @@ for layer in tqdm(LAYERS):
         train_data_for_pair = [
             train_data[ind].to(device) for ind in train_pairs_activations[i]
         ]
-        test_data_for_pair = [
-            test_data[ind].to(device) for ind in test_pairs_activations[i]
+        validation_data_for_pair = [
+            validation_data[ind].to(device) for ind in validation_pairs_activations[i]
         ]
         res = compare_fusions_error_and_time(
             experts[expert_1].to(device),
             experts[expert_2].to(device),
             train_data_for_pair,
-            test_data_for_pair,
+            validation_data_for_pair,
             fusion_experts,
             i,
         )
-        if len(test_data_for_pair) > 10:
+        if len(validation_data_for_pair) > 10:
             experiment_results.append(res)
 
     for x in train_data:
         del x
-    for x in test_data:
+    for x in validation_data:
         del x
     for i, fused in enumerate(fusion_experts):
         for fusion_name, fusion_expert in fused.items():

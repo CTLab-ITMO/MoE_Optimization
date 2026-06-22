@@ -30,10 +30,10 @@ model = model.to(device)
 
 
 train_data = {}
-test_data = {}
+validation_data = {}
 for layer in LAYERS:
     train_data[layer] = torch.load(f"{DATA_DIR}/mlp_inputs/train_{layer}.pt")
-    test_data[layer] = torch.load(f"{DATA_DIR}/mlp_inputs/test_{layer}.pt")
+    validation_data[layer] = torch.load(f"{DATA_DIR}/mlp_inputs/validation_{layer}.pt")
 
 
 def count_activations(data, layer):
@@ -60,15 +60,15 @@ for layer in LAYERS:
     data = count_activations(train_data[layer], layer)
     torch.save(data, f"{DATA_DIR}/activations/train_all_{layer}.pt")
 
-    data = count_activations(test_data[layer], layer)
-    torch.save(data, f"{DATA_DIR}/activations/test_all_{layer}.pt")
+    data = count_activations(validation_data[layer], layer)
+    torch.save(data, f"{DATA_DIR}/activations/validation_all_{layer}.pt")
 
 
 train_activations = {}
-test_activations = {}
+validation_activations = {}
 for layer in LAYERS:
     train_activations[layer] = torch.load(f"{DATA_DIR}/activations/train_all_{layer}.pt")
-    test_activations[layer] = torch.load(f"{DATA_DIR}/activations/test_all_{layer}.pt")
+    validation_activations[layer] = torch.load(f"{DATA_DIR}/activations/validation_all_{layer}.pt")
 
 
 pairs = {}
@@ -105,7 +105,7 @@ for layer in LAYERS:
         f"{DATA_DIR}/activations/pairs_train_{layer}.pt"
     )
     torch.save(
-        get_pairs_activations(test_activations[layer], layer),
-        f"{DATA_DIR}/activations/pairs_test_{layer}.pt"
+        get_pairs_activations(validation_activations[layer], layer),
+        f"{DATA_DIR}/activations/pairs_validation_{layer}.pt"
     )
 
