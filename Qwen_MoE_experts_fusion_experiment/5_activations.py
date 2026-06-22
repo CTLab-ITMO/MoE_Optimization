@@ -5,7 +5,7 @@ import torch
 import os
 from tqdm import tqdm
 import transformers
-from config import MODEL_NAME, LAYERS, TOP_K, device, DATA_DIR
+from config import MODEL_NAME, MODEL_DTYPE, LAYERS, TOP_K, device, DATA_DIR
 
 
 import sys
@@ -16,7 +16,7 @@ set_seed(SEED)
 
 
 if "model" not in globals():
-    model = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map=device)
+    model = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map=device, dtype=MODEL_DTYPE)
 if "tokenizer" not in globals():
     tokenizer = transformers.AutoTokenizer.from_pretrained(MODEL_NAME)
 

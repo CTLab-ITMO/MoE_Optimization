@@ -6,7 +6,7 @@ from tqdm import tqdm
 import sys
 import transformers
 import datasets
-from config import LAYERS, MODEL_NAME, VALIDATION_DATASET_NAME, device, DATA_DIR
+from config import LAYERS, MODEL_NAME, MODEL_DTYPE, VALIDATION_DATASET_NAME, device, DATA_DIR
 
 sys.path.append("..")
 from common.fusion_layer import get_fusion_layer_by_index
@@ -22,7 +22,7 @@ set_seed(SEED)
 
 
 if "model" not in globals():
-    model = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME)
+    model = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME, dtype=MODEL_DTYPE)
 if "tokenizer" not in globals():
     tokenizer = transformers.AutoTokenizer.from_pretrained(MODEL_NAME)
 model = model.to(device)

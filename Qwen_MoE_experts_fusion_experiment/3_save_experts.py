@@ -5,7 +5,7 @@ import sys
 import torch
 import os
 import transformers
-from config import MODEL_NAME, LAYERS, DATA_DIR
+from config import MODEL_NAME, MODEL_DTYPE, LAYERS, DATA_DIR
 from tqdm import tqdm
 
 sys.path.append("..")
@@ -23,7 +23,7 @@ set_seed(SEED)
 
 
 if "model" not in globals():
-    model = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map=device)
+    model = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map=device, dtype=MODEL_DTYPE)
 
 
 for n_layer in tqdm(LAYERS):

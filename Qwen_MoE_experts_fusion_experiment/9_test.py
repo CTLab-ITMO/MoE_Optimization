@@ -8,6 +8,7 @@ import transformers
 from tqdm import tqdm
 from config import (
     MODEL_NAME,
+    MODEL_DTYPE,
     LAYERS,
     TRAIN_SIZE,
     TEST_SIZE,
@@ -113,7 +114,7 @@ for best_metric in best_metrics.keys():
 
 for fusion_name, experts_fusion in experts_fusions.items():
     print(f"Testing {fusion_name}")
-    model = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map=device)
+    model = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map=device, dtype=MODEL_DTYPE)
 
     if base_train_accuracy is None:
         base_train_accuracy = evaluate_qa(model, tokenizer, TRAIN_DATASET_NAME, TRAIN_SIZE, seed=SEED)
@@ -169,7 +170,7 @@ if REPLACE_LAYERS_SMART_SEQUANTIAL:
         changed = set()
         remain = set(LAYERS)
         print(f"Testing {fusion_name}")
-        model = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map=device)
+        model = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map=device, dtype=MODEL_DTYPE)
         if base_train_accuracy is None:
             base_train_accuracy = evaluate_qa(model, tokenizer, TRAIN_DATASET_NAME, TRAIN_SIZE, seed=SEED)
             base_test_accuracy = evaluate_qa(model, tokenizer, TEST_DATASET_NAME, TEST_SIZE, seed=SEED)

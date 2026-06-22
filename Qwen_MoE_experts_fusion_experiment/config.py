@@ -3,6 +3,7 @@ import torch
 DATA_DIR = "./data_MMLU_1k"
 
 MODEL_NAME = "Qwen/Qwen1.5-MoE-A2.7B-Chat"
+MODEL_DTYPE = torch.bfloat16
 EXPERTS = 60
 TRAIN_DATASET_NAME = {"path": "cais/mmlu", "name": "all", "split": "auxiliary_train"}
 VALIDATION_DATASET_NAME = {"path": "cais/mmlu", "name": "all", "split": "validation"}
