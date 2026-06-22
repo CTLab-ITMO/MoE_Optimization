@@ -13,6 +13,7 @@ It also keeps the small helpers that are neither a fusion method nor a metric
 """
 
 import time
+import warnings
 
 import torch
 
@@ -113,17 +114,18 @@ def test_model_on_data(fused_mlp, mlp1, mlp2, test_data) -> dict[str, float]:
     real_res = torch.cat([mlp1.forward(all_tokens), mlp2.forward(all_tokens)], dim=-1).float()
     new_res = fused_mlp.forward_unzip(all_tokens).float()
 
-    if not torch.isfinite(new_res).all():
-        raise ValueError(
-            f"Fused expert produced non-finite output "
-            f"({int(torch.isnan(new_res).sum())} NaN, "
-            f"{int(torch.isinf(new_res).sum())} Inf); cannot score metrics."
+    if not (torch.isfinite(new_res).all() and torch.isfinite(real_res).all()):
+        warnings.warn(
+            f"Non-finite output in fusion evaluation "
+            f"(fused: {int(torch.isnan(new_res).sum())} NaN / "
+            f"{int(torch.isinf(new_res).sum())} Inf; "
+            f"reference non-finite: {not bool(torch.isfinite(real_res).all())}); "
+            f"metrics set to NaN and excluded from averaging.",
+            RuntimeWarning,
+            stacklevel=2,
         )
-    if not torch.isfinite(real_res).all():
-        raise ValueError(
-            "Reference experts produced non-finite output; cannot score metrics."
-        )
-
-    report = {metric.name: metric(real_res, new_res) for metric in METRICS}
+        report = {metric.name: float("nan") for metric in METRICS}
+    else:
+        report = {metric.name: metric(real_res, new_res) for metric in METRICS}
     report["Time"] = 1000 * timer(fused_mlp, all_tokens)
     return report

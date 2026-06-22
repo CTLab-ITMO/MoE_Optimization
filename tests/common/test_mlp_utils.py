@@ -94,6 +94,29 @@ def test_test_model_on_data_reports_all_metrics(pair, data):
         assert isinstance(value, float)
 
 
+def test_test_model_on_data_warns_and_nans_on_nonfinite(pair, data):
+    """A non-finite fused output warns (not raises) and yields NaN metrics so the
+    evaluation is dropped during averaging; ``Time`` stays a real measurement."""
+    import math
+
+    a, b = pair
+
+    class NanFused:
+        def forward_unzip(self, x, out=None):
+            return torch.full((x.shape[0], 2 * x.shape[1]), float("nan"))
+
+    with pytest.warns(RuntimeWarning):
+        report = mlp_utils.test_model_on_data(NanFused(), a, b, data)
+
+    metric_keys = set(report) - {"Time"}
+    assert metric_keys == {
+        "MSE", "RMSE", "MAE", "RelMSE", "Cosine", "Pearson", "R2",
+        "CKA", "JS", "KL", "Top1", "Top5", "EntropyGap",
+    }
+    assert all(math.isnan(report[key]) for key in metric_keys)
+    assert math.isfinite(report["Time"])
+
+
 def test_fusion_methods_registry_complete():
     expected_base = {
         "ZipIt", "Average", "Pruning", "Procrustes", "Fisher", "TIES", "Distillation",

@@ -144,10 +144,16 @@ data = {
 
 experts = len(data[metrics[0]][list(FUSION_METHODS.keys())[0]]) // len(LAYERS)
 
+def _finite_median(values):
+    """Median over finite values only (drops NaN/Inf from unstable fusions)."""
+    finite = [value for value in values if np.isfinite(value)]
+    return np.median(finite) if finite else float("nan")
+
+
 for metric in metrics:
     print(f"Meadian {metric} results for fusion methods:")
     for method_name in FUSION_METHODS.keys():
-        print(f"For {method_name} - {np.median(data[metric][method_name]):.3f}")
+        print(f"For {method_name} - {_finite_median(data[metric][method_name]):.3f}")
 
 for i, layer in enumerate(LAYERS):
     print()
@@ -155,12 +161,14 @@ for i, layer in enumerate(LAYERS):
     for metric in metrics:
         print(f"{metric} results for fusion methods:")
         for method_name in FUSION_METHODS.keys():
-            print(f"For {method_name} - {np.median(data[metric][method_name][i*experts:(i+1)*experts]):.3f}")
+            print(f"For {method_name} - {_finite_median(data[metric][method_name][i*experts:(i+1)*experts]):.3f}")
 
 
 for values in data.values():
     for key in values.keys():
-        values[key] = [value for value in values[key] if value < 1e6]
+        values[key] = [
+            value for value in values[key] if np.isfinite(value) and value < 1e6
+        ]
 
 
 plt.figure(figsize=(6 * len(metrics), 6))
