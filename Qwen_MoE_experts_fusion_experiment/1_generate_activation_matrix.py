@@ -30,10 +30,8 @@ from config import SEED
 set_seed(SEED)
 
 
-if "model" not in globals():
-    model = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map=device, dtype=MODEL_DTYPE)
-if "tokenizer" not in globals():
-    tokenizer = transformers.AutoTokenizer.from_pretrained(MODEL_NAME)
+model = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map=device, dtype=MODEL_DTYPE)
+tokenizer = transformers.AutoTokenizer.from_pretrained(MODEL_NAME)
 
 # Remove extra layers
 MAX_LAYERS = max(LAYERS) + 1
@@ -44,12 +42,8 @@ torch.cuda.empty_cache()
 model = model.to(device)
 
 
-if "_train_data" not in globals():
-    _train_data = datasets.load_dataset(**TRAIN_DATASET_NAME)["question"]
-if "_validation_data" not in globals():
-    _validation_data = datasets.load_dataset(**VALIDATION_DATASET_NAME)["question"]
-train_data = _train_data[:TRAIN_SIZE]
-validation_data = _validation_data[:VALIDATION_SIZE]
+train_data = datasets.load_dataset(**TRAIN_DATASET_NAME)["question"][:TRAIN_SIZE]
+validation_data = datasets.load_dataset(**VALIDATION_DATASET_NAME)["question"][:VALIDATION_SIZE]
 print("Example of train data:", train_data[0])
 print("Example of validation data:", validation_data[0])
 

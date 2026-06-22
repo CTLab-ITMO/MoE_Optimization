@@ -1,0 +1,9 @@
+[run]
+source =
+    common
+    Qwen_MoE_experts_fusion_experiment
+omit =
+    tests/*
+
+[report]
+show_missing = True

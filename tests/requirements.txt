@@ -1,0 +1,9 @@
+pytest>=8.0
+pytest-cov>=5.0
+torch
+transformers 
+optimum 
+datasets 
+accelerate
+matplotlib
+seaborn

@@ -45,17 +45,17 @@ def compare_fusions_error_and_time(
     if fusion_experts is not None:
         fusion_experts[ind] = fusions
 
-    for metric, inverse in best_metrics.items():
+    for metric, higher_is_better in best_metrics.items():
         fusions[f"Best_{metric}"] = fusions["Pruning"]
     if len(validation_data) > 10:
         results = {
             fusion_name: test_model_on_data(fusions[fusion_name], mlp1, mlp2, validation_data)
             for fusion_name, _ in FUSION_METHODS.items()
         }
-        for metric, inverse in best_metrics.items():
+        for metric, higher_is_better in best_metrics.items():
             best_name = list(results.keys())[0]
             for fusion_name in FUSION_METHODS.keys():
-                if (results[fusion_name][metric] > results[best_name][metric]) == inverse:
+                if (results[fusion_name][metric] > results[best_name][metric]) == higher_is_better:
                     best_name = fusion_name
             fusions[f"Best_{metric}"] = fusions[best_name]
             results[f"Best_{metric}"] = results[best_name]
