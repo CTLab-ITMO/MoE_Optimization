@@ -81,7 +81,6 @@ def test_stage9_accuracy_benchmark(run_script, builders):
     run_script(
         "9_test.py",
         with_model=True,
-        patch_fusion_layer=True,
         patch_qa_eval=True,
     )
 
@@ -94,7 +93,6 @@ def test_stage9_all_replacement_modes(run_script, builders):
     run_script(
         "9_test.py",
         with_model=True,
-        patch_fusion_layer=True,
         patch_qa_eval=True,
         config_overrides={
             "REPLACE_LAYERS_SEQUANTIAL": True,
@@ -109,8 +107,8 @@ def test_stage7_final_benchmark_smoke(run_script, builders):
     builders.mlp_inputs()
     pairs = builders.pairs()
     builders.fusion_experts("ZipIt", pairs)
-    _lenient(run_script, "7_final_benchmark.py", patch_fusion_layer=True)
+    _lenient(run_script, "7_final_benchmark.py")
 
 
 def test_stage8_generation_smoke(run_script):
-    _lenient(run_script, "8_generation.py", with_model=True, patch_fusion_layer=True)
+    _lenient(run_script, "8_generation.py", with_model=True)

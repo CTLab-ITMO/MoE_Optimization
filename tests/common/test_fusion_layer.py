@@ -4,7 +4,6 @@ import pytest
 import torch
 from torch import nn
 
-from common import fusion_layer
 from common.fusion_layer import FusionLayer, get_fusion_layer_by_index
 from common.mlp import AdvancedMLP
 
@@ -91,24 +90,25 @@ def _populate_data_dir(root, index, experts_subdir="fusion_experts/ZipIt"):
 
 
 @pytest.fixture
-def patched_config(monkeypatch, tmp_path):
-    monkeypatch.setattr(fusion_layer, "EXPERTS", NUM_EXPERTS)
+def data_dir(tmp_path):
     return str(tmp_path)
 
 
-def test_get_fusion_layer_by_index_with_default_experts(patched_config):
-    _populate_data_dir(patched_config, index=0)
-    layer = get_fusion_layer_by_index(0, "fusion_experts/ZipIt", patched_config, device=CPU,
-                                      use_default_experts=True)
+def test_get_fusion_layer_by_index_with_default_experts(data_dir):
+    """``num_experts=None`` infers the expert count from the saved files."""
+    _populate_data_dir(data_dir, index=0)
+    layer = get_fusion_layer_by_index(0, "fusion_experts/ZipIt", data_dir, device=CPU,
+                                      use_default_experts=True, num_experts=None)
     assert isinstance(layer, FusionLayer)
+    assert layer.num_experts == NUM_EXPERTS
     out = layer.forward(torch.randn(1, 2, HIDDEN))
     assert out.shape == (1, 2, HIDDEN)
 
 
-def test_get_fusion_layer_by_index_production_mode(patched_config):
-    _populate_data_dir(patched_config, index=0)
-    layer = get_fusion_layer_by_index(0, "fusion_experts/ZipIt", patched_config, device=CPU,
-                                      use_default_experts=False)
+def test_get_fusion_layer_by_index_production_mode(data_dir):
+    _populate_data_dir(data_dir, index=0)
+    layer = get_fusion_layer_by_index(0, "fusion_experts/ZipIt", data_dir, device=CPU,
+                                      use_default_experts=False, num_experts=NUM_EXPERTS)
     assert isinstance(layer, FusionLayer)
     assert not hasattr(layer, "experts")
     out = layer.forward(torch.randn(1, 2, HIDDEN))

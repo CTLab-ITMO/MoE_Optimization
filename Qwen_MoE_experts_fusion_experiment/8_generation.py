@@ -6,7 +6,7 @@ from tqdm import tqdm
 import sys
 import transformers
 import datasets
-from config import LAYERS, MODEL_NAME, MODEL_DTYPE, VALIDATION_DATASET_NAME, device, DATA_DIR
+from config import LAYERS, EXPERTS, MODEL_NAME, MODEL_DTYPE, VALIDATION_DATASET_NAME, device, DATA_DIR
 
 sys.path.append("..")
 from common.fusion_layer import get_fusion_layer_by_index
@@ -67,7 +67,8 @@ for layer in LAYERS:
         f"fusion_experts/ZipIt",
         DATA_DIR,
         device=device,
-        use_default_experts=False
+        use_default_experts=False,
+        num_experts=EXPERTS
     ).to(device)
     model.model.layers[layer].mlp = new_mlp
 

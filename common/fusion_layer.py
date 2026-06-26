@@ -1,6 +1,7 @@
+import glob
+
 from torch import nn
 import torch
-from config import EXPERTS
 import torch.nn.functional as F
 
 
@@ -105,16 +106,23 @@ class FusionLayer(nn.Module):
         return final_hidden_states
 
 
-def get_fusion_layer_by_index(layer_index, experts_dir, data_dir, device=torch.device("cpu"), use_default_experts = True):
-    """After fusion of experts allow to load new layer with given layer index and data dirs."""
+def get_fusion_layer_by_index(layer_index, experts_dir, data_dir, device=torch.device("cpu"),
+                              use_default_experts=True, num_experts=None):
+    """After fusion of experts allow to load new layer with given layer index and data dirs.
+
+    ``num_experts`` may be ``None``; in that case it is inferred from the number of
+    ``expert_*.pt`` files saved under ``{data_dir}/experts/{layer_index}``.
+    """
+    if num_experts is None:
+        num_experts = len(glob.glob(f"{data_dir}/experts/{layer_index}/expert_*.pt"))
     expert_pairs = torch.load(f"{data_dir}/pairs/{layer_index}.pt")
     if use_default_experts:
         experts = [
             torch.load(f"{data_dir}/experts/{layer_index}/expert_{i}.pt", weights_only=False).to(device)
-            for i in range(EXPERTS)
+            for i in range(num_experts)
         ]
     else:
-        experts = [None] * EXPERTS
+        experts = [None] * num_experts
     fusion_experts = [
         torch.load(f"{data_dir}/{experts_dir}/{layer_index}/{i}.pt", weights_only=False).to(device)
         for i in range(len(expert_pairs))

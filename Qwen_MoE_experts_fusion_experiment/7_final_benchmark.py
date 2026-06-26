@@ -5,7 +5,7 @@ import torch
 from matplotlib import pyplot as plt
 from tqdm import tqdm
 import sys
-from config import LAYERS, device, DATA_DIR
+from config import LAYERS, EXPERTS, device, DATA_DIR
 import time
 import seaborn as sns
 from datetime import datetime
@@ -29,7 +29,7 @@ train_data = torch.load(f"{DATA_DIR}/mlp_inputs/train_{LAYER}.pt")
 validation_data = torch.load(f"{DATA_DIR}/mlp_inputs/validation_{LAYER}.pt")
 
 
-model = get_fusion_layer_by_index(LAYER, f"fusion_experts/ZipIt", DATA_DIR, device=device)
+model = get_fusion_layer_by_index(LAYER, f"fusion_experts/ZipIt", DATA_DIR, device=device, num_experts=EXPERTS)
 
 
 batch_size = 128

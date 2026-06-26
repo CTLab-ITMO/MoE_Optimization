@@ -273,8 +273,7 @@ def builders(data_dir, layers):
 
 @pytest.fixture
 def run_script(monkeypatch, tmp_path, data_dir, layers):
-    def _run(name, *, config_overrides=None, with_model=False,
-             patch_fusion_layer=False, patch_qa_eval=False):
+    def _run(name, *, config_overrides=None, with_model=False, patch_qa_eval=False):
         import config as cfg
 
         overrides = {
@@ -304,10 +303,6 @@ def run_script(monkeypatch, tmp_path, data_dir, layers):
         if with_model:
             monkeypatch.setitem(sys.modules, "transformers", _make_fake_transformers())
             monkeypatch.setitem(sys.modules, "datasets", _make_fake_datasets())
-
-        if patch_fusion_layer:
-            from common import fusion_layer
-            monkeypatch.setattr(fusion_layer, "EXPERTS", N_EXPERTS)
 
         if patch_qa_eval:
             from common import qa_eval

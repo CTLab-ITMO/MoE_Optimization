@@ -10,6 +10,7 @@ from config import (
     MODEL_NAME,
     MODEL_DTYPE,
     LAYERS,
+    EXPERTS,
     TRAIN_SIZE,
     TEST_SIZE,
     device,
@@ -96,7 +97,8 @@ def default_fusion(name):
                                             f"fusion_experts/{name}",
                                             DATA_DIR,
                                             device=model.device,
-                                            use_default_experts=use_default_experts
+                                            use_default_experts=use_default_experts,
+                                            num_experts=EXPERTS
                                             ).to(model.device, dtype=model.dtype)
         for expert in new_layer.fusion_experts:
             if expert.U is not None:
