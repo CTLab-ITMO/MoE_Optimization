@@ -22,8 +22,6 @@ from config import (
 print(f"PAIRING_METHOD = {PAIRING_METHOD}")
 
 
-import sys
-sys.path.append("..")
 from common.seeding import set_seed
 from config import SEED
 set_seed(SEED)

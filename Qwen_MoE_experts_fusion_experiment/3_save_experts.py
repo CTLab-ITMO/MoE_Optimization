@@ -12,8 +12,6 @@ from common.mlp_utils import turn_in_mlp
 device = torch.device("cpu")
 
 
-import sys
-sys.path.append("..")
 from common.seeding import set_seed
 from config import SEED
 set_seed(SEED)
