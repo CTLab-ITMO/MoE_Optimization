@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# coding: utf-8
-
 import torch
 from matplotlib import pyplot as plt
 from tqdm import tqdm

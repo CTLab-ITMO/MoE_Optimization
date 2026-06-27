@@ -1,8 +1,3 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# # Imports
-
 import torch
 from datetime import datetime
 import torch.nn as nn
@@ -30,8 +25,6 @@ from common.seeding import set_seed
 from config import SEED
 set_seed(SEED)
 
-
-# # Fusion
 
 @torch.no_grad()
 def compare_fusions_error_and_time(
@@ -171,89 +164,54 @@ for values in data.values():
         ]
 
 
-plt.figure(figsize=(6 * len(metrics), 6))
-for i, metric in enumerate(metrics):
-    plt.subplot(1, len(metrics), i+1)
-    plt.title(metric)
-    for name, values in data[metric].items():
-        plot_values = values
-        if metric in log_safe_metrics and metric != "Cosine":
-            plot_values = np.log(np.maximum(np.asarray(values, dtype=np.float64), 1e-12))
-        plt.hist(plot_values, label=name, bins=100, density=True, alpha=0.5, cumulative=True, histtype="stepfilled")
-    plt.legend()
-    plt.title(metric)
-plt.savefig(f"{_plot_dir}/hist_stepfilled_1.png")
-plt.close()
-
-
-plt.figure(figsize=(6 * len(metrics), 6))
-for i, metric in enumerate(metrics):
-    plt.subplot(1, len(metrics), i+1)
-    plt.title(metric)
-    for name, values in data[metric].items():
-        plot_values = values
-        if metric in log_safe_metrics and metric != "Cosine":
-            plot_values = np.log(np.maximum(np.asarray(values, dtype=np.float64), 1e-12))
-        plt.hist(plot_values, label=name, bins=100, density=True, alpha=0.5, cumulative=True, histtype="stepfilled")
-    plt.legend()
-    plt.yscale("log")
-    plt.title(metric)
-plt.savefig(f"{_plot_dir}/hist_stepfilled_2.png")
-plt.close()
-
-
-plt.figure(figsize=(6 * len(metrics), 6))
-for i, metric in enumerate(metrics):
-    plt.subplot(1, len(metrics), i+1)
-    plt.title(metric)
-    names = list(data[metric].keys())
-
-    handles = []
-    for j, name in enumerate(names):
-        values = data[metric][name]
-        if metric in log_safe_metrics and metric != "Cosine":
-            values = np.log(np.maximum(np.asarray(values, dtype=np.float64), 1e-12))
-        vp = plt.violinplot(values, positions=[j])
-        handles.append(vp['bodies'][0])
-
-    plt.legend(handles, names)
-    plt.title(metric)
-
-plt.savefig(f"{_plot_dir}/violinplot.png")
-plt.close()
-
-
-plt.figure(figsize=(6 * len(metrics), 6))
-for i, metric in enumerate(metrics):
-    plt.subplot(1, len(metrics), i+1)
-    plt.title(metric)
-    names = list(data[metric].keys())
-
-    handles = []
-    for j, name in enumerate(names):
-        values = data[metric][name]
-        if metric in log_safe_metrics and metric != "Cosine":
-            values = np.log(np.maximum(np.asarray(values, dtype=np.float64), 1e-12))
-        vp = plt.violinplot(values, positions=[j])
-        handles.append(vp['bodies'][0])
-
-    plt.legend(handles, names)
-    plt.title(metric)
-
-plt.savefig(f"{_plot_dir}/violinplot_log.png")
-plt.close()
-
-
-plt.figure(figsize=(6 * len(metrics), 6))
-for i, metric in enumerate(metrics):
-    plt.subplot(1, len(metrics), i+1)
-    plt.title(metric)
-    names = list(data[metric].keys())
+def _log_if_needed(values, metric):
+    """Log-transform values for metrics whose spread reads better on a log scale."""
     if metric in log_safe_metrics and metric != "Cosine":
-        sns.kdeplot([np.log(np.maximum(np.asarray(data[metric][key], dtype=np.float64), 1e-12)) for key in names], fill=True, alpha=0.3)
-    else:
-        sns.kdeplot([data[metric][key] for key in names], fill=True, alpha=0.3)
+        return np.log(np.maximum(np.asarray(values, dtype=np.float64), 1e-12))
+    return values
+
+
+def _plot_grid(filename, draw_panel):
+    """Build a one-row subplot grid (one panel per metric), then save and close it."""
+    plt.figure(figsize=(6 * len(metrics), 6))
+    for i, metric in enumerate(metrics):
+        plt.subplot(1, len(metrics), i + 1)
+        plt.title(metric)
+        draw_panel(metric)
+    plt.savefig(f"{_plot_dir}/{filename}")
+    plt.close()
+
+
+def _hist_panel(metric, log_y):
+    for name, values in data[metric].items():
+        plt.hist(
+            _log_if_needed(values, metric),
+            label=name, bins=100, density=True, alpha=0.5,
+            cumulative=True, histtype="stepfilled",
+        )
+    plt.legend()
+    if log_y:
+        plt.yscale("log")
+
+
+def _violin_panel(metric):
+    names = list(data[metric].keys())
+    handles = []
+    for j, name in enumerate(names):
+        vp = plt.violinplot(_log_if_needed(data[metric][name], metric), positions=[j])
+        handles.append(vp['bodies'][0])
+    plt.legend(handles, names)
+
+
+def _kde_panel(metric):
+    names = list(data[metric].keys())
+    sns.kdeplot([_log_if_needed(data[metric][key], metric) for key in names], fill=True, alpha=0.3)
     plt.legend(names)
-plt.savefig(f"{_plot_dir}/kdeplot.png")
-plt.close()
+
+
+_plot_grid("hist_stepfilled_1.png", lambda metric: _hist_panel(metric, log_y=False))
+_plot_grid("hist_stepfilled_2.png", lambda metric: _hist_panel(metric, log_y=True))
+_plot_grid("violinplot.png", _violin_panel)
+_plot_grid("violinplot_log.png", _violin_panel)
+_plot_grid("kdeplot.png", _kde_panel)
 
