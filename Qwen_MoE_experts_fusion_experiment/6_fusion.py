@@ -3,15 +3,27 @@ from datetime import datetime
 import torch.nn as nn
 from matplotlib import pyplot as plt
 from tqdm import tqdm
-import time
 import sys
-from config import LAYERS, EXPERTS, device, DATA_DIR, FILTER_FUSIONS, FILTER_METRICS
+from config import (
+    LAYERS,
+    EXPERTS,
+    device,
+    DATA_DIR,
+    FILTER_FUSIONS,
+    FILTER_METRICS,
+    MIN_PAIR_VALIDATION_SAMPLES,
+)
 import os
 import seaborn as sns
 import numpy as np
 
 sys.path.append("..")
 from common.mlp_utils import FUSION_METHODS, test_model_on_data, best_metrics
+
+# Number of times stage 6 retries a flaky torch.save before giving up.
+IO_SAVE_RETRIES = 3
+# Metric values at or above this are treated as unstable outliers and dropped before plotting.
+MAX_PLOT_METRIC_VALUE = 1e6
 
 if FILTER_FUSIONS is not None:
     FUSION_METHODS = {k:v for k, v in FUSION_METHODS.items() if k in FILTER_FUSIONS}
@@ -38,7 +50,7 @@ def compare_fusions_error_and_time(
 
     for metric, higher_is_better in best_metrics.items():
         fusions[f"Best_{metric}"] = fusions["Pruning"]
-    if len(validation_data) > 10:
+    if len(validation_data) > MIN_PAIR_VALIDATION_SAMPLES:
         results = {
             fusion_name: test_model_on_data(fusions[fusion_name], mlp1, mlp2, validation_data)
             for fusion_name, _ in FUSION_METHODS.items()
@@ -66,8 +78,8 @@ for layer in tqdm(LAYERS):
     train_data = torch.load(f"{DATA_DIR}/mlp_inputs/train_{layer}.pt")
     validation_data = torch.load(f"{DATA_DIR}/mlp_inputs/validation_{layer}.pt")
     pairs = torch.load(f"{DATA_DIR}/pairs/{layer}.pt")
-    train_pairs_activations = torch.load(f"{DATA_DIR}/activations/pairs_train_{layer}.pt")
-    validation_pairs_activations = torch.load(f"{DATA_DIR}/activations/pairs_validation_{layer}.pt")
+    train_pairs_activations = torch.load(f"{act_dir}/pairs_train_{layer}.pt")
+    validation_pairs_activations = torch.load(f"{act_dir}/pairs_validation_{layer}.pt")
 
     fusion_experts = [None] * len(pairs)
 
@@ -87,7 +99,7 @@ for layer in tqdm(LAYERS):
             fusion_experts,
             i,
         )
-        if len(validation_data_for_pair) > 10:
+        if len(validation_data_for_pair) > MIN_PAIR_VALIDATION_SAMPLES:
             experiment_results.append(res)
 
     for x in train_data:
@@ -97,7 +109,7 @@ for layer in tqdm(LAYERS):
     for i, fused in enumerate(fusion_experts):
         for fusion_name, fusion_expert in fused.items():
             os.makedirs(f"{DATA_DIR}/fusion_experts/{fusion_name}/{layer}", exist_ok=True)
-            for _ in range(3):  # Here sometimes were IO mistakes, try few times
+            for _ in range(IO_SAVE_RETRIES):  # Here sometimes were IO mistakes, try few times
                 try:
                     torch.save(fusion_expert.cpu(), f"{DATA_DIR}/fusion_experts/{fusion_name}/{layer}/{i}.pt")
                     _io_err = None
@@ -112,15 +124,15 @@ for layer in tqdm(LAYERS):
 
 
 now = datetime.now()
-time = now.strftime("%Y_%m_%d_%H_%M_%S")
-_plot_dir = f"plots/fusion/{time}"
+timestamp = now.strftime("%Y_%m_%d_%H_%M_%S")
+_plot_dir = f"plots/fusion/{timestamp}"
 os.makedirs(_plot_dir, exist_ok=True)
 
 os.makedirs(f"logs/fusion", exist_ok=True)
-torch.save(experiment_results, f"logs/fusion/{time}.pt")
+torch.save(experiment_results, f"logs/fusion/{timestamp}.pt")
 
 
-experiment_results = torch.load(f"logs/fusion/{time}.pt")
+experiment_results = torch.load(f"logs/fusion/{timestamp}.pt")
 
 
 metrics = list(best_metrics.keys()) + ["Time"]
@@ -158,7 +170,8 @@ for i, layer in enumerate(LAYERS):
 for values in data.values():
     for key in values.keys():
         values[key] = [
-            value for value in values[key] if np.isfinite(value) and value < 1e6
+            value for value in values[key]
+            if np.isfinite(value) and value < MAX_PLOT_METRIC_VALUE
         ]
 
 

@@ -27,14 +27,14 @@ for n_layer in tqdm(LAYERS):
 
     try:
         for i, expert in enumerate(experts):
-            torch.save(turn_in_mlp(expert, device = torch.device("cpu")).to(dtype=model.dtype), f"{DATA_DIR}/experts/{n_layer}/expert_{i}.pt")
+            torch.save(turn_in_mlp(expert, device=device).to(dtype=model.dtype), f"{DATA_DIR}/experts/{n_layer}/expert_{i}.pt")
     except TypeError:
         for i in range(experts.num_experts):
             new_mlp = AdvancedMLP(
                 experts.hidden_dim,
                 experts.intermediate_dim,
                 experts.hidden_dim,
-                device=torch.device("cpu"),
+                device=device,
             )
             new_mlp.gate.weight = torch.nn.Parameter(experts.gate_up_proj[i, :experts.intermediate_dim].detach().clone())
             new_mlp.up.weight = torch.nn.Parameter(experts.gate_up_proj[i, experts.intermediate_dim:].detach().clone())

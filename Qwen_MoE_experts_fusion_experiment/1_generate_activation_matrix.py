@@ -9,6 +9,7 @@ from config import (
     MODEL_DTYPE,
     TRAIN_DATASET_NAME,
     VALIDATION_DATASET_NAME,
+    DATASET_TEXT_FIELD,
     TRAIN_SIZE,
     VALIDATION_SIZE,
     LAYERS,
@@ -39,8 +40,8 @@ torch.cuda.empty_cache()
 model = model.to(device)
 
 
-train_data = datasets.load_dataset(**TRAIN_DATASET_NAME)["question"][:TRAIN_SIZE]
-validation_data = datasets.load_dataset(**VALIDATION_DATASET_NAME)["question"][:VALIDATION_SIZE]
+train_data = datasets.load_dataset(**TRAIN_DATASET_NAME)[DATASET_TEXT_FIELD][:TRAIN_SIZE]
+validation_data = datasets.load_dataset(**VALIDATION_DATASET_NAME)[DATASET_TEXT_FIELD][:VALIDATION_SIZE]
 print("Example of train data:", train_data[0])
 print("Example of validation data:", validation_data[0])
 

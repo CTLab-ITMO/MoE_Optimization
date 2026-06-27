@@ -23,6 +23,9 @@ from abc import ABC, abstractmethod
 import torch
 import torch.nn.functional as F
 
+# Numerical-stability epsilon guarding divisions, logs and norm denominators below.
+EPS = 1e-8
+
 
 def center_gram(gram: torch.Tensor) -> torch.Tensor:
     """Double-center a Gram matrix (subtract row/column means, add grand mean)."""
@@ -34,7 +37,7 @@ def center_gram(gram: torch.Tensor) -> torch.Tensor:
 def prediction_entropy(logits: torch.Tensor) -> torch.Tensor:
     """Mean Shannon entropy of softmax(logits) over the last dimension."""
     probs = F.softmax(logits, dim=-1)
-    return -torch.sum(probs * torch.log(probs.clamp_min(1e-8)), dim=-1).mean()
+    return -torch.sum(probs * torch.log(probs.clamp_min(EPS)), dim=-1).mean()
 
 
 def _topk_agreement(logits_p: torch.Tensor, logits_q: torch.Tensor, k: int) -> float:
@@ -95,7 +98,7 @@ class RelMSE(Metric):
     higher_is_better = False
 
     def __call__(self, x, y):
-        denom = torch.square(x - x.mean(dim=0, keepdim=True)).mean().clamp_min(1e-8)
+        denom = torch.square(x - x.mean(dim=0, keepdim=True)).mean().clamp_min(EPS)
         return (torch.square(x - y).mean() / denom).item()
 
 
@@ -107,7 +110,7 @@ class R2(Metric):
 
     def __call__(self, x, y):
         ss_res = torch.square(x - y).sum()
-        ss_tot = torch.square(x - x.mean(dim=0, keepdim=True)).sum().clamp_min(1e-8)
+        ss_tot = torch.square(x - x.mean(dim=0, keepdim=True)).sum().clamp_min(EPS)
         return (1.0 - ss_res / ss_tot).item()
 
 
@@ -132,7 +135,7 @@ class Pearson(Metric):
         y = y.flatten().float()
         x = x - x.mean()
         y = y - y.mean()
-        denom = torch.sqrt((x.square().sum() * y.square().sum()).clamp_min(1e-8))
+        denom = torch.sqrt((x.square().sum() * y.square().sum()).clamp_min(EPS))
         return (x.mul(y).sum() / denom).item()
 
 
@@ -155,7 +158,7 @@ class CKA(Metric):
         hsic = (kc * lc).sum()
         norm_x = torch.sqrt((kc * kc).sum())
         norm_y = torch.sqrt((lc * lc).sum())
-        return (hsic / (norm_x * norm_y + 1e-8)).mean().item()
+        return (hsic / (norm_x * norm_y + EPS)).mean().item()
 
 
 class KL(Metric):

@@ -29,8 +29,6 @@ from torch import nn
 
 from common.mlp import MLP, AdvancedMLP
 
-default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
 
 # --------------------------------------------------------------------------- #
 # Tensor / model helpers shared by the fusion methods.
@@ -330,14 +328,39 @@ class FisherFusion(FusionMethod):
 # --------------------------------------------------------------------------- #
 class DistillationFusion(FusionMethod):
     """Train a student expert (initialized from the average) to mimic the
-    pairwise teacher ensemble on outputs and hidden activations."""
+    pairwise teacher ensemble on outputs and hidden activations.
+
+    All training hyperparameters are exposed as constructor arguments; the
+    defaults reproduce the original hardcoded schedule. ``epochs_large`` is used
+    when the calibration set has at least ``small_data_threshold`` samples,
+    otherwise ``epochs_small``. ``hidden_loss_weight`` balances the hidden-state
+    distillation term against the output term.
+    """
 
     name = "Distillation"
+
+    def __init__(
+        self,
+        lr: float = 3e-4,
+        weight_decay: float = 0.0,
+        hidden_loss_weight: float = 0.25,
+        max_batch_size: int = 256,
+        epochs_large: int = 4,
+        epochs_small: int = 8,
+        small_data_threshold: int = 512,
+    ):
+        self.lr = lr
+        self.weight_decay = weight_decay
+        self.hidden_loss_weight = hidden_loss_weight
+        self.max_batch_size = max_batch_size
+        self.epochs_large = epochs_large
+        self.epochs_small = epochs_small
+        self.small_data_threshold = small_data_threshold
 
     def merge(self, mlp_a, mlp_b, train_data, create_new=True):
         device = model_device(mlp_a)
         data = as_2d_tensor(train_data, device=device)
-        batch_size = min(256, max(1, len(data)))
+        batch_size = min(self.max_batch_size, max(1, len(data)))
         student = AverageFusion().merge(mlp_a, mlp_b, train_data, create_new=create_new)
 
         with torch.no_grad():
@@ -347,8 +370,12 @@ class DistillationFusion(FusionMethod):
             )
 
         student.train()
-        optimizer = torch.optim.AdamW(student.parameters(), lr=3e-4, weight_decay=0.0)
-        epochs = 4 if len(data) >= 512 else 8
+        optimizer = torch.optim.AdamW(
+            student.parameters(), lr=self.lr, weight_decay=self.weight_decay
+        )
+        epochs = (
+            self.epochs_large if len(data) >= self.small_data_threshold else self.epochs_small
+        )
 
         with torch.enable_grad():
             for _ in range(epochs):
@@ -360,7 +387,7 @@ class DistillationFusion(FusionMethod):
                     optimizer.zero_grad(set_to_none=True)
                     pred_out = student(batch_x)
                     pred_hidden = hidden_activations(student, batch_x)
-                    loss = F.mse_loss(pred_out, batch_out) + 0.25 * F.mse_loss(
+                    loss = F.mse_loss(pred_out, batch_out) + self.hidden_loss_weight * F.mse_loss(
                         pred_hidden, batch_hidden
                     )
                     loss.backward()

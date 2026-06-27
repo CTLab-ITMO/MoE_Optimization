@@ -9,10 +9,11 @@ from config import (
     MODEL_DTYPE,
     TRAIN_DATASET_NAME,
     VALIDATION_DATASET_NAME,
+    DATASET_TEXT_FIELD,
     LAYERS,
     TRAIN_SIZE,
     VALIDATION_SIZE,
-    device, 
+    device,
     DATA_DIR
 )
 
@@ -39,9 +40,9 @@ model = model.to(device)
 
 
 if "_train_data" not in globals():
-    _train_data = datasets.load_dataset(**TRAIN_DATASET_NAME)["question"]
+    _train_data = datasets.load_dataset(**TRAIN_DATASET_NAME)[DATASET_TEXT_FIELD]
 if "_validation_data" not in globals():
-    _validation_data = datasets.load_dataset(**VALIDATION_DATASET_NAME)["question"]
+    _validation_data = datasets.load_dataset(**VALIDATION_DATASET_NAME)[DATASET_TEXT_FIELD]
 train_data = _train_data[:TRAIN_SIZE]
 validation_data = _validation_data[:VALIDATION_SIZE]
 

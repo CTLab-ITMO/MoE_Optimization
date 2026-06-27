@@ -18,7 +18,8 @@ from config import (
     REPLACE_LAYERS_SMART_SEQUANTIAL,
     TRAIN_DATASET_NAME,
     TEST_DATASET_NAME,
-    DATA_DIR
+    DATA_DIR,
+    USE_DEFAULT_EXPERTS,
 )
 import gc
 
@@ -27,8 +28,7 @@ from common.fusion_layer import get_fusion_layer_by_index
 from common.mlp_utils import FUSION_METHODS, best_metrics
 from common.qa_eval import evaluate_qa
 
-model_id = "Qwen/Qwen1.5-MoE-A2.7B-Chat"
-use_default_experts = False
+use_default_experts = USE_DEFAULT_EXPERTS
 
 
 def _dataset_tag(ds):
@@ -46,8 +46,6 @@ if FILTER_METRICS is not None:
     best_metrics = {k:v for k, v in best_metrics.items() if k in FILTER_METRICS}
 
 
-import sys
-sys.path.append("..")
 from common.seeding import set_seed
 from config import SEED
 set_seed(SEED)

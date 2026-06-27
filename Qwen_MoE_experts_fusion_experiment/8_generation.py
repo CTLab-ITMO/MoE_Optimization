@@ -3,12 +3,24 @@ from tqdm import tqdm
 import sys
 import transformers
 import datasets
-from config import LAYERS, EXPERTS, MODEL_NAME, MODEL_DTYPE, VALIDATION_DATASET_NAME, device, DATA_DIR
+from config import (
+    LAYERS,
+    EXPERTS,
+    MODEL_NAME,
+    MODEL_DTYPE,
+    VALIDATION_DATASET_NAME,
+    DATASET_TEXT_FIELD,
+    INSPECT_FUSION_METHOD,
+    device,
+    DATA_DIR,
+)
 
 sys.path.append("..")
 from common.fusion_layer import get_fusion_layer_by_index
 
 EXAMPLES = 10
+# Number of tokens generated per prompt in the before/after qualitative comparison.
+MAX_NEW_TOKENS = 10
 
 
 from common.seeding import set_seed
@@ -24,7 +36,7 @@ model = model.to(device)
 
 
 if "_validation_data" not in globals():
-    _validation_data = datasets.load_dataset(**VALIDATION_DATASET_NAME)["question"]
+    _validation_data = datasets.load_dataset(**VALIDATION_DATASET_NAME)[DATASET_TEXT_FIELD]
 validation_data = _validation_data[:EXAMPLES]
 
 
@@ -32,7 +44,7 @@ validation_data = _validation_data[:EXAMPLES]
 def generate_examples(model, examples):
     res = []
     for example in tqdm(examples):
-        outputs = model.generate(**example, max_new_tokens=10)
+        outputs = model.generate(**example, max_new_tokens=MAX_NEW_TOKENS)
         res.append((tokenizer.decode(outputs[0])))
     return res
 
@@ -59,7 +71,7 @@ for layer in LAYERS:
     torch.cuda.empty_cache()
     new_mlp = get_fusion_layer_by_index(
         layer,
-        f"fusion_experts/ZipIt",
+        f"fusion_experts/{INSPECT_FUSION_METHOD}",
         DATA_DIR,
         device=device,
         use_default_experts=False,

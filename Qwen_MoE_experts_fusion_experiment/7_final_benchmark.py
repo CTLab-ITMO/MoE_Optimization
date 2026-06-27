@@ -2,7 +2,7 @@ import torch
 from matplotlib import pyplot as plt
 from tqdm import tqdm
 import sys
-from config import LAYERS, EXPERTS, device, DATA_DIR
+from config import LAYERS, EXPERTS, device, DATA_DIR, INSPECT_FUSION_METHOD
 import time
 import seaborn as sns
 from datetime import datetime
@@ -17,6 +17,10 @@ from config import SEED
 set_seed(SEED)
 
 
+# Number of MLP inputs stacked per forward call, and how many such batches to time over.
+BENCHMARK_BATCH_SIZE = 128
+BENCHMARK_NUM_BATCHES = 100
+
 LAYER = LAYERS[0]
 
 
@@ -24,12 +28,11 @@ train_data = torch.load(f"{DATA_DIR}/mlp_inputs/train_{LAYER}.pt")
 validation_data = torch.load(f"{DATA_DIR}/mlp_inputs/validation_{LAYER}.pt")
 
 
-model = get_fusion_layer_by_index(LAYER, f"fusion_experts/ZipIt", DATA_DIR, device=device, num_experts=EXPERTS)
+model = get_fusion_layer_by_index(LAYER, f"fusion_experts/{INSPECT_FUSION_METHOD}", DATA_DIR, device=device, num_experts=EXPERTS)
 
 
-batch_size = 128
-total = 100
-total = min(total, len(train_data) // batch_size)
+batch_size = BENCHMARK_BATCH_SIZE
+total = min(BENCHMARK_NUM_BATCHES, len(train_data) // batch_size)
 
 
 with torch.no_grad():
@@ -84,8 +87,8 @@ print("Cos_sim:", cos_sim[0])
 
 
 now = datetime.now()
-time = now.strftime("%Y_%m_%d_%H_%M_%S")
-_plot_dir = f"plots/fusion/{time}"
+timestamp = now.strftime("%Y_%m_%d_%H_%M_%S")
+_plot_dir = f"plots/fusion/{timestamp}"
 os.makedirs(_plot_dir, exist_ok=True)
 
 
