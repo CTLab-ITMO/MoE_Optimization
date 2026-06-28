@@ -1,10 +1,13 @@
 """Golden gate: the fusion pipeline reproduces the frozen ``golden_v1.json``.
 
-Captured once on the pristine legacy module (``UPDATE_GOLDEN=1``) and then held
-as a checked-in regression oracle. Both the legacy module and the new
-``experts_fusion`` copy must reproduce it within the tight/loose tolerance
-policy (``tolerances.py``); a self-consistency test proves the capture is
-deterministic (double regeneration is identical).
+Originally captured on the pristine legacy module (S0); from S4 the canonical
+snapshot is captured on the **new** ``experts_fusion`` module, whose stochastic
+ops use per-unit ``seed_for`` generators (§3.3) and therefore reproduce
+deterministically. The new module is held to the whole snapshot; the legacy
+module is held only to the deterministic entries (``hold_stochastic=False``) --
+it still consumes the global RNG, so after the S4 re-base it no longer matches
+the stochastic (Fisher) entries by design. A self-consistency test proves the
+capture is deterministic (double regeneration is identical).
 
 Re-basing the golden is intentional and rare: run with ``UPDATE_GOLDEN=1`` and
 review the JSON diff in the PR. The plan sanctions exactly two re-bases (S4
@@ -48,7 +51,18 @@ def test_registry_snapshot_matches_golden():
 
 
 def test_golden_legacy_module(tmp_path, monkeypatch):
+    # Legacy is the pre-S4 oracle: it still consumes the global RNG, so after the
+    # seed_for re-base it reproduces only the deterministic entries. Hold it to
+    # those (partition + deterministic methods); skip the stochastic ones.
     aggregates = harness.run_chain(harness.LEGACY, tmp_path, monkeypatch)
+    golden = _load_golden()
+    _require_golden(golden)
+    problems = tolerances.diff_aggregates(aggregates, golden, hold_stochastic=False)
+    assert not problems, "legacy module drift vs golden_v1:\n" + "\n".join(problems)
+
+
+def test_golden_new_module(tmp_path, monkeypatch):
+    aggregates = harness.run_chain(harness.NEW, tmp_path, monkeypatch)
 
     if UPDATE:
         snapshot = {"registry": harness.registry_snapshot(), **aggregates}
@@ -58,21 +72,15 @@ def test_golden_legacy_module(tmp_path, monkeypatch):
 
     golden = _load_golden()
     _require_golden(golden)
-    problems = tolerances.diff_aggregates(aggregates, golden)
-    assert not problems, "legacy module drift vs golden_v1:\n" + "\n".join(problems)
-
-
-def test_golden_new_module(tmp_path, monkeypatch):
-    golden = _load_golden()
-    _require_golden(golden)
-    aggregates = harness.run_chain(harness.NEW, tmp_path, monkeypatch)
-    problems = tolerances.diff_aggregates(aggregates, golden)
+    problems = tolerances.diff_aggregates(aggregates, golden, hold_stochastic=True)
     assert not problems, "experts_fusion copy drift vs golden_v1:\n" + "\n".join(problems)
 
 
 def test_golden_self_consistency(tmp_path, monkeypatch):
-    first = harness.run_chain(harness.LEGACY, tmp_path / "first", monkeypatch)
-    second = harness.run_chain(harness.LEGACY, tmp_path / "second", monkeypatch)
+    # The new module is the capture source; with seed_for its stochastic ops are
+    # deterministic, so two runs must be byte-identical.
+    first = harness.run_chain(harness.NEW, tmp_path / "first", monkeypatch)
+    second = harness.run_chain(harness.NEW, tmp_path / "second", monkeypatch)
     assert _canonical(first) == _canonical(second), (
         "golden capture is not deterministic across two runs"
     )

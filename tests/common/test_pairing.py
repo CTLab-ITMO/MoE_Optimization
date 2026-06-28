@@ -186,7 +186,7 @@ def test_get_pairs_forwards_output_similarity_knobs(monkeypatch):
     # and forwarded to compute_output_similarity_matrix, not pinned to defaults.
     captured = {}
 
-    def fake_sim(layer, data_dir, n_experts, device, num_samples, batch_size):
+    def fake_sim(layer, data_dir, n_experts, device, num_samples, batch_size, generator=None):
         captured["num_samples"] = num_samples
         captured["batch_size"] = batch_size
         return torch.eye(n_experts)

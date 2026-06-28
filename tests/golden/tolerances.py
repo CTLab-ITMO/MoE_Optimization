@@ -4,14 +4,16 @@
   orientation, registry snapshot, reconstruction/accuracy of deterministic
   fusion methods). Narrow rtol/atol; effectively exact on a single CPU thread.
 * **loose** -- order-invariant aggregates for stochastic methods (Fisher's
-  ``randn_like`` and, from S4 on, random pairing / output_similarity subsample).
-  Wide rtol; ``index_add_``/bf16 noise means these are never compared to the
-  byte.
+  Gaussian ``eps`` and, from S4 on, random pairing / output_similarity
+  subsample). Wide rtol; ``index_add_``/bf16 noise means these are never
+  compared to the byte.
 
-In S0 the legacy and new modules are verbatim copies running with an identical
-seed and traversal order, so even the stochastic methods reproduce exactly; the
-loose family is applied anyway to exercise the machinery the later (S4) golden
-re-basis relies on.
+S4 re-base: the golden is now captured from the **new** ``experts_fusion``
+module, whose stochastic ops draw from per-unit ``seed_for`` generators (§3.3),
+so the new module reproduces the stochastic entries deterministically. The
+legacy module still consumes the global RNG, so after the re-base it no longer
+reproduces those entries -- ``hold_stochastic=False`` lets the legacy gate skip
+them and verify only the deterministic entries (which both modules still share).
 """
 import math
 
@@ -60,12 +62,14 @@ def diff_registry(actual: dict, expected: dict) -> list:
     return problems
 
 
-def diff_reconstruction(actual: dict, expected: dict) -> list:
+def diff_reconstruction(actual: dict, expected: dict, *, hold_stochastic: bool = True) -> list:
     problems = []
     if set(actual) != set(expected):
         problems.append(f"reconstruction methods {sorted(actual)} != {sorted(expected)}")
         return problems
     for method in expected:
+        if not hold_stochastic and method in STOCHASTIC_FUSIONS:
+            continue
         rtol, atol = _tol_for(method)
         for layer in expected[method]:
             for metric, exp_value in expected[method][layer].items():
@@ -78,12 +82,14 @@ def diff_reconstruction(actual: dict, expected: dict) -> list:
     return problems
 
 
-def diff_accuracy(actual: dict, expected: dict) -> list:
+def diff_accuracy(actual: dict, expected: dict, *, hold_stochastic: bool = True) -> list:
     problems = []
     if set(actual) != set(expected):
         problems.append(f"accuracy methods {sorted(actual)} != {sorted(expected)}")
         return problems
     for method in expected:
+        if not hold_stochastic and method in STOCHASTIC_FUSIONS:
+            continue
         rtol, atol = _tol_for(method)
         exp_list = expected[method]
         act_list = actual[method]
@@ -100,10 +106,19 @@ def diff_accuracy(actual: dict, expected: dict) -> list:
     return problems
 
 
-def diff_aggregates(actual: dict, expected: dict) -> list:
-    """All non-registry aggregate diffs (partition + reconstruction + accuracy)."""
+def diff_aggregates(actual: dict, expected: dict, *, hold_stochastic: bool = True) -> list:
+    """All non-registry aggregate diffs (partition + reconstruction + accuracy).
+
+    ``hold_stochastic=False`` skips the stochastic fusion methods, holding only
+    the deterministic entries -- used for the legacy gate after the S4 re-base
+    (the legacy module no longer reproduces the new ``seed_for`` draws).
+    """
     problems = []
     problems += diff_partition(actual["partition"], expected["partition"])
-    problems += diff_reconstruction(actual["reconstruction"], expected["reconstruction"])
-    problems += diff_accuracy(actual["accuracy"], expected["accuracy"])
+    problems += diff_reconstruction(
+        actual["reconstruction"], expected["reconstruction"], hold_stochastic=hold_stochastic
+    )
+    problems += diff_accuracy(
+        actual["accuracy"], expected["accuracy"], hold_stochastic=hold_stochastic
+    )
     return problems

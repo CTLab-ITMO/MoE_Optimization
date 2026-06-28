@@ -5,6 +5,7 @@ import torch
 from matplotlib import pyplot as plt
 
 from common import layout
+from common.context import StageContext
 from common.names import PairingMethod
 from common.pairing import (
     get_pairs,
@@ -25,6 +26,11 @@ print(f"PAIRING_METHOD = {PAIRING_METHOD}")
 from common.seeding import set_seed
 from experts_fusion.config import SEED
 set_seed(SEED)
+
+# Base context carrying the run seed; the per-layer copy gives the stochastic
+# pairing methods (random / output_similarity) an order-independent generator
+# (S4, §3.3/§3.7). The default activation_correlation pairing is deterministic.
+base_ctx = StageContext(seed=SEED, device=device)
 
 
 if PAIRING_METHOD == PairingMethod.ACTIVATION_CORRELATION:
@@ -49,6 +55,7 @@ for layer in LAYERS:
         device=device,
         evolution_steps=evolution_steps,
         progress=True,
+        ctx=base_ctx.for_layer(layer),
     )
     best_pairs[layer] = pairs
     print(f"layer {layer}: {len(pairs)} pairs")

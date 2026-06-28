@@ -3,13 +3,21 @@ from typing import Optional
 import torch
 
 from common import layout
+from common.context import StageContext
 from common.names import PairingMethod
 from common.numeric import EPS, _default_device
 
 
-def random_pairs(n_experts: int) -> list[tuple[int, int]]:
-    """Use random split of n experts in n//2 pairs."""
-    perm = torch.randperm(n_experts).tolist()
+def random_pairs(
+    n_experts: int, *, generator: Optional[torch.Generator] = None
+) -> list[tuple[int, int]]:
+    """Use random split of n experts in n//2 pairs.
+
+    Pass ``generator`` (a per-layer :class:`torch.Generator` from
+    :meth:`StageContext.generator`) to make the split order-independent; with
+    ``generator=None`` it draws from the global RNG (legacy behaviour).
+    """
+    perm = torch.randperm(n_experts, generator=generator).tolist()
     return [(perm[2 * i], perm[2 * i + 1]) for i in range(n_experts // 2)]
 
 
@@ -28,6 +36,7 @@ def compute_output_similarity_matrix(
     device: torch.device,
     num_samples: int = 4096,
     batch_size: int = 512,
+    generator: Optional[torch.Generator] = None,
 ) -> torch.Tensor:
     """Build an EXPERTS x EXPERTS expert-output similarity matrix.
 
@@ -58,7 +67,7 @@ def compute_output_similarity_matrix(
     if inputs.dim() == 3:
         inputs = inputs.reshape(-1, inputs.shape[-1])
     if inputs.shape[0] > num_samples:
-        idx = torch.randperm(inputs.shape[0])[:num_samples]
+        idx = torch.randperm(inputs.shape[0], generator=generator)[:num_samples]
         inputs = inputs[idx]
     inputs = inputs.to(device)
 
@@ -445,23 +454,33 @@ def get_pairs(
     progress: bool = False,
     num_samples: int = 4096,
     batch_size: int = 512,
+    ctx: Optional[StageContext] = None,
 ) -> list[tuple[int, int]]:
     """For a given method and layer return list of pairs.
 
     ``num_samples``/``batch_size`` are the ``output_similarity`` knobs, exposed
     here at the public entry point so they are configurable from the outside
     (they were previously pinned to the inner defaults).
+
+    ``ctx`` carries the order-independent seeding: when given (and it holds a
+    base seed) the stochastic methods (``random`` / ``output_similarity``) draw
+    from a per-layer :class:`torch.Generator` instead of the global RNG. The
+    default ``activation_correlation`` method is deterministic and ignores it.
     """
     if method == PairingMethod.RANDOM:
-        return random_pairs(n_experts)
+        generator = ctx.generator("pairing", method=PairingMethod.RANDOM) if ctx else None
+        return random_pairs(n_experts, generator=generator)
 
     if method == PairingMethod.ACTIVATION_CORRELATION:
         sim = compute_activation_correlation_matrix(layer, data_dir)
     elif method == PairingMethod.OUTPUT_SIMILARITY:
         if device is None:
             device = _default_device()
+        generator = (
+            ctx.generator("pairing", method=PairingMethod.OUTPUT_SIMILARITY) if ctx else None
+        )
         sim = compute_output_similarity_matrix(
-            layer, data_dir, n_experts, device, num_samples, batch_size
+            layer, data_dir, n_experts, device, num_samples, batch_size, generator
         )
     else:
         expected = ", ".join(repr(str(m)) for m in PairingMethod)

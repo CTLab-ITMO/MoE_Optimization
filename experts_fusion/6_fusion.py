@@ -17,6 +17,7 @@ import seaborn as sns
 import numpy as np
 
 from common import layout
+from common.context import StageContext
 from common.metrics import log_safe_metrics
 from common.mlp_utils import FUSION_METHODS, test_model_on_data, best_metrics
 from common.names import BEST_PREFIX, TIME_METRIC
@@ -36,16 +37,20 @@ from common.seeding import set_seed
 from experts_fusion.config import SEED
 set_seed(SEED)
 
+# Base context carrying the run seed; per-layer/per-group copies give each
+# stochastic fusion (Fisher) an order-independent generator (S4, §3.3/§3.7).
+base_ctx = StageContext(seed=SEED, device=device)
+
 
 @torch.no_grad()
 def compare_fusions_error_and_time(
-    mlp1, mlp2, train_data, validation_data, fusion_experts=None, ind=None
+    mlp1, mlp2, train_data, validation_data, fusion_experts=None, ind=None, ctx=None
 ) -> dict[str, dict[str, list[float]]]:
     """Take two experts from model first layer
     and count MSE and time for existed fusion methods"""
     fusions = {}
     for fusion_name, fusion_methos in FUSION_METHODS.items():
-        fusions[fusion_name] = fusion_methos(mlp1, mlp2, train_data)
+        fusions[fusion_name] = fusion_methos(mlp1, mlp2, train_data, ctx=ctx)
     if fusion_experts is not None:
         fusion_experts[ind] = fusions
 
@@ -98,6 +103,7 @@ for layer in tqdm(LAYERS):
             validation_data_for_pair,
             fusion_experts,
             i,
+            ctx=base_ctx.for_layer(layer).for_group(i),
         )
         if len(validation_data_for_pair) > MIN_PAIR_VALIDATION_SAMPLES:
             experiment_results.append(res)

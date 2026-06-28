@@ -3,7 +3,7 @@ import random
 import numpy as np
 import torch
 
-from common.seeding import set_seed
+from common.seeding import generator_for, seed_for, set_seed
 
 
 def test_set_seed_makes_torch_reproducible():
@@ -44,3 +44,69 @@ def test_set_seed_seeds_cuda_when_available(monkeypatch):
 
     assert calls
     assert set(calls) == {42}
+
+
+# --------------------------------------------------------------------------- #
+# seed_for: derived, order-independent local seeds (§3.3).
+# --------------------------------------------------------------------------- #
+def test_seed_for_is_stable_across_calls():
+    a = seed_for(seed=42, stage="fusion", layer=3, group=1, method="Fisher")
+    b = seed_for(seed=42, stage="fusion", layer=3, group=1, method="Fisher")
+    assert a == b
+
+
+def test_seed_for_is_process_independent():
+    # hashlib-based, NOT the per-process-salted builtin hash(): a frozen literal
+    # pins the seed mapping so any silent change to the hashing (which would
+    # re-base every stochastic golden) is caught here.
+    assert (
+        seed_for(seed=42, stage="fusion", layer=0, group=0, method="Fisher")
+        == 8353614451793807489
+    )
+
+
+def test_seed_for_distinct_for_distinct_coords():
+    base = seed_for(seed=42, stage="fusion", layer=3, group=1, method="Fisher")
+    assert base != seed_for(seed=42, stage="fusion", layer=4, group=1, method="Fisher")
+    assert base != seed_for(seed=42, stage="fusion", layer=3, group=2, method="Fisher")
+    assert base != seed_for(seed=42, stage="fusion", layer=3, group=1, method="Average")
+    assert base != seed_for(seed=43, stage="fusion", layer=3, group=1, method="Fisher")
+    assert base != seed_for(seed=42, stage="pairing", layer=3, group=1, method="Fisher")
+
+
+def test_seed_for_skips_none_coords():
+    assert seed_for(seed=1, stage="fusion", method="Fisher") == seed_for(
+        seed=1, stage="fusion", layer=None, group=None, method="Fisher"
+    )
+
+
+def test_seed_for_returns_valid_torch_seed():
+    s = seed_for(seed=42, stage="fusion", layer=0, group=0, method="Fisher")
+    assert isinstance(s, int) and 0 <= s < (1 << 63)
+    torch.Generator().manual_seed(s)  # must not raise
+
+
+# --------------------------------------------------------------------------- #
+# generator_for: a torch.Generator seeded by seed_for.
+# --------------------------------------------------------------------------- #
+def test_generator_for_is_reproducible():
+    g1 = generator_for(seed=42, stage="fusion", layer=1, method="Fisher")
+    g2 = generator_for(seed=42, stage="fusion", layer=1, method="Fisher")
+    assert torch.equal(torch.randn(5, generator=g1), torch.randn(5, generator=g2))
+
+
+def test_generator_for_distinct_coords_diverge():
+    g1 = generator_for(seed=42, stage="fusion", layer=1, method="Fisher")
+    g2 = generator_for(seed=42, stage="fusion", layer=2, method="Fisher")
+    assert not torch.equal(torch.randn(5, generator=g1), torch.randn(5, generator=g2))
+
+
+def test_generator_for_is_independent_of_global_rng():
+    # The whole point: drawing from the generator does not depend on, and does
+    # not disturb, the global RNG stream.
+    set_seed(7)
+    expected = torch.randn(5, generator=generator_for(seed=42, stage="s", layer=0))
+    set_seed(999)
+    torch.randn(100)  # perturb the global stream
+    actual = torch.randn(5, generator=generator_for(seed=42, stage="s", layer=0))
+    assert torch.equal(expected, actual)

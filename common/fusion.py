@@ -22,11 +22,13 @@ The implementations are kept faithful to their source papers:
 
 import copy
 from abc import ABC, abstractmethod
+from typing import Optional
 
 import torch
 import torch.nn.functional as F
 from torch import nn
 
+from common.context import StageContext
 from common.mlp import MLP, AdvancedMLP
 from common.numeric import EPS
 
@@ -89,13 +91,31 @@ class FusionMethod(ABC):
     needs_data: bool = True
 
     @abstractmethod
-    def merge(self, mlp_a: MLP, mlp_b: MLP, train_data, create_new: bool = True) -> MLP:
+    def merge(
+        self,
+        mlp_a: MLP,
+        mlp_b: MLP,
+        train_data,
+        create_new: bool = True,
+        ctx: Optional[StageContext] = None,
+    ) -> MLP:
         raise NotImplementedError()
 
-    def __call__(self, mlp_a: MLP, mlp_b: MLP, train_data, create_new: bool = True) -> MLP:
+    def __call__(
+        self,
+        mlp_a: MLP,
+        mlp_b: MLP,
+        train_data,
+        create_new: bool = True,
+        ctx: Optional[StageContext] = None,
+    ) -> MLP:
+        # ``ctx`` is an additive, optional carrier of dynamic state (seeding in
+        # S4); methods that do not consume it ignore it. The signature is frozen
+        # k-agnostic in S5; here it stays backward-compatible (a 4th positional
+        # ``create_new`` call still works).
         if self.needs_data and len(train_data) == 0:
-            return AverageFusion().merge(mlp_a, mlp_b, train_data, create_new)
-        return self.merge(mlp_a, mlp_b, train_data, create_new)
+            return AverageFusion().merge(mlp_a, mlp_b, train_data, create_new, ctx)
+        return self.merge(mlp_a, mlp_b, train_data, create_new, ctx)
 
 
 # --------------------------------------------------------------------------- #
@@ -107,7 +127,7 @@ class AverageFusion(FusionMethod):
     name = "Average"
     needs_data = False
 
-    def merge(self, mlp_a, mlp_b, train_data, create_new=True):
+    def merge(self, mlp_a, mlp_b, train_data, create_new=True, ctx=None):
         with torch.no_grad():
             new_mlp = copy.deepcopy(mlp_a) if create_new else mlp_a
             dict_a = mlp_a.state_dict()
@@ -123,7 +143,7 @@ class PruningFusion(FusionMethod):
     name = "Pruning"
     needs_data = False
 
-    def merge(self, mlp_a, mlp_b, train_data, create_new=True):
+    def merge(self, mlp_a, mlp_b, train_data, create_new=True, ctx=None):
         return copy.deepcopy(mlp_a) if create_new else mlp_a
 
 
@@ -137,7 +157,7 @@ class ZipItFusion(FusionMethod):
 
     name = "ZipIt"
 
-    def merge(self, mlp_a, mlp_b, train_data, create_new=True):
+    def merge(self, mlp_a, mlp_b, train_data, create_new=True, ctx=None):
         with torch.no_grad():
             new_mlp = copy.deepcopy(mlp_a) if create_new else mlp_a
             new_mlp.zip_with(mlp_b)
@@ -183,7 +203,7 @@ class ProcrustesFusion(FusionMethod):
 
     name = "Procrustes"
 
-    def merge(self, mlp_a, mlp_b, train_data, create_new=True):
+    def merge(self, mlp_a, mlp_b, train_data, create_new=True, ctx=None):
         with torch.no_grad():
             data = as_2d_tensor(train_data, device=model_device(mlp_a))
             hidden_a = hidden_activations(mlp_a, data).float()
@@ -218,7 +238,7 @@ class TiesFusion(FusionMethod):
     def __init__(self, trim_ratio: float = 0.2):
         self.trim_ratio = trim_ratio
 
-    def merge(self, mlp_a, mlp_b, train_data, create_new=True):
+    def merge(self, mlp_a, mlp_b, train_data, create_new=True, ctx=None):
         with torch.no_grad():
             merged = copy.deepcopy(mlp_a) if create_new else mlp_a
             state_a = mlp_a.state_dict()
@@ -248,7 +268,11 @@ class TiesFusion(FusionMethod):
 # Fisher-weighted averaging.
 # --------------------------------------------------------------------------- #
 def diagonal_empirical_fisher(
-    model: AdvancedMLP, data: torch.Tensor, *, batch_size: int = 256
+    model: AdvancedMLP,
+    data: torch.Tensor,
+    *,
+    batch_size: int = 256,
+    generator: Optional[torch.Generator] = None,
 ) -> dict[str, torch.Tensor]:
     """Diagonal empirical Fisher of ``model`` under a unit-variance Gaussian
     output model (Matena & Raffel, 2022).
@@ -256,6 +280,11 @@ def diagonal_empirical_fisher(
     Estimated with a Gaussian score sampler: for ``loss = sum(out * eps)`` with
     ``eps ~ N(0, I)``, ``E_eps[grad^2] = sum_k (d out_k / d theta)^2`` -- the
     per-parameter Fisher diagonal. Depends only on ``model``, not on its pair.
+
+    ``generator`` seeds the ``eps`` draw: pass a per-pair
+    :class:`torch.Generator` (from :meth:`StageContext.generator`) to make the
+    estimate order-independent; ``None`` draws from the global RNG, which is
+    bit-identical to the legacy ``torch.randn_like`` behaviour.
     """
     params = {name: p for name, p in model.named_parameters() if p.requires_grad}
     fisher = {name: torch.zeros_like(p, dtype=torch.float32) for name, p in params.items()}
@@ -269,7 +298,9 @@ def diagonal_empirical_fisher(
         for batch in batch_iter(data, batch_size):
             model.zero_grad(set_to_none=True)
             out = model(batch)
-            eps = torch.randn_like(out)
+            eps = torch.randn(
+                out.shape, dtype=out.dtype, device=out.device, generator=generator
+            )
             loss = (out * eps).sum()
             grads = torch.autograd.grad(
                 loss, tuple(params.values()), allow_unused=True
@@ -311,10 +342,18 @@ class FisherFusion(FusionMethod):
 
     name = "Fisher"
 
-    def merge(self, mlp_a, mlp_b, train_data, create_new=True):
+    def merge(self, mlp_a, mlp_b, train_data, create_new=True, ctx=None):
         data = as_2d_tensor(train_data, device=model_device(mlp_a))
-        fisher_a = diagonal_empirical_fisher(mlp_a, data)
-        fisher_b = diagonal_empirical_fisher(mlp_b, data)
+        # Order-independent eps draw (S4): one per-pair generator feeds both
+        # experts' Fisher estimates (A then B, so they still get distinct eps).
+        # ctx=None keeps the legacy global-RNG behaviour.
+        generator = (
+            ctx.generator("fusion", method=self.name, device=model_device(mlp_a))
+            if ctx is not None
+            else None
+        )
+        fisher_a = diagonal_empirical_fisher(mlp_a, data, generator=generator)
+        fisher_b = diagonal_empirical_fisher(mlp_b, data, generator=generator)
 
         merged = copy.deepcopy(mlp_a) if create_new else mlp_a
         merged_state = fisher_weighted_average(
@@ -358,7 +397,7 @@ class DistillationFusion(FusionMethod):
         self.epochs_small = epochs_small
         self.small_data_threshold = small_data_threshold
 
-    def merge(self, mlp_a, mlp_b, train_data, create_new=True):
+    def merge(self, mlp_a, mlp_b, train_data, create_new=True, ctx=None):
         device = model_device(mlp_a)
         data = as_2d_tensor(train_data, device=device)
         batch_size = min(self.max_batch_size, max(1, len(data)))
@@ -411,8 +450,8 @@ class LeastSquaresAdapter(FusionMethod):
         self.inner = inner
         self.name = f"LS_{inner.name}"
 
-    def merge(self, mlp_a, mlp_b, train_data, create_new=True):
-        fused = self.inner(mlp_a, mlp_b, train_data, create_new)
+    def merge(self, mlp_a, mlp_b, train_data, create_new=True, ctx=None):
+        fused = self.inner(mlp_a, mlp_b, train_data, create_new, ctx)
         if len(train_data) < 2 * mlp_a.down.out_features:
             return fused
         fused.down = None
