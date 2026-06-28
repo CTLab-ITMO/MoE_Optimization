@@ -25,10 +25,30 @@ def test_join_or(items, expected):
 
 
 def test_cache_key_is_order_independent():
-    k1 = qa_eval._cache_key({"path": "p", "split": "test"}, 10)
-    k2 = qa_eval._cache_key({"split": "test", "path": "p"}, 10)
+    k1 = qa_eval._cache_key({"path": "p", "split": "test"}, 10, 42)
+    k2 = qa_eval._cache_key({"split": "test", "path": "p"}, 10, 42)
     assert k1 == k2
-    assert k1 != qa_eval._cache_key({"path": "p", "split": "test"}, 11)
+    assert k1 != qa_eval._cache_key({"path": "p", "split": "test"}, 11, 42)
+
+
+def test_cache_key_includes_seed():
+    # The cached subset depends on the seed, so two seeds must not collide
+    # (otherwise the first seed silently wins).
+    k_seed_42 = qa_eval._cache_key({"path": "p", "split": "test"}, 10, 42)
+    k_seed_7 = qa_eval._cache_key({"path": "p", "split": "test"}, 10, 7)
+    assert k_seed_42 != k_seed_7
+
+
+def test_evaluate_qa_different_seeds_do_not_share_cache(patch_dataset):
+    model = FakeModel()
+    tokenizer = FakeTokenizer()
+    kwargs = {"path": "p", "split": "test"}
+
+    qa_eval.evaluate_qa(model, tokenizer, kwargs, n=6, seed=42, batch_size=2)
+    assert patch_dataset["count"] == 1
+    # A different seed must re-prepare (its own subset), not reuse seed 42's.
+    qa_eval.evaluate_qa(model, tokenizer, kwargs, n=6, seed=7, batch_size=2)
+    assert patch_dataset["count"] == 2
 
 
 def test_extract_question_variants():

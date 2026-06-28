@@ -4,6 +4,8 @@ from torch import nn
 import torch
 import torch.nn.functional as F
 
+from common import layout
+
 
 class FusionLayer(nn.Module):
     """New version of MLP layer after fusion of experts"""
@@ -114,11 +116,11 @@ def get_fusion_layer_by_index(layer_index, experts_dir, data_dir, device=torch.d
     ``expert_*.pt`` files saved under ``{data_dir}/experts/{layer_index}``.
     """
     if num_experts is None:
-        num_experts = len(glob.glob(f"{data_dir}/experts/{layer_index}/expert_*.pt"))
-    expert_pairs = torch.load(f"{data_dir}/pairs/{layer_index}.pt")
+        num_experts = len(glob.glob(layout.expert_glob(data_dir, layer_index)))
+    expert_pairs = torch.load(layout.pairs_path(data_dir, layer_index))
     if use_default_experts:
         experts = [
-            torch.load(f"{data_dir}/experts/{layer_index}/expert_{i}.pt", weights_only=False).to(device)
+            torch.load(layout.expert_path(data_dir, layer_index, i), weights_only=False).to(device)
             for i in range(num_experts)
         ]
     else:
@@ -127,10 +129,10 @@ def get_fusion_layer_by_index(layer_index, experts_dir, data_dir, device=torch.d
         torch.load(f"{data_dir}/{experts_dir}/{layer_index}/{i}.pt", weights_only=False).to(device)
         for i in range(len(expert_pairs))
     ]
-    gate = torch.load(f"{data_dir}/experts/{layer_index}/gate.pt", weights_only=False).to(device)
-    shared_expert = torch.load(f"{data_dir}/experts/{layer_index}/shared_expert.pt", weights_only=False).to(device)
+    gate = torch.load(layout.gate_path(data_dir, layer_index), weights_only=False).to(device)
+    shared_expert = torch.load(layout.shared_expert_path(data_dir, layer_index), weights_only=False).to(device)
     shared_expert_gate = torch.load(
-        f"{data_dir}/experts/{layer_index}/shared_expert_gate.pt", weights_only=False
+        layout.shared_expert_gate_path(data_dir, layer_index), weights_only=False
     ).to(device)
 
     return FusionLayer(

@@ -49,6 +49,18 @@ def test_find_mlp_mse_err_runs():
     assert err.item() >= 0.0
 
 
+def test_find_mlp_mse_err_uses_examples_as_real_row_count():
+    # §4.5: ``examples`` is the real number of rows -- no hidden ``10 *`` factor.
+    seen = {}
+
+    def capturing_merger(mlp1, mlp2, x_train):
+        seen["rows"] = x_train.shape[0]
+        return mlp1
+
+    mlp_utils.find_mlp_mse_err(capturing_merger, n=4, hidden=6, out=4, examples=7, device=CPU)
+    assert seen["rows"] == 7
+
+
 def test_find_mlp_mse_err_repeat_stacks_results(monkeypatch):
     monkeypatch.setattr(
         mlp_utils, "find_mlp_mse_err", lambda *a, **k: torch.tensor(0.5)

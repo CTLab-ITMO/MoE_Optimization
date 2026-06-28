@@ -28,6 +28,7 @@ import torch.nn.functional as F
 from torch import nn
 
 from common.mlp import MLP, AdvancedMLP
+from common.numeric import EPS
 
 
 # --------------------------------------------------------------------------- #
@@ -299,7 +300,7 @@ def fisher_weighted_average(
         imp_b = imp_b.float()
         merged[key] = (
             (imp_a * state_a[key].float() + imp_b * state_b[key].float())
-            / (imp_a + imp_b + 1e-8)
+            / (imp_a + imp_b + EPS)
         ).to(dtype=state_a[key].dtype)
     return merged
 

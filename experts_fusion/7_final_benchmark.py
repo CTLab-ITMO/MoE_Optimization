@@ -7,6 +7,7 @@ import seaborn as sns
 from datetime import datetime
 import os
 
+from common import layout
 from common.fusion_layer import get_fusion_layer_by_index
 
 
@@ -22,11 +23,10 @@ BENCHMARK_NUM_BATCHES = 100
 LAYER = LAYERS[0]
 
 
-train_data = torch.load(f"{DATA_DIR}/mlp_inputs/train_{LAYER}.pt")
-validation_data = torch.load(f"{DATA_DIR}/mlp_inputs/validation_{LAYER}.pt")
+train_data = torch.load(layout.mlp_inputs_path(DATA_DIR, layout.TRAIN_SPLIT, LAYER))
 
 
-model = get_fusion_layer_by_index(LAYER, f"fusion_experts/{INSPECT_FUSION_METHOD}", DATA_DIR, device=device, num_experts=EXPERTS)
+model = get_fusion_layer_by_index(LAYER, layout.fusion_method_dir(INSPECT_FUSION_METHOD), DATA_DIR, device=device, num_experts=EXPERTS)
 
 
 batch_size = BENCHMARK_BATCH_SIZE

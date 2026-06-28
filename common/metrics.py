@@ -23,8 +23,10 @@ from abc import ABC, abstractmethod
 import torch
 import torch.nn.functional as F
 
-# Numerical-stability epsilon guarding divisions, logs and norm denominators below.
-EPS = 1e-8
+# Numerical-stability epsilon guarding divisions, logs and norm denominators
+# below. Single source of truth in common.numeric; re-exported here for callers
+# that still read ``metrics.EPS``.
+from common.numeric import EPS
 
 
 def center_gram(gram: torch.Tensor) -> torch.Tensor:
@@ -58,6 +60,11 @@ class Metric(ABC):
 
     name: str
     higher_is_better: bool
+    # True if the metric's spread reads better on a log scale (so plotting / set
+    # selection log-transforms it). Carried as a class flag -- like
+    # ``higher_is_better`` -- so the "log-safe" set is derived from the metric
+    # classes instead of a literal duplicated in stage 6.
+    log_scale: bool
 
     @abstractmethod
     def __call__(self, x: torch.Tensor, y: torch.Tensor) -> float:
@@ -67,6 +74,7 @@ class Metric(ABC):
 class MSE(Metric):
     name = "MSE"
     higher_is_better = False
+    log_scale = True
 
     def __call__(self, x, y):
         return torch.square(x - y).mean().item()
@@ -75,6 +83,7 @@ class MSE(Metric):
 class RMSE(Metric):
     name = "RMSE"
     higher_is_better = False
+    log_scale = True
 
     def __call__(self, x, y):
         return torch.sqrt(torch.square(x - y).mean()).item()
@@ -83,6 +92,7 @@ class RMSE(Metric):
 class MAE(Metric):
     name = "MAE"
     higher_is_better = False
+    log_scale = True
 
     def __call__(self, x, y):
         return torch.abs(x - y).mean().item()
@@ -96,6 +106,7 @@ class RelMSE(Metric):
 
     name = "RelMSE"
     higher_is_better = False
+    log_scale = True
 
     def __call__(self, x, y):
         denom = torch.square(x - x.mean(dim=0, keepdim=True)).mean().clamp_min(EPS)
@@ -107,6 +118,7 @@ class R2(Metric):
 
     name = "R2"
     higher_is_better = True
+    log_scale = False
 
     def __call__(self, x, y):
         ss_res = torch.square(x - y).sum()
@@ -119,6 +131,7 @@ class Cosine(Metric):
 
     name = "Cosine"
     higher_is_better = True
+    log_scale = False
 
     def __call__(self, x, y):
         return torch.cosine_similarity(x, y).mean().item()
@@ -129,6 +142,7 @@ class Pearson(Metric):
 
     name = "Pearson"
     higher_is_better = True
+    log_scale = False
 
     def __call__(self, x, y):
         x = x.flatten().float()
@@ -144,6 +158,7 @@ class CKA(Metric):
 
     name = "CKA"
     higher_is_better = True
+    log_scale = True
 
     def __call__(self, x, y):
         x = x - x.mean(dim=0, keepdim=True)
@@ -166,6 +181,7 @@ class KL(Metric):
 
     name = "KL"
     higher_is_better = False
+    log_scale = True
 
     def __call__(self, x, y):
         p = F.log_softmax(x, dim=-1)
@@ -178,6 +194,7 @@ class JS(Metric):
 
     name = "JS"
     higher_is_better = False
+    log_scale = True
 
     def __call__(self, x, y):
         p = F.softmax(x, dim=-1)
@@ -195,6 +212,7 @@ class Top1(Metric):
 
     name = "Top1"
     higher_is_better = True
+    log_scale = False
 
     def __call__(self, x, y):
         return _topk_agreement(x, y, k=1)
@@ -205,6 +223,7 @@ class Top5(Metric):
 
     name = "Top5"
     higher_is_better = True
+    log_scale = False
 
     def __call__(self, x, y):
         return _topk_agreement(x, y, k=min(5, x.shape[-1]))
@@ -215,6 +234,7 @@ class EntropyGap(Metric):
 
     name = "EntropyGap"
     higher_is_better = False
+    log_scale = True
 
     def __call__(self, x, y):
         return abs(prediction_entropy(x).item() - prediction_entropy(y).item())
@@ -243,3 +263,8 @@ METRICS_BY_NAME: dict[str, Metric] = {metric.name: metric for metric in METRICS}
 best_metrics: dict[str, bool] = {
     metric.name: metric.higher_is_better for metric in METRICS
 }
+
+# Metric names whose spread reads better on a log scale. Derived from the
+# ``log_scale`` class flag so it cannot silently drift from the metric set when
+# a metric is added or renamed (stage 6 adds the pseudo-metric ``Time`` itself).
+log_safe_metrics: set[str] = {metric.name for metric in METRICS if metric.log_scale}

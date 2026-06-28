@@ -4,6 +4,7 @@ import os
 from tqdm import tqdm
 import transformers
 import datasets
+from common import layout
 from experts_fusion.config import (
     MODEL_NAME,
     MODEL_DTYPE,
@@ -66,17 +67,17 @@ class Logger(nn.Module):
 for n_layer in LAYERS:
     logger = Logger(model.model.layers[n_layer].mlp)
     model.model.layers[n_layer].mlp = logger
-    os.makedirs(f"{DATA_DIR}/mlp_inputs", exist_ok=True)
+    os.makedirs(layout.mlp_inputs_dir(DATA_DIR), exist_ok=True)
 
     for data in tqdm(train_data):
         input_ids = tokenizer(data, return_tensors="pt")["input_ids"]
         model.forward(input_ids.to(device))
-    torch.save(logger.get(), f"{DATA_DIR}/mlp_inputs/train_{n_layer}.pt")
+    torch.save(logger.get(), layout.mlp_inputs_path(DATA_DIR, layout.TRAIN_SPLIT, n_layer))
 
     for data in tqdm(validation_data):
         input_ids = tokenizer(data, return_tensors="pt")["input_ids"]
         model.forward(input_ids.to(device))
-    torch.save(logger.get(), f"{DATA_DIR}/mlp_inputs/validation_{n_layer}.pt")
+    torch.save(logger.get(), layout.mlp_inputs_path(DATA_DIR, layout.VALIDATION_SPLIT, n_layer))
 
     model.model.layers[n_layer].mlp = logger.model
 

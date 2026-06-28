@@ -14,6 +14,7 @@ from experts_fusion.config import (
     DATA_DIR,
 )
 
+from common import layout
 from common.fusion_layer import get_fusion_layer_by_index
 
 EXAMPLES = 10
@@ -69,7 +70,7 @@ for layer in LAYERS:
     torch.cuda.empty_cache()
     new_mlp = get_fusion_layer_by_index(
         layer,
-        f"fusion_experts/{INSPECT_FUSION_METHOD}",
+        layout.fusion_method_dir(INSPECT_FUSION_METHOD),
         DATA_DIR,
         device=device,
         use_default_experts=False,

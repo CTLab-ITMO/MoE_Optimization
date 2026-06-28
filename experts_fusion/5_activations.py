@@ -2,6 +2,7 @@ import torch
 import os
 from tqdm import tqdm
 import transformers
+from common import layout
 from experts_fusion.config import MODEL_NAME, MODEL_DTYPE, LAYERS, TOP_K, device, DATA_DIR
 
 
@@ -27,8 +28,8 @@ model = model.to(device)
 train_data = {}
 validation_data = {}
 for layer in LAYERS:
-    train_data[layer] = torch.load(f"{DATA_DIR}/mlp_inputs/train_{layer}.pt")
-    validation_data[layer] = torch.load(f"{DATA_DIR}/mlp_inputs/validation_{layer}.pt")
+    train_data[layer] = torch.load(layout.mlp_inputs_path(DATA_DIR, layout.TRAIN_SPLIT, layer))
+    validation_data[layer] = torch.load(layout.mlp_inputs_path(DATA_DIR, layout.VALIDATION_SPLIT, layer))
 
 
 def count_activations(data, layer):
@@ -49,27 +50,29 @@ def count_activations(data, layer):
     return res
 
 
-os.makedirs(f"{DATA_DIR}/mlp_inputs", exist_ok=True)
+# Create the directory the stage actually writes to (``activations``); the
+# pair-activation and top-k artifacts below all land there.
+os.makedirs(layout.activations_dir(DATA_DIR), exist_ok=True)
 
 for layer in LAYERS:
     data = count_activations(train_data[layer], layer)
-    torch.save(data, f"{DATA_DIR}/activations/train_all_{layer}.pt")
+    torch.save(data, layout.activations_all_path(DATA_DIR, layout.TRAIN_SPLIT, layer))
 
     data = count_activations(validation_data[layer], layer)
-    torch.save(data, f"{DATA_DIR}/activations/validation_all_{layer}.pt")
+    torch.save(data, layout.activations_all_path(DATA_DIR, layout.VALIDATION_SPLIT, layer))
 
 
 train_activations = {}
 validation_activations = {}
 for layer in LAYERS:
-    train_activations[layer] = torch.load(f"{DATA_DIR}/activations/train_all_{layer}.pt")
-    validation_activations[layer] = torch.load(f"{DATA_DIR}/activations/validation_all_{layer}.pt")
+    train_activations[layer] = torch.load(layout.activations_all_path(DATA_DIR, layout.TRAIN_SPLIT, layer))
+    validation_activations[layer] = torch.load(layout.activations_all_path(DATA_DIR, layout.VALIDATION_SPLIT, layer))
 
 
 pairs = {}
 pairs_ind = {}
 for layer in LAYERS:
-    pairs[layer] = torch.load(f"{DATA_DIR}/pairs/{layer}.pt")
+    pairs[layer] = torch.load(layout.pairs_path(DATA_DIR, layer))
     pairs_ind[layer] = [-1] * (2 * len(pairs[layer]))
     for i, (x, y) in enumerate(pairs[layer]):
         pairs_ind[layer][x] = i
@@ -97,10 +100,10 @@ def get_pairs_activations(activations, layer):
 for layer in LAYERS:
     torch.save(
         get_pairs_activations(train_activations[layer], layer),
-        f"{DATA_DIR}/activations/pairs_train_{layer}.pt"
+        layout.pair_activations_path(DATA_DIR, layout.TRAIN_SPLIT, layer)
     )
     torch.save(
         get_pairs_activations(validation_activations[layer], layer),
-        f"{DATA_DIR}/activations/pairs_validation_{layer}.pt"
+        layout.pair_activations_path(DATA_DIR, layout.VALIDATION_SPLIT, layer)
     )
 

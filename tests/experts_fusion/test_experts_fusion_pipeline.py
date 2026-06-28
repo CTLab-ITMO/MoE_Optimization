@@ -73,6 +73,23 @@ def test_stage5_activations(run_script, builders, data_dir, layers):
         )
 
 
+def test_stage5_creates_activations_dir_when_absent(run_script, builders, data_dir, layers):
+    # §5 makedirs fix: stage 5 writes into ``activations/`` and must create that
+    # directory itself (it used to makedirs ``mlp_inputs`` and only worked because
+    # stage 1 had already created ``activations``). Seed inputs + pairs but NOT
+    # the activation matrices, so ``activations/`` does not pre-exist.
+    builders.mlp_inputs()
+    builders.pairs()
+    assert not os.path.isdir(os.path.join(data_dir, "activations"))
+
+    run_script("5_activations.py", with_model=True)
+
+    for layer in layers:
+        assert os.path.exists(
+            os.path.join(data_dir, "activations", f"pairs_train_{layer}.pt")
+        )
+
+
 def test_stage9_accuracy_benchmark(run_script, builders):
     builders.experts()
     pairs = builders.pairs()
@@ -108,6 +125,37 @@ def test_stage7_final_benchmark_smoke(run_script, builders):
     pairs = builders.pairs()
     builders.fusion_experts("ZipIt", pairs)
     _lenient(run_script, "7_final_benchmark.py")
+
+
+def test_stage7_does_not_require_validation_inputs(run_script, builders, data_dir, layers):
+    # §5 dead-load fix: stage 7 used to load validation mlp_inputs and never use
+    # them. With only TRAIN inputs present, stage 7 must not fail trying to load
+    # the (absent) validation inputs.
+    import torch
+    from common import layout
+    from common.testing.fakes import H
+
+    builders.experts()
+    pairs = builders.pairs()
+    builders.fusion_experts("ZipIt", pairs)
+    for layer in layers:
+        path = layout.mlp_inputs_path(data_dir, layout.TRAIN_SPLIT, layer)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        torch.save([torch.randn(H) for _ in range(16)], path)
+    assert not os.path.exists(
+        os.path.join(data_dir, "mlp_inputs", f"validation_{layers[0]}.pt")
+    )
+
+    try:
+        run_script("7_final_benchmark.py")
+    except FileNotFoundError as exc:
+        assert "validation" not in str(exc).lower(), (
+            f"stage 7 still loads validation inputs: {exc}"
+        )
+    except Exception:
+        # Other failures (autocast/shape on the fake model) are out of scope here;
+        # this test only guards the removed validation dependency.
+        pass
 
 
 def test_stage8_generation_smoke(run_script):

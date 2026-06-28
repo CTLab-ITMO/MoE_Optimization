@@ -28,6 +28,7 @@ from common.metrics import (
     METRICS,
     METRICS_BY_NAME,
     best_metrics,
+    log_safe_metrics,
 )
 
 
@@ -184,3 +185,30 @@ def test_best_metrics_directions():
     # best_metrics is derived from the classes, so it must agree with them.
     for metric in METRICS:
         assert best_metrics[metric.name] is metric.higher_is_better
+
+
+# --------------------------------------------------------------------------- #
+# log_scale flag / log-safe set.
+# --------------------------------------------------------------------------- #
+def test_log_safe_metrics_matches_frozen_legacy_set():
+    # The exact set stage 6 hardcoded before S1 (minus the pseudo-metric
+    # ``Time``, which stage 6 still appends itself). Routing through the derived
+    # ``log_scale`` flag must not change the membership.
+    frozen_legacy = {"MSE", "RMSE", "MAE", "RelMSE", "JS", "KL", "CKA", "EntropyGap", "Time"}
+    assert log_safe_metrics == frozen_legacy - {"Time"}
+
+
+def test_log_safe_metrics_is_derived_from_class_flags():
+    assert log_safe_metrics == {m.name for m in METRICS if m.log_scale}
+
+
+def test_log_scale_flags_per_metric():
+    # The legacy guard explicitly excluded Cosine; it must read log_scale False.
+    assert Cosine().log_scale is False
+    assert Pearson().log_scale is False
+    assert R2().log_scale is False
+    assert Top1().log_scale is False
+    assert Top5().log_scale is False
+    assert MSE().log_scale is True
+    assert CKA().log_scale is True
+    assert EntropyGap().log_scale is True

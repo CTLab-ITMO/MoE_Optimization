@@ -1,7 +1,9 @@
 import torch
 from torch import nn
 
-default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+from common.numeric import _default_device
+
+default_device = _default_device()
 
 
 def unite_matrix(mat1: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:

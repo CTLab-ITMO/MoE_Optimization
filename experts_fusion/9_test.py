@@ -22,8 +22,10 @@ from experts_fusion.config import (
 )
 import gc
 
+from common import layout
 from common.fusion_layer import get_fusion_layer_by_index
 from common.mlp_utils import FUSION_METHODS, best_metrics
+from common.names import BEST_PREFIX, TEST_RESULT_PREFIX, ZERO_FUSION, ReplaceMode
 from common.qa_eval import evaluate_qa
 
 use_default_experts = USE_DEFAULT_EXPERTS
@@ -34,7 +36,7 @@ def _dataset_tag(ds):
 
 
 TEST_RESULTS_DIR = (
-    f"test_result_{_dataset_tag(TRAIN_DATASET_NAME)}"
+    f"{TEST_RESULT_PREFIX}{_dataset_tag(TRAIN_DATASET_NAME)}"
     f"_{_dataset_tag(TEST_DATASET_NAME)}"
 )
 
@@ -87,7 +89,7 @@ def zero_fusion(model, layer):
 def default_fusion(name):
     def inner(model, layer):
         new_layer = get_fusion_layer_by_index(layer,
-                                            f"fusion_experts/{name}",
+                                            layout.fusion_method_dir(name),
                                             DATA_DIR,
                                             device=model.device,
                                             use_default_experts=use_default_experts,
@@ -102,9 +104,9 @@ def default_fusion(name):
 
 
 experts_fusions = {name:default_fusion(name) for name in FUSION_METHODS.keys()}
-experts_fusions["zero"] = zero_fusion
+experts_fusions[ZERO_FUSION] = zero_fusion
 for best_metric in best_metrics.keys():
-    experts_fusions[f"Best_{best_metric}"] = default_fusion(f"Best_{best_metric}")
+    experts_fusions[f"{BEST_PREFIX}{best_metric}"] = default_fusion(f"{BEST_PREFIX}{best_metric}")
 
 
 for fusion_name, experts_fusion in experts_fusions.items():
@@ -134,7 +136,7 @@ for fusion_name, experts_fusion in experts_fusions.items():
             torch.cuda.empty_cache()
             model.model.layers[layer].mlp = old_mlp
 
-    mode_str = 'seq' if REPLACE_LAYERS_SEQUANTIAL else 'single'
+    mode_str = ReplaceMode.SEQ if REPLACE_LAYERS_SEQUANTIAL else ReplaceMode.SINGLE
     print(f"model's accuracy list after {fusion_name} ({mode_str}):", accuracy_list)
     os.makedirs(f"{TEST_RESULTS_DIR}/accuracy", exist_ok=True)
     os.makedirs(f"{TEST_RESULTS_DIR}/model_size", exist_ok=True)
@@ -153,9 +155,9 @@ for fusion_name, experts_fusion in experts_fusions.items():
             model.model.layers[layer].mlp = experts_fusion(model, layer)
             new_accuracy_list.append(evaluate_qa(model, tokenizer, TEST_DATASET_NAME, TEST_SIZE, seed=SEED))
             new_size_list.append(count_params(model))
-        print(f"model's accuracy list after {fusion_name} (seq):", new_accuracy_list)
-        torch.save(new_accuracy_list, f"{TEST_RESULTS_DIR}/accuracy/accuracy_list_seq_{fusion_name}.pt")
-        torch.save(new_size_list, f"{TEST_RESULTS_DIR}/model_size/model_size_list_seq_{fusion_name}.pt")
+        print(f"model's accuracy list after {fusion_name} ({ReplaceMode.SEQ}):", new_accuracy_list)
+        torch.save(new_accuracy_list, f"{TEST_RESULTS_DIR}/accuracy/accuracy_list_{ReplaceMode.SEQ}_{fusion_name}.pt")
+        torch.save(new_size_list, f"{TEST_RESULTS_DIR}/model_size/model_size_list_{ReplaceMode.SEQ}_{fusion_name}.pt")
     free_model(model)
     model = None
 
@@ -191,11 +193,11 @@ if REPLACE_LAYERS_SMART_SEQUANTIAL:
             model.model.layers[best_ind].mlp = experts_fusion(model, best_ind)
             accuracy_list.append(evaluate_qa(model, tokenizer, TEST_DATASET_NAME, TEST_SIZE, seed=SEED))
             size_list.append(count_params(model))
-        print(f"model's accuracy list after {fusion_name} smart seq:", accuracy_list)
+        print(f"model's accuracy list after {fusion_name} {ReplaceMode.SMART_SEQ}:", accuracy_list)
         os.makedirs(f"{TEST_RESULTS_DIR}/accuracy", exist_ok=True)
         os.makedirs(f"{TEST_RESULTS_DIR}/model_size", exist_ok=True)
-        torch.save(accuracy_list, f"{TEST_RESULTS_DIR}/accuracy/accuracy_list_smart_seq_{fusion_name}.pt")
-        torch.save(size_list, f"{TEST_RESULTS_DIR}/model_size/model_size_list_smart_seq_{fusion_name}.pt")
+        torch.save(accuracy_list, f"{TEST_RESULTS_DIR}/accuracy/accuracy_list_{ReplaceMode.SMART_SEQ}_{fusion_name}.pt")
+        torch.save(size_list, f"{TEST_RESULTS_DIR}/model_size/model_size_list_{ReplaceMode.SMART_SEQ}_{fusion_name}.pt")
         free_model(model)
         model = None
 

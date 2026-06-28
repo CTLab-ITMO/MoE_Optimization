@@ -2,6 +2,10 @@ import os
 from typing import Optional
 import torch
 
+from common import layout
+from common.names import PairingMethod
+from common.numeric import EPS, _default_device
+
 
 def random_pairs(n_experts: int) -> list[tuple[int, int]]:
     """Use random split of n experts in n//2 pairs."""
@@ -9,17 +13,9 @@ def random_pairs(n_experts: int) -> list[tuple[int, int]]:
     return [(perm[2 * i], perm[2 * i + 1]) for i in range(n_experts // 2)]
 
 
-def eval_match(sim_matrix: torch.Tensor, matches, top_k: int = 8) -> float:
-    """For a goal matrix and chosen pairs count sum of edges. Top-k used for normalise of result."""
-    win = 0.0
-    for i, j in matches:
-        win += float(sim_matrix[i, j])
-    return win / (float(sim_matrix.sum()) / top_k)
-
-
 def compute_activation_correlation_matrix(layer: int, data_dir: str) -> torch.Tensor:
     """Load and normalise activation matrix."""
-    path = f"{data_dir}/activations/train_matrix_{layer}.pt"
+    path = layout.activation_matrix_path(data_dir, layout.TRAIN_SPLIT, layer)
     matrix = torch.load(path).cpu().float()
     matrix = matrix / matrix.sum()
     return matrix
@@ -43,8 +39,8 @@ def compute_output_similarity_matrix(
 
     Requires step 3 (saved experts) and step 4 (saved MLP inputs).
     """
-    experts_dir = f"{data_dir}/experts/{layer}"
-    inputs_path = f"{data_dir}/mlp_inputs/train_{layer}.pt"
+    experts_dir = layout.experts_dir(data_dir, layer)
+    inputs_path = layout.mlp_inputs_path(data_dir, layout.TRAIN_SPLIT, layer)
     if not os.path.isdir(experts_dir):
         raise FileNotFoundError(
             "PAIRING_METHOD='output_similarity' requires step 3 "
@@ -68,14 +64,14 @@ def compute_output_similarity_matrix(
 
     norm_outputs: list[torch.Tensor] = []
     for i in range(n_experts):
-        expert = torch.load(f"{experts_dir}/expert_{i}.pt", map_location=device)
+        expert = torch.load(layout.expert_path(data_dir, layer, i), map_location=device)
         expert.eval()
         outs = []
         with torch.no_grad():
             for start in range(0, inputs.shape[0], batch_size):
                 chunk = inputs[start : start + batch_size]
                 out = expert(chunk).float()
-                out = out / out.norm(dim=-1, keepdim=True).clamp_min(1e-8)
+                out = out / out.norm(dim=-1, keepdim=True).clamp_min(EPS)
                 outs.append(out)
         norm_outputs.append(torch.cat(outs, dim=0).cpu())
         del expert
@@ -440,23 +436,37 @@ def get_pairs(
     n_experts: int,
     data_dir: str,
     device: Optional[torch.device] = None,
+    # ``evolution_steps``/``progress`` are vestigial (leftovers of an abandoned
+    # evolutionary-matching refinement that was never wired in) and are read
+    # nowhere below. They are kept only because the legacy stage 2 still passes
+    # them and that module must stay untouched until the S9 cutover -- remove
+    # both params then.
     evolution_steps: int = 0,
     progress: bool = False,
+    num_samples: int = 4096,
+    batch_size: int = 512,
 ) -> list[tuple[int, int]]:
-    """For a given method and layer return list of pairs."""
-    if method == "random":
+    """For a given method and layer return list of pairs.
+
+    ``num_samples``/``batch_size`` are the ``output_similarity`` knobs, exposed
+    here at the public entry point so they are configurable from the outside
+    (they were previously pinned to the inner defaults).
+    """
+    if method == PairingMethod.RANDOM:
         return random_pairs(n_experts)
 
-    if method == "activation_correlation":
+    if method == PairingMethod.ACTIVATION_CORRELATION:
         sim = compute_activation_correlation_matrix(layer, data_dir)
-    elif method == "output_similarity":
+    elif method == PairingMethod.OUTPUT_SIMILARITY:
         if device is None:
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        sim = compute_output_similarity_matrix(layer, data_dir, n_experts, device)
+            device = _default_device()
+        sim = compute_output_similarity_matrix(
+            layer, data_dir, n_experts, device, num_samples, batch_size
+        )
     else:
+        expected = ", ".join(repr(str(m)) for m in PairingMethod)
         raise ValueError(
-            f"Unknown PAIRING_METHOD: {method!r}. "
-            f"Expected: 'activation_correlation', 'random', 'output_similarity'."
+            f"Unknown PAIRING_METHOD: {method!r}. Expected: {expected}."
         )
 
     return build_matches(sim)

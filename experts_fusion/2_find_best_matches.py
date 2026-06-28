@@ -4,6 +4,8 @@ from datetime import datetime
 import torch
 from matplotlib import pyplot as plt
 
+from common import layout
+from common.names import PairingMethod
 from common.pairing import (
     get_pairs,
     compute_activation_correlation_matrix,
@@ -25,7 +27,7 @@ from experts_fusion.config import SEED
 set_seed(SEED)
 
 
-if PAIRING_METHOD == "activation_correlation":
+if PAIRING_METHOD == PairingMethod.ACTIVATION_CORRELATION:
     sim0 = compute_activation_correlation_matrix(LAYERS[0], DATA_DIR).tolist()
     now = datetime.now()
     _plot_dir = f"plots/activation_correlation/{now.strftime('%Y_%m_%d_%H_%M_%S')}"
@@ -52,9 +54,9 @@ for layer in LAYERS:
     print(f"layer {layer}: {len(pairs)} pairs")
 
 
-os.makedirs(f"{DATA_DIR}/pairs", exist_ok=True)
+os.makedirs(layout.pairs_dir(DATA_DIR), exist_ok=True)
 for layer in LAYERS:
-    torch.save(best_pairs[layer], f"{DATA_DIR}/pairs/{layer}.pt")
+    torch.save(best_pairs[layer], layout.pairs_path(DATA_DIR, layer))
 
-print("Saved data example:", torch.load(f"{DATA_DIR}/pairs/{LAYERS[0]}.pt"))
+print("Saved data example:", torch.load(layout.pairs_path(DATA_DIR, LAYERS[0])))
 

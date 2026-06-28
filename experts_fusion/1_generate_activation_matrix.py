@@ -4,6 +4,7 @@ import os
 from tqdm import tqdm
 import transformers
 import datasets
+from common import layout
 from experts_fusion.config import (
     MODEL_NAME,
     MODEL_DTYPE,
@@ -111,14 +112,13 @@ def get_experts(data, loggers):
 
 
 def write_activations(train_data, validation_data, loggers):
-    act_dir = f"{DATA_DIR}/activations"
-    os.makedirs(act_dir, exist_ok=True)
+    os.makedirs(layout.activations_dir(DATA_DIR), exist_ok=True)
     train_activations = get_experts(train_data, loggers)
     for i, activations in train_activations.items():
-        torch.save(activations, f"{act_dir}/train_matrix_{i}.pt")
+        torch.save(activations, layout.activation_matrix_path(DATA_DIR, layout.TRAIN_SPLIT, i))
     validation_activations = get_experts(validation_data, loggers)
     for i, activations in validation_activations.items():
-        torch.save(activations, f"{act_dir}/validation_matrix_{i}.pt")
+        torch.save(activations, layout.activation_matrix_path(DATA_DIR, layout.VALIDATION_SPLIT, i))
 
 
 write_activations(train_data, validation_data, loggers)

@@ -8,8 +8,11 @@ from common.seeding import set_seed
 _DATA_CACHE: dict = {}
 
 
-def _cache_key(dataset_kwargs: dict, n: int) -> tuple:
-    return (tuple(sorted(dataset_kwargs.items())), n)
+def _cache_key(dataset_kwargs: dict, n: int, seed: int) -> tuple:
+    # ``seed`` is part of the key: the cached subset is drawn with
+    # ``random.Random(seed)``, so two evaluations with different seeds must not
+    # share a cache entry (otherwise the first seed silently wins).
+    return (tuple(sorted(dataset_kwargs.items())), n, seed)
 
 
 def _join_or(items: list) -> str:
@@ -126,7 +129,7 @@ def evaluate_qa(
     was_training = model.training
     model.eval()
     try:
-        key = _cache_key(dataset_kwargs, n)
+        key = _cache_key(dataset_kwargs, n, seed)
         cache = _DATA_CACHE.get(key)
         if cache is None:
             cache = _prepare(dataset_kwargs, n, tokenizer, seed)

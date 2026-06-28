@@ -50,15 +50,6 @@ def test_random_pairs_covers_every_expert():
     assert sorted(flat) == list(range(8))
 
 
-def test_eval_match_relative_score():
-    sim = torch.tensor(
-        [[0.0, 5.0, 0.0, 0.0],
-         [5.0, 0.0, 0.0, 0.0],
-         [0.0, 0.0, 0.0, 5.0],
-         [0.0, 0.0, 5.0, 0.0]]
-    )
-    score = pairing.eval_match(sim, [(0, 1), (2, 3)], top_k=2)
-    assert score == pytest.approx(1.0)
 def test_build_matches_returns_disjoint_pairs():
     n = 6
     corr = torch.rand(n, n)
@@ -188,6 +179,24 @@ def test_get_pairs_output_similarity_defaults_device(tmp_path, allow_pickled_loa
 def test_get_pairs_unknown_method_raises():
     with pytest.raises(ValueError):
         pairing.get_pairs("nope", layer=0, n_experts=4, data_dir="unused")
+
+
+def test_get_pairs_forwards_output_similarity_knobs(monkeypatch):
+    # §4.5: num_samples/batch_size are exposed at the public entry (get_pairs)
+    # and forwarded to compute_output_similarity_matrix, not pinned to defaults.
+    captured = {}
+
+    def fake_sim(layer, data_dir, n_experts, device, num_samples, batch_size):
+        captured["num_samples"] = num_samples
+        captured["batch_size"] = batch_size
+        return torch.eye(n_experts)
+
+    monkeypatch.setattr(pairing, "compute_output_similarity_matrix", fake_sim)
+    pairing.get_pairs(
+        "output_similarity", layer=0, n_experts=4, data_dir="unused",
+        device=CPU, num_samples=123, batch_size=45,
+    )
+    assert captured == {"num_samples": 123, "batch_size": 45}
 
 
 def _matrix_from_edges(n, edges):

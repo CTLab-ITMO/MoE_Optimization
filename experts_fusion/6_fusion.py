@@ -16,7 +16,10 @@ import os
 import seaborn as sns
 import numpy as np
 
+from common import layout
+from common.metrics import log_safe_metrics
 from common.mlp_utils import FUSION_METHODS, test_model_on_data, best_metrics
+from common.names import BEST_PREFIX, TIME_METRIC
 
 # Number of times stage 6 retries a flaky torch.save before giving up.
 IO_SAVE_RETRIES = 3
@@ -47,7 +50,7 @@ def compare_fusions_error_and_time(
         fusion_experts[ind] = fusions
 
     for metric, higher_is_better in best_metrics.items():
-        fusions[f"Best_{metric}"] = fusions["Pruning"]
+        fusions[f"{BEST_PREFIX}{metric}"] = fusions["Pruning"]
     if len(validation_data) > MIN_PAIR_VALIDATION_SAMPLES:
         results = {
             fusion_name: test_model_on_data(fusions[fusion_name], mlp1, mlp2, validation_data)
@@ -58,8 +61,8 @@ def compare_fusions_error_and_time(
             for fusion_name in FUSION_METHODS.keys():
                 if (results[fusion_name][metric] > results[best_name][metric]) == higher_is_better:
                     best_name = fusion_name
-            fusions[f"Best_{metric}"] = fusions[best_name]
-            results[f"Best_{metric}"] = results[best_name]
+            fusions[f"{BEST_PREFIX}{metric}"] = fusions[best_name]
+            results[f"{BEST_PREFIX}{metric}"] = results[best_name]
 
         return results
     else:
@@ -67,17 +70,16 @@ def compare_fusions_error_and_time(
 
 
 experiment_results: list[dict[str, dict[str, list[float]]]] = []
-act_dir = f"{DATA_DIR}/activations"
 for layer in tqdm(LAYERS):
     experts = [
-        torch.load(f"{DATA_DIR}/experts/{layer}/expert_{i}.pt", weights_only=False)
+        torch.load(layout.expert_path(DATA_DIR, layer, i), weights_only=False)
         for i in range(EXPERTS)
     ]
-    train_data = torch.load(f"{DATA_DIR}/mlp_inputs/train_{layer}.pt")
-    validation_data = torch.load(f"{DATA_DIR}/mlp_inputs/validation_{layer}.pt")
-    pairs = torch.load(f"{DATA_DIR}/pairs/{layer}.pt")
-    train_pairs_activations = torch.load(f"{act_dir}/pairs_train_{layer}.pt")
-    validation_pairs_activations = torch.load(f"{act_dir}/pairs_validation_{layer}.pt")
+    train_data = torch.load(layout.mlp_inputs_path(DATA_DIR, layout.TRAIN_SPLIT, layer))
+    validation_data = torch.load(layout.mlp_inputs_path(DATA_DIR, layout.VALIDATION_SPLIT, layer))
+    pairs = torch.load(layout.pairs_path(DATA_DIR, layer))
+    train_pairs_activations = torch.load(layout.pair_activations_path(DATA_DIR, layout.TRAIN_SPLIT, layer))
+    validation_pairs_activations = torch.load(layout.pair_activations_path(DATA_DIR, layout.VALIDATION_SPLIT, layer))
 
     fusion_experts = [None] * len(pairs)
 
@@ -106,10 +108,10 @@ for layer in tqdm(LAYERS):
         del x
     for i, fused in enumerate(fusion_experts):
         for fusion_name, fusion_expert in fused.items():
-            os.makedirs(f"{DATA_DIR}/fusion_experts/{fusion_name}/{layer}", exist_ok=True)
+            os.makedirs(layout.fusion_experts_dir(DATA_DIR, fusion_name, layer), exist_ok=True)
             for _ in range(IO_SAVE_RETRIES):  # Here sometimes were IO mistakes, try few times
                 try:
-                    torch.save(fusion_expert.cpu(), f"{DATA_DIR}/fusion_experts/{fusion_name}/{layer}/{i}.pt")
+                    torch.save(fusion_expert.cpu(), layout.fusion_expert_path(DATA_DIR, fusion_name, layer, i))
                     _io_err = None
                     break
                 except Exception as e:
@@ -133,9 +135,11 @@ torch.save(experiment_results, f"logs/fusion/{timestamp}.pt")
 experiment_results = torch.load(f"logs/fusion/{timestamp}.pt")
 
 
-metrics = list(best_metrics.keys()) + ["Time"]
-log_safe_metrics = {"MSE", "RMSE", "MAE", "RelMSE", "JS", "KL", "CKA", "EntropyGap", "Time"}
-data = {    
+metrics = list(best_metrics.keys()) + [TIME_METRIC]
+# Derived from the metric ``log_scale`` flags (common.metrics) plus the pseudo-
+# metric ``Time`` stage 6 appends itself; no hand-maintained literal set.
+log_safe = log_safe_metrics | {TIME_METRIC}
+data = {
     metric: {
         fusion_name: [experiment_result[fusion_name][metric] for experiment_result in experiment_results]
         for fusion_name in FUSION_METHODS.keys()
@@ -175,7 +179,7 @@ for values in data.values():
 
 def _log_if_needed(values, metric):
     """Log-transform values for metrics whose spread reads better on a log scale."""
-    if metric in log_safe_metrics and metric != "Cosine":
+    if metric in log_safe:
         return np.log(np.maximum(np.asarray(values, dtype=np.float64), 1e-12))
     return values
 

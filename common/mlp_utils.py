@@ -24,8 +24,10 @@ from common.fusion import (
     build_fusion_methods,
 )
 from common.metrics import METRICS, best_metrics
+from common.names import TIME_METRIC
+from common.numeric import _default_device
 
-default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+default_device = _default_device()
 
 # name -> fusion instance (callable as ``method(mlp_a, mlp_b, train_data)``).
 FUSION_METHODS = build_fusion_methods()
@@ -50,13 +52,16 @@ def eval_merger(model1: MLP, model2: MLP, merged_model: MLP, data: torch.Tensor)
 def find_mlp_mse_err(
     merger, n: int, hidden: int, out: int, examples: int = 10_000, device=default_device
 ) -> torch.Tensor:
-    """Merge two random experts with ``merger`` and return reconstruction MSE."""
+    """Merge two random experts with ``merger`` and return reconstruction MSE.
+
+    ``examples`` is the real number of train/test rows (no hidden multiplier).
+    """
     with torch.no_grad():
         mlp1 = AdvancedMLP(n, hidden, out, device=device)
         mlp2 = AdvancedMLP(n, hidden, out, device=device)
 
-        x_train = torch.rand((10 * examples, n), device=device)
-        x_test = torch.rand((10 * examples, n), device=device)
+        x_train = torch.rand((examples, n), device=device)
+        x_test = torch.rand((examples, n), device=device)
 
         mlp_merged = merger(mlp1, mlp2, x_train)
         res = eval_merger(mlp1, mlp2, mlp_merged, x_test)
@@ -127,5 +132,5 @@ def test_model_on_data(fused_mlp, mlp1, mlp2, test_data) -> dict[str, float]:
         report = {metric.name: float("nan") for metric in METRICS}
     else:
         report = {metric.name: metric(real_res, new_res) for metric in METRICS}
-    report["Time"] = 1000 * timer(fused_mlp, all_tokens)
+    report[TIME_METRIC] = 1000 * timer(fused_mlp, all_tokens)
     return report
