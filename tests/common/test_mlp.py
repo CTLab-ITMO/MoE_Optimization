@@ -10,6 +10,7 @@ from common.mlp import (
     build_matches,
     unite_matrix,
 )
+from common.numeric import solve_linear
 
 CPU = torch.device("cpu")
 
@@ -176,3 +177,31 @@ def test_advanced_mlp_full_zip_pipeline():
     assert side0.shape == (32, 4)
     assert side1.shape == (32, 4)
     assert torch.allclose(torch.cat([side0, side1], dim=-1), full, atol=1e-4)
+
+
+def test_build_mu_rejects_odd_width():
+    """build_MU is k=2 only: a concatenation of two experts has an even hidden
+    width, so an odd activation width is a contract violation (assert)."""
+    zipper = Zipper(3)
+    torch.manual_seed(0)
+    zipper(torch.randn(16, 3))
+    with pytest.raises(AssertionError):
+        zipper.build_MU()
+
+
+def test_refit_unmerge_drops_down_and_installs_solved_u():
+    """``refit_unmerge`` is the public LS seam: it nulls ``down`` and installs a
+    least-squares ``U`` so ``forward_unzip`` reconstructs the given targets."""
+    torch.manual_seed(0)
+    mlp = AdvancedMLP(4, 6, 8, device=CPU)
+    x = torch.randn(64, 4)
+    targets = torch.randn(64, 8)
+
+    returned = mlp.refit_unmerge(x, targets)
+    assert returned is mlp
+    assert mlp.down is None
+    assert mlp.U is not None
+    # U solves || forward(x) @ U^T - targets ||; equals the explicit solve.
+    expected_u = solve_linear(mlp.forward(x).float(), targets.float())
+    assert torch.allclose(mlp.U, expected_u, atol=1e-6)
+    assert mlp.forward_unzip(x).shape == (64, 8)

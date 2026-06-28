@@ -4,6 +4,7 @@ import pytest
 import torch
 from torch import nn
 
+from common.fused_group import MLPFusedGroup
 from common.fusion_layer import FusionLayer, get_fusion_layer_by_index
 from common.mlp import AdvancedMLP
 
@@ -49,6 +50,16 @@ def test_pair_maps():
     layer = _build_fusion_layer(use_default_experts=True)
     assert layer.num_experts == NUM_EXPERTS
     assert layer.pair_idx[0] == 0 and layer.pair_idx[3] == 1
+
+
+def test_layer_wraps_fused_experts_in_fused_groups():
+    """The reconstruction seam (§3.7): the layer drives ``FusedGroup.reconstruct``,
+    so each fused expert is wrapped in a group referencing the same module."""
+    layer = _build_fusion_layer(use_default_experts=False)
+    assert len(layer.fusion_groups) == len(PAIRS)
+    for group, expert in zip(layer.fusion_groups, layer.fusion_experts):
+        assert isinstance(group, MLPFusedGroup)
+        assert group.mlp is expert
 
 
 def test_forward_production_keeps_shape():

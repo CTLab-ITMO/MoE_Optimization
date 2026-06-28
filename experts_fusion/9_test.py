@@ -23,10 +23,13 @@ from experts_fusion.config import (
 import gc
 
 from common import layout
+from common.fusion import FUSION_REGISTRY
 from common.fusion_layer import get_fusion_layer_by_index
+from common.metrics import METRIC_REGISTRY
 from common.mlp_utils import FUSION_METHODS, best_metrics
 from common.names import BEST_PREFIX, TEST_RESULT_PREFIX, ZERO_FUSION, ReplaceMode
 from common.qa_eval import evaluate_qa
+from common.registry import require_all_registered
 
 use_default_experts = USE_DEFAULT_EXPERTS
 
@@ -39,6 +42,10 @@ TEST_RESULTS_DIR = (
     f"{TEST_RESULT_PREFIX}{_dataset_tag(TRAIN_DATASET_NAME)}"
     f"_{_dataset_tag(TEST_DATASET_NAME)}"
 )
+
+# Validate config filters against the registries before applying them (§1.6).
+require_all_registered(FILTER_FUSIONS, FUSION_REGISTRY, field="FILTER_FUSIONS")
+require_all_registered(FILTER_METRICS, METRIC_REGISTRY, field="FILTER_METRICS")
 
 if FILTER_FUSIONS is not None:
     FUSION_METHODS = {k:v for k, v in FUSION_METHODS.items() if k in FILTER_FUSIONS}

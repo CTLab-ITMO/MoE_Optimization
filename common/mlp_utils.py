@@ -20,8 +20,8 @@ import torch
 from common.fusion import (
     AdvancedMLP,
     MLP,
+    FUSION_REGISTRY,
     as_tensor,
-    build_fusion_methods,
 )
 from common.metrics import METRICS, best_metrics
 from common.names import TIME_METRIC
@@ -29,8 +29,12 @@ from common.numeric import _default_device
 
 default_device = _default_device()
 
-# name -> fusion instance (callable as ``method(mlp_a, mlp_b, train_data)``).
-FUSION_METHODS = build_fusion_methods()
+# name -> fusion instance (callable as ``method(mlp_a, mlp_b, train_data)`` or the
+# k-agnostic ``method(*mlps, train_data=...)``). This *is* the fusion registry
+# (an ordered, extensible Mapping), so the stages read methods only from the
+# registry (§3.7) -- not from a literal list -- while staying a drop-in for the
+# old ``name -> instance`` dict.
+FUSION_METHODS = FUSION_REGISTRY
 
 
 def count_mse(f, x, y):

@@ -30,7 +30,8 @@ from torch import nn
 
 from common.context import StageContext
 from common.mlp import MLP, AdvancedMLP
-from common.numeric import EPS
+from common.numeric import EPS, solve_linear
+from common.registry import Registry
 
 
 # --------------------------------------------------------------------------- #
@@ -69,12 +70,9 @@ def batch_iter(x: torch.Tensor, batch_size: int):
         yield x[start : start + batch_size]
 
 
-def solve_linear(x: torch.Tensor, y: torch.Tensor, lambda_ridge: float = 1e-3) -> torch.Tensor:
-    """Ridge least-squares: return W minimizing ||x W^T - y|| (+ l2)."""
-    d_in = x.shape[1]
-    xtx = x.T @ x + lambda_ridge * torch.eye(d_in, device=x.device, dtype=x.dtype)
-    rhs = x.T @ y
-    return torch.linalg.solve(xtx, rhs).T
+# ``solve_linear`` now lives in :mod:`common.numeric` so ``common.mlp`` can use
+# it (for ``refit_unmerge``) without importing this module (a circular import).
+# It is imported above and stays reachable as ``fusion.solve_linear``.
 
 
 # --------------------------------------------------------------------------- #
@@ -99,20 +97,47 @@ class FusionMethod(ABC):
         create_new: bool = True,
         ctx: Optional[StageContext] = None,
     ) -> MLP:
+        # Concrete k == 2 contract: explicit, named parameters (no ``**kwargs``),
+        # so typos in a subclass's own arguments are caught (§1.8/§3.7). The
+        # variadic, forward-compatible contract lives on ``__call__`` below.
         raise NotImplementedError()
 
-    def __call__(
-        self,
-        mlp_a: MLP,
-        mlp_b: MLP,
-        train_data,
-        create_new: bool = True,
-        ctx: Optional[StageContext] = None,
-    ) -> MLP:
+    def __call__(self, *mlps, train_data=None, create_new: bool = True,
+                 ctx: Optional[StageContext] = None, **kwargs) -> MLP:
+        """Frozen, k-agnostic public fusion contract (§3.1/§3.7).
+
+        The interface is variadic in the experts (``*mlps``) and carries
+        everything else as keyword-only state -- ``train_data`` (calibration
+        rows), ``create_new`` and the dynamic-state ``ctx`` -- plus a forward
+        compatible ``**kwargs`` that lets the contract grow without breaking
+        subclasses. Our implementations support only ``k == 2`` (§3.1): a
+        ``len(mlps) != 2`` call raises a clear error; the generalization is left
+        to other researchers.
+
+        Backward compatibility: the legacy/positional form
+        ``method(mlp_a, mlp_b, train_data)`` passes ``train_data`` as the third
+        positional argument. With ``train_data`` unset and exactly three
+        positionals, the last one is rebound as ``train_data`` -- so the
+        untouched legacy module and every existing call site keep working, while
+        ``method(*[a, b], train_data=data)`` is the new k-agnostic form. Both
+        reach the same ``merge`` and are numerically identical.
+
+        ``**kwargs`` is the interface's forward-compat slot only; it is not
+        forwarded to the concrete ``merge`` (which has explicit named params).
+        """
+        if train_data is None and len(mlps) == 3:
+            *mlp_list, train_data = mlps
+            mlps = tuple(mlp_list)
+        if len(mlps) != 2:
+            raise NotImplementedError(
+                f"fusion method {self.name!r} supports only k=2 "
+                f"(got {len(mlps)} experts); k>2 is left to other researchers (§3.1)"
+            )
+        if train_data is None:
+            train_data = []
+        mlp_a, mlp_b = mlps
         # ``ctx`` is an additive, optional carrier of dynamic state (seeding in
-        # S4); methods that do not consume it ignore it. The signature is frozen
-        # k-agnostic in S5; here it stays backward-compatible (a 4th positional
-        # ``create_new`` call still works).
+        # S4); methods that do not consume it ignore it.
         if self.needs_data and len(train_data) == 0:
             return AverageFusion().merge(mlp_a, mlp_b, train_data, create_new, ctx)
         return self.merge(mlp_a, mlp_b, train_data, create_new, ctx)
@@ -451,16 +476,15 @@ class LeastSquaresAdapter(FusionMethod):
         self.name = f"LS_{inner.name}"
 
     def merge(self, mlp_a, mlp_b, train_data, create_new=True, ctx=None):
-        fused = self.inner(mlp_a, mlp_b, train_data, create_new, ctx)
+        fused = self.inner(mlp_a, mlp_b, train_data=train_data, create_new=create_new, ctx=ctx)
         if len(train_data) < 2 * mlp_a.down.out_features:
             return fused
-        fused.down = None
         all_tokens = as_tensor(train_data)
-        real_res = torch.cat([mlp_a.forward(all_tokens), mlp_b.forward(all_tokens)], dim=-1)
-        new_res = fused.forward(all_tokens)
-        fused.U = nn.Parameter(
-            solve_linear(new_res.float(), real_res.float()).to(dtype=mlp_a.down.weight.dtype)
-        )
+        targets = torch.cat([mlp_a.forward(all_tokens), mlp_b.forward(all_tokens)], dim=-1)
+        # Public unmerge refit instead of poking ``.down``/``.U`` directly: the
+        # fused expert owns the reconstruction (§3.7). Numerically identical to
+        # the old in-line solve (drops ``down``, then least-squares-fits ``U``).
+        fused.refit_unmerge(all_tokens, targets)
         return fused
 
 
@@ -477,11 +501,39 @@ BASE_FUSION_METHODS: list[FusionMethod] = [
     DistillationFusion(),
 ]
 
+# Entry-point group a third-party package uses to advertise a fusion plugin;
+# pulled in only on an explicit ``FUSION_REGISTRY.load_entry_points`` call (the
+# canonical registry stays pinned in-tree -- see common.registry).
+FUSION_ENTRY_POINT_GROUP = "moe.fusion"
 
-def build_fusion_methods() -> dict[str, FusionMethod]:
-    """Name -> fusion instance, including an ``LS_<name>`` variant of each."""
-    methods: dict[str, FusionMethod] = {m.name: m for m in BASE_FUSION_METHODS}
+
+def _build_fusion_registry() -> Registry:
+    """The canonical fusion registry: base methods, then each ``LS_<name>``.
+
+    The order is pinned -- base methods in ``BASE_FUSION_METHODS`` order followed
+    by their least-squares wrappers in the same order -- because the stage-6/9
+    ``Best_*`` fallback selects ``next(iter(...))`` (the first registered method)
+    and the golden ``registry`` snapshot is an exact match. Mutating this order
+    is a deliberate, flagged golden re-base, not an accident.
+    """
+    registry = Registry("fusion")
+    for method in BASE_FUSION_METHODS:
+        registry.register(method.name, method)
     for method in BASE_FUSION_METHODS:
         adapter = LeastSquaresAdapter(method)
-        methods[adapter.name] = adapter
-    return methods
+        registry.register(adapter.name, adapter)
+    return registry
+
+
+# The single source of truth the stages read from (§3.7): a name -> instance
+# Mapping, extensible via ``register`` / ``load_entry_points`` without a fork.
+FUSION_REGISTRY: Registry = _build_fusion_registry()
+
+
+def build_fusion_methods() -> dict[str, FusionMethod]:
+    """Name -> fusion instance (base + ``LS_<name>``), as an ordered dict.
+
+    A snapshot of :data:`FUSION_REGISTRY` (same composition and order). Kept for
+    callers that want a mutable plain dict; the stages read the registry itself.
+    """
+    return dict(FUSION_REGISTRY)

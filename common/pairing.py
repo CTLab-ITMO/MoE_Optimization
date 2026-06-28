@@ -6,6 +6,30 @@ from common import layout
 from common.context import StageContext
 from common.names import PairingMethod
 from common.numeric import EPS, _default_device
+from common.registry import Registry
+
+# Entry-point group a third-party package uses to advertise a grouping plugin.
+GROUPING_ENTRY_POINT_GROUP = "moe.grouping"
+
+
+def _build_grouping_registry() -> Registry:
+    """The canonical grouping registry: the pairing-method names (§4.3).
+
+    In this step the registry holds the dispatchable pairing-method names (the
+    :class:`~common.names.PairingMethod` members), so config validation of
+    ``PAIRING_METHOD`` is driven from ``GROUPING_REGISTRY.names()`` rather than a
+    hand-kept literal. The grouping *implementations* (``AffinityProvider`` x
+    ``Partitioner``) land in a later step and register under these same names.
+    """
+    registry = Registry("grouping")
+    for method in PairingMethod:
+        registry.register(str(method), method)
+    return registry
+
+
+# name -> pairing-method tag; the source of truth ``PAIRING_METHOD`` is
+# validated against (§1.6/§4.3), extensible via ``register`` without a fork.
+GROUPING_REGISTRY: Registry = _build_grouping_registry()
 
 
 def random_pairs(
@@ -483,7 +507,7 @@ def get_pairs(
             layer, data_dir, n_experts, device, num_samples, batch_size, generator
         )
     else:
-        expected = ", ".join(repr(str(m)) for m in PairingMethod)
+        expected = ", ".join(repr(name) for name in GROUPING_REGISTRY.names())
         raise ValueError(
             f"Unknown PAIRING_METHOD: {method!r}. Expected: {expected}."
         )

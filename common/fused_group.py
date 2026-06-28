@@ -20,10 +20,12 @@ This module defines the contract the layer depends on instead:
   not just the weights, on top of the versioned ``state_dict`` + header
   serializer (§3.5). It never pickles an ``nn.Module``.
 
-Wiring :class:`FusionLayer` onto :meth:`reconstruct` (replacing ``forward_unzip(
-out=)``) and a public ``refit_unmerge`` for the least-squares adapter are
-deliberately left for a later step; here the contract is *defined* and proven
-equivalent to ``forward_unzip``.
+:class:`~common.fusion_layer.FusionLayer` now reconstructs through
+:meth:`reconstruct` (wrapping each fused expert in an :class:`MLPFusedGroup`)
+instead of the baked-in ``forward_unzip(out=)``, and the least-squares adapter
+refits its unmerge matrix through the public
+:meth:`~common.mlp.AdvancedMLP.refit_unmerge` rather than poking ``.U``/``.down``
+from the outside -- both wired in S5 and proven equivalent to ``forward_unzip``.
 
 Library code only -- this module never imports an experiment ``config``.
 """

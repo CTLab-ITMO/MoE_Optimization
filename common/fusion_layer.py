@@ -5,6 +5,7 @@ import torch
 import torch.nn.functional as F
 
 from common import layout
+from common.fused_group import MLPFusedGroup
 
 
 class FusionLayer(nn.Module):
@@ -16,6 +17,14 @@ class FusionLayer(nn.Module):
             self.experts = nn.ModuleList(experts)
         self.expert_pairs = expert_pairs
         self.fusion_experts = nn.ModuleList(fusion_experts)
+        # Runtime reconstruction contract (§3.7): each fused expert is wrapped in
+        # a FusedGroup, and inference reconstructs member ``m`` via
+        # ``group.reconstruct(x, m)`` instead of the layer hard-coding
+        # ``forward_unzip(out=0|1)``. The groups reference the same modules held
+        # in ``fusion_experts`` (so ``.to(...)`` on the layer moves them too),
+        # and ``reconstruct`` delegates to ``forward_unzip`` -- numerically
+        # identical to the legacy path, but the layer no longer assumes k == 2.
+        self.fusion_groups = [MLPFusedGroup(expert) for expert in self.fusion_experts]
         self.shared_expert = shared_expert
         self.shared_expert_gate = shared_expert_gate
         self.use_default_experts = use_default_experts
@@ -59,10 +68,10 @@ class FusionLayer(nn.Module):
             current_state = hidden_states[token_idx]
             pair_idx = self.pair_idx[expert_idx]
             pair = self.expert_pairs[pair_idx]
-            current_hidden_states = (
-                            self.fusion_experts[pair_idx]
-                            .forward_unzip(current_state, out=(0 if expert_idx == pair[0] else 1))
-            )
+            # Member orientation contract: member 0 is the first expert of the
+            # pair, member 1 the second (``out=(0 if expert_idx == pair[0] else 1)``).
+            member = 0 if expert_idx == pair[0] else 1
+            current_hidden_states = self.fusion_groups[pair_idx].reconstruct(current_state, member)
             current_hidden_states = current_hidden_states * top_k_weights[token_idx, top_k_pos, None]
             final_hidden_states.index_add_(0, token_idx, current_hidden_states.to(final_hidden_states.dtype))
 

@@ -18,14 +18,22 @@ import numpy as np
 
 from common import layout
 from common.context import StageContext
-from common.metrics import log_safe_metrics
+from common.fusion import FUSION_REGISTRY
+from common.metrics import METRIC_REGISTRY, log_safe_metrics
 from common.mlp_utils import FUSION_METHODS, test_model_on_data, best_metrics
 from common.names import BEST_PREFIX, TIME_METRIC
+from common.registry import require_all_registered
 
 # Number of times stage 6 retries a flaky torch.save before giving up.
 IO_SAVE_RETRIES = 3
 # Metric values at or above this are treated as unstable outliers and dropped before plotting.
 MAX_PLOT_METRIC_VALUE = 1e6
+
+# Validate config filters against the registries before applying them (§1.6), so
+# a typo fails fast with the valid set listed instead of silently dropping a
+# branch when the filter matches nothing.
+require_all_registered(FILTER_FUSIONS, FUSION_REGISTRY, field="FILTER_FUSIONS")
+require_all_registered(FILTER_METRICS, METRIC_REGISTRY, field="FILTER_METRICS")
 
 if FILTER_FUSIONS is not None:
     FUSION_METHODS = {k:v for k, v in FUSION_METHODS.items() if k in FILTER_FUSIONS}
@@ -50,12 +58,20 @@ def compare_fusions_error_and_time(
     and count MSE and time for existed fusion methods"""
     fusions = {}
     for fusion_name, fusion_methos in FUSION_METHODS.items():
-        fusions[fusion_name] = fusion_methos(mlp1, mlp2, train_data, ctx=ctx)
+        # k-agnostic public contract: experts positional, calibration data and
+        # ctx keyword-only (§3.1). For a pair this is the same merge as the old
+        # ``fusion_methos(mlp1, mlp2, train_data)`` positional form.
+        fusions[fusion_name] = fusion_methos(mlp1, mlp2, train_data=train_data, ctx=ctx)
     if fusion_experts is not None:
         fusion_experts[ind] = fusions
 
+    # Provisional Best_* fallback for low-activation pairs that never reach the
+    # real per-metric selection below: the first registered method, not a
+    # hardcoded "Pruning" (which a FILTER_FUSIONS without Pruning would KeyError;
+    # §5). Overwritten with the real winner when the pair has enough validation.
+    fallback_name = next(iter(FUSION_METHODS))
     for metric, higher_is_better in best_metrics.items():
-        fusions[f"{BEST_PREFIX}{metric}"] = fusions["Pruning"]
+        fusions[f"{BEST_PREFIX}{metric}"] = fusions[fallback_name]
     if len(validation_data) > MIN_PAIR_VALIDATION_SAMPLES:
         results = {
             fusion_name: test_model_on_data(fusions[fusion_name], mlp1, mlp2, validation_data)

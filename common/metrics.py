@@ -27,6 +27,7 @@ import torch.nn.functional as F
 # below. Single source of truth in common.numeric; re-exported here for callers
 # that still read ``metrics.EPS``.
 from common.numeric import EPS
+from common.registry import Registry
 
 
 def center_gram(gram: torch.Tensor) -> torch.Tensor:
@@ -268,3 +269,19 @@ best_metrics: dict[str, bool] = {
 # ``log_scale`` class flag so it cannot silently drift from the metric set when
 # a metric is added or renamed (stage 6 adds the pseudo-metric ``Time`` itself).
 log_safe_metrics: set[str] = {metric.name for metric in METRICS if metric.log_scale}
+
+# Entry-point group a third-party package uses to advertise a metric plugin.
+METRIC_ENTRY_POINT_GROUP = "moe.metric"
+
+
+def _build_metric_registry() -> Registry:
+    """The canonical metric registry, in ``METRICS`` order (pinned for golden)."""
+    registry = Registry("metric")
+    for metric in METRICS:
+        registry.register(metric.name, metric)
+    return registry
+
+
+# name -> Metric instance; the single source of truth the stages validate
+# ``FILTER_METRICS`` against (§1.6) and extend via ``register`` without a fork.
+METRIC_REGISTRY: Registry = _build_metric_registry()

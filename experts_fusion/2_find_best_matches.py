@@ -8,9 +8,11 @@ from common import layout
 from common.context import StageContext
 from common.names import PairingMethod
 from common.pairing import (
+    GROUPING_REGISTRY,
     get_pairs,
     compute_activation_correlation_matrix,
 )
+from common.registry import require_registered
 from experts_fusion.config import (
     LAYERS,
     EVOLUTION_STEPS,
@@ -19,6 +21,10 @@ from experts_fusion.config import (
     DATA_DIR,
     device,
 )
+
+# Validate PAIRING_METHOD against the grouping registry on the way in (§1.6/§4.3),
+# so an unknown method fails fast with the valid set instead of deep inside.
+require_registered(PAIRING_METHOD, GROUPING_REGISTRY, field="PAIRING_METHOD")
 
 print(f"PAIRING_METHOD = {PAIRING_METHOD}")
 
