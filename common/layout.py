@@ -15,12 +15,24 @@ for file I/O), so this is a behaviour-neutral move.
 Library code only -- this module never imports an experiment ``config``.
 """
 
+import json
+import os
+
 # Subfolder names under DATA_DIR.
 EXPERTS_DIRNAME = "experts"
 PAIRS_DIRNAME = "pairs"
 MLP_INPUTS_DIRNAME = "mlp_inputs"
 ACTIVATIONS_DIRNAME = "activations"
 FUSION_EXPERTS_DIRNAME = "fusion_experts"
+# New-module grouping prefix (replaces ``pairs/`` for the versioned ``Partition``
+# artifact). Reserved here so the new and legacy layouts never share a directory.
+GROUPS_DIRNAME = "groups"
+
+# DATA_DIR layout version. A loader validates it and refuses a directory written
+# under a different layout, so the new (groups/, safetensors) and legacy (pairs/,
+# pickle) trees can never be silently mixed.
+LAYOUT_VERSION = 1
+LAYOUT_VERSION_FILENAME = "_layout_version"
 
 # Fixed filenames inside an ``experts/<layer>`` directory.
 GATE_FILENAME = "gate.pt"
@@ -131,3 +143,55 @@ def fusion_experts_dir(data_dir: str, method: str, layer: int) -> str:
 def fusion_expert_path(data_dir: str, method: str, layer: int, i: int) -> str:
     """Path of the fused expert for one ``(method, layer, group index)``."""
     return f"{fusion_experts_dir(data_dir, method, layer)}/{i}.pt"
+
+
+# --------------------------------------------------------------------------- #
+# groups/<layer>.pt  (new-module Partition; replaces pairs/<layer>.pt)
+# --------------------------------------------------------------------------- #
+def groups_dir(data_dir: str) -> str:
+    return f"{data_dir}/{GROUPS_DIRNAME}"
+
+
+def group_path(data_dir: str, layer: int) -> str:
+    """Path of a layer's saved grouping ``Partition`` (new versioned artifact)."""
+    return f"{groups_dir(data_dir)}/{layer}.pt"
+
+
+# --------------------------------------------------------------------------- #
+# DATA_DIR layout version.
+# --------------------------------------------------------------------------- #
+class LayoutVersionError(Exception):
+    """Raised when a ``DATA_DIR`` was written under a different layout version."""
+
+
+def layout_version_path(data_dir: str) -> str:
+    return f"{data_dir}/{LAYOUT_VERSION_FILENAME}"
+
+
+def write_layout_version(data_dir: str, version: int = LAYOUT_VERSION) -> None:
+    """Stamp ``DATA_DIR`` with its layout version."""
+    os.makedirs(data_dir, exist_ok=True)
+    with open(layout_version_path(data_dir), "w", encoding="utf-8") as handle:
+        json.dump({"layout_version": int(version)}, handle)
+
+
+def read_layout_version(data_dir: str):
+    """Return the stamped layout version, or ``None`` if unstamped."""
+    path = layout_version_path(data_dir)
+    if not os.path.isfile(path):
+        return None
+    with open(path, "r", encoding="utf-8") as handle:
+        return int(json.load(handle)["layout_version"])
+
+
+def validate_layout_version(data_dir: str, expected: int = LAYOUT_VERSION) -> None:
+    """Raise if ``DATA_DIR`` is stamped with a different layout version.
+
+    An unstamped directory (``None``) is allowed -- it predates versioning -- so
+    this is a guard against *mismatch*, not against absence.
+    """
+    found = read_layout_version(data_dir)
+    if found is not None and found != expected:
+        raise LayoutVersionError(
+            f"{data_dir}: layout version {found} != expected {expected}"
+        )

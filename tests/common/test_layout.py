@@ -8,6 +8,8 @@ behaviour-neutral move -- a typo in a template would surface here, not as a
 silent ``FileNotFound`` deep in a run.
 """
 
+import pytest
+
 from common import layout
 
 DATA = "DATA"
@@ -69,3 +71,49 @@ def test_fusion_method_dir_feeds_get_fusion_layer_join():
     method, layer, i = "Average", 3, 1
     joined = f"{DATA}/{layout.fusion_method_dir(method)}/{layer}/{i}.pt"
     assert joined == layout.fusion_expert_path(DATA, method, layer, i)
+
+
+# --------------------------------------------------------------------------- #
+# groups/ (new-module Partition) -- reserved in S2, used from S3.
+# --------------------------------------------------------------------------- #
+def test_groups_layout():
+    assert layout.GROUPS_DIRNAME == "groups"
+    assert layout.groups_dir(DATA) == "DATA/groups"
+    assert layout.group_path(DATA, 5) == "DATA/groups/5.pt"
+
+
+def test_groups_prefix_is_distinct_from_legacy_pairs():
+    # The whole point: new groups/ never shares a directory with legacy pairs/.
+    assert layout.groups_dir(DATA) != layout.pairs_dir(DATA)
+
+
+# --------------------------------------------------------------------------- #
+# DATA_DIR layout version.
+# --------------------------------------------------------------------------- #
+def test_layout_version_path():
+    assert layout.layout_version_path(DATA) == "DATA/_layout_version"
+
+
+def test_write_then_read_layout_version(tmp_path):
+    data_dir = str(tmp_path / "data")
+    assert layout.read_layout_version(data_dir) is None  # unstamped
+    layout.write_layout_version(data_dir)
+    assert layout.read_layout_version(data_dir) == layout.LAYOUT_VERSION
+
+
+def test_validate_layout_version_allows_unstamped(tmp_path):
+    # Absence is allowed (predates versioning); only a mismatch is an error.
+    layout.validate_layout_version(str(tmp_path / "data"))
+
+
+def test_validate_layout_version_passes_on_match(tmp_path):
+    data_dir = str(tmp_path / "data")
+    layout.write_layout_version(data_dir)
+    layout.validate_layout_version(data_dir)
+
+
+def test_validate_layout_version_raises_on_mismatch(tmp_path):
+    data_dir = str(tmp_path / "data")
+    layout.write_layout_version(data_dir, version=layout.LAYOUT_VERSION + 1)
+    with pytest.raises(layout.LayoutVersionError):
+        layout.validate_layout_version(data_dir)
