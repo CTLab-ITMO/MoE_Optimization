@@ -507,21 +507,45 @@ BASE_FUSION_METHODS: list[FusionMethod] = [
 FUSION_ENTRY_POINT_GROUP = "moe.fusion"
 
 
+# Meta-wrappers turn an existing fusion method into a new one (LS_<name> refits
+# the unmerge layer by least squares). They are applied over EVERY registered base
+# method -- built-in or plugin -- so a newly registered base method automatically
+# gets its wrapped variants. Add a wrapper class here and it covers all methods.
+FUSION_META_WRAPPERS = [LeastSquaresAdapter]
+
+
+def _is_meta(method: FusionMethod) -> bool:
+    return isinstance(method, tuple(FUSION_META_WRAPPERS))
+
+
+def apply_meta_wrappers(registry: Registry) -> None:
+    """Register a wrapped variant of every base (non-meta) method that lacks one.
+
+    Idempotent and order-stable: the registry preserves insertion order, so the
+    wrappers are registered in the same order as their base methods. Call it once
+    after the base methods are registered, and again after loading entry-point
+    plugins so a plugin's base method also gets its LS_ variant.
+    """
+    base_names = [name for name in registry if not _is_meta(registry[name])]
+    for wrapper in FUSION_META_WRAPPERS:
+        for name in base_names:
+            wrapped = wrapper(registry[name])
+            if wrapped.name not in registry:
+                registry.register(wrapped.name, wrapped)
+
+
 def _build_fusion_registry() -> Registry:
     """The canonical fusion registry: base methods, then each ``LS_<name>``.
 
-    The order is pinned -- base methods in ``BASE_FUSION_METHODS`` order followed
-    by their least-squares wrappers in the same order -- because the stage-6/9
-    ``Best_*`` fallback selects ``next(iter(...))`` (the first registered method)
-    and the golden ``registry`` snapshot is an exact match. Mutating this order
-    is a deliberate, flagged golden re-base, not an accident.
+    The order is pinned -- base methods in ``BASE_FUSION_METHODS`` order, then
+    their least-squares wrappers in the same order -- because the ``Best_*``
+    fallback picks the first registered method and a golden snapshot matches this
+    exactly. Changing the order is a deliberate, flagged change, not an accident.
     """
     registry = Registry("fusion")
     for method in BASE_FUSION_METHODS:
         registry.register(method.name, method)
-    for method in BASE_FUSION_METHODS:
-        adapter = LeastSquaresAdapter(method)
-        registry.register(adapter.name, adapter)
+    apply_meta_wrappers(registry)
     return registry
 
 

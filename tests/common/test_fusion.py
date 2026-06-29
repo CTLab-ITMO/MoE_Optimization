@@ -302,3 +302,26 @@ def test_ls_returns_early_with_little_data(pair):
 def test_ls_name_prefixes_inner():
     assert LeastSquaresAdapter(ZipItFusion()).name == "LS_ZipIt"
     assert LeastSquaresAdapter(PruningFusion()).name == "LS_Pruning"
+
+
+class _PlugFusion(AverageFusion):
+    name = "Plug"
+
+
+def test_apply_meta_wrappers_covers_plugin_methods_and_is_idempotent():
+    from common.registry import Registry
+
+    reg = Registry("fusion")
+    reg.register("Average", AverageFusion())
+    fusion.apply_meta_wrappers(reg)
+    assert "LS_Average" in reg
+
+    # a base method registered after the first wrap is covered on re-apply
+    reg.register("Plug", _PlugFusion())
+    fusion.apply_meta_wrappers(reg)
+    assert "LS_Plug" in reg
+
+    # re-applying again is a no-op (no RegistryError, no duplicates)
+    before = list(reg)
+    fusion.apply_meta_wrappers(reg)
+    assert list(reg) == before
