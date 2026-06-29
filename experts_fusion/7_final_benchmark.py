@@ -1,7 +1,7 @@
 import torch
 from matplotlib import pyplot as plt
 from tqdm import tqdm
-from experts_fusion.config import LAYERS, EXPERTS, device, DATA_DIR, INSPECT_FUSION_METHOD
+from experts_fusion.config import LAYERS, EXPERTS, TOP_K, device, DATA_DIR, INSPECT_FUSION_METHOD, ROUTER_ADAPTER
 import time
 import seaborn as sns
 from datetime import datetime
@@ -26,7 +26,7 @@ LAYER = LAYERS[0]
 train_data = torch.load(layout.mlp_inputs_path(DATA_DIR, layout.TRAIN_SPLIT, LAYER))
 
 
-model = get_fusion_layer_by_index(LAYER, layout.fusion_method_dir(INSPECT_FUSION_METHOD), DATA_DIR, device=device, num_experts=EXPERTS)
+model = get_fusion_layer_by_index(LAYER, layout.fusion_method_dir(INSPECT_FUSION_METHOD), DATA_DIR, device=device, num_experts=EXPERTS, router_adapter=ROUTER_ADAPTER, top_k=TOP_K)
 
 
 batch_size = BENCHMARK_BATCH_SIZE

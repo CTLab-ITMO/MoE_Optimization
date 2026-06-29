@@ -3,9 +3,17 @@ import random
 import torch
 from datasets import load_dataset
 
+from common import dataset_schema
+from common.qa_parser import Qwen15QAParser
 from common.seeding import set_seed
 
 _DATA_CACHE: dict = {}
+
+# Default model-family QA parser (§3.2). The prompt format and answer-token
+# resolution are now owned by a Qwen15QAParser; the module-level default
+# reproduces the previous inline behaviour so callers that pass no parser (the
+# untouched legacy stage 9) are byte-identical.
+_DEFAULT_PARSER = Qwen15QAParser()
 
 
 def _cache_key(dataset_kwargs: dict, n: int, seed: int) -> tuple:
@@ -23,81 +31,45 @@ def _join_or(items: list) -> str:
     return ", ".join(items[:-1]) + f", or {items[-1]}"
 
 
+# The schema-aware field extraction now lives in the declarative
+# common.dataset_schema registry (§4.2); these stay as thin, behaviour-identical
+# wrappers so existing callers/tests keep working.
 def _extract_question(sample: dict) -> str:
-    if "question" in sample:
-        return sample["question"]
-    if "sentence" in sample:  # winogrande
-        return sample["sentence"]
-    if "question_stem" in sample:  # openbookqa
-        return sample["question_stem"]
-    raise KeyError("sample has neither 'question' nor 'sentence'")
+    return dataset_schema.resolve_question(sample)
 
 
 def _extract_choices(sample: dict) -> tuple:
-    if "choices" in sample:
-        choices = sample["choices"]
-        if isinstance(choices, dict):  # commonsense_qa, ARC, OpenBookQA
-            return list(choices["label"]), list(choices["text"])
-        labels = [chr(ord("A") + i) for i in range(len(choices))]  # mmlu
-        return labels, list(choices)
-    if "option1" in sample and "option2" in sample:  # winogrande
-        return ["A", "B"], [sample["option1"], sample["option2"]]
-    raise KeyError("sample has no recognized choices field")
+    return dataset_schema.resolve_choices(sample)
 
 
 def _extract_answer(sample: dict, labels: list) -> str:
-    if "answerKey" in sample:
-        return sample["answerKey"]
-    ans = sample["answer"]
-    if isinstance(ans, int):  # mmlu
-        return labels[ans]
-    if ans in labels:  # already a letter
-        return ans
-    return labels[int(ans) - 1]  # winogrande: '1' -> 'A', '2' -> 'B'
+    return dataset_schema.resolve_answer(sample, labels)
 
 
+# Prompt format and answer-token resolution are owned by the model-family
+# parser (§3.2); these wrappers delegate to the module default so the inline
+# behaviour is preserved for callers that do not inject their own parser.
 def _format_prompt(sample: dict, tokenizer, letters: list) -> str:
-    labels, texts = _extract_choices(sample)
-    options_text = ""
-    for label, text in zip(labels, texts):
-        options_text += f"{label}. {text}\n"
-
-    system_message = (
-        "You are a precise evaluation system. "
-        "You will be given a question and multiple-choice options. "
-        f"Your task is to answer with ONLY the letter corresponding to the correct option ({_join_or(letters)}). "
-        "Do not write the full answer, do not write explanations. Output only one character."
-    )
-    user_message = f"Question: {_extract_question(sample)}\nOptions:\n{options_text}\nAnswer:"
-    messages = [
-        {"role": "system", "content": system_message},
-        {"role": "user", "content": user_message},
-    ]
-    return tokenizer.apply_chat_template(
-        messages, tokenize=False, add_generation_prompt=True
-    )
+    return _DEFAULT_PARSER.format_prompt(sample, tokenizer, letters)
 
 
 def _resolve_answer_token_ids(tokenizer, letters: list) -> list:
-    ids = []
-    for letter in letters:
-        toks = tokenizer.encode(letter, add_special_tokens=False)
-        ids.append(toks[0])
-    return ids
+    return _DEFAULT_PARSER.resolve_answer_token_ids(tokenizer, letters)
 
 
-def _prepare(dataset_kwargs: dict, n: int, tokenizer, seed: int) -> dict:
+def _prepare(dataset_kwargs: dict, n: int, tokenizer, seed: int, parser=None) -> dict:
+    parser = parser if parser is not None else _DEFAULT_PARSER
     full = load_dataset(**dataset_kwargs)
     n = min(n, len(full))
     indices = sorted(random.Random(seed).sample(range(len(full)), n))
     subset = full.select(indices)
 
-    answer_letters, _ = _extract_choices(subset[0])
+    answer_letters, _ = dataset_schema.resolve_choices(subset[0])
     letter_to_idx = {letter: i for i, letter in enumerate(answer_letters)}
 
-    prompts = [_format_prompt(s, tokenizer, answer_letters) for s in subset]
-    ground_truths = [_extract_answer(s, answer_letters) for s in subset]
-    answer_token_ids = _resolve_answer_token_ids(tokenizer, answer_letters)
+    prompts = [parser.format_prompt(s, tokenizer, answer_letters) for s in subset]
+    ground_truths = [dataset_schema.resolve_answer(s, answer_letters) for s in subset]
+    answer_token_ids = parser.resolve_answer_token_ids(tokenizer, answer_letters)
 
     return {
         "prompts": prompts,
@@ -118,9 +90,15 @@ def evaluate_qa(
     seed: int = 42,
     batch_size: int = 16,
     max_length: int = 512,
+    parser=None,
 ) -> float:
     """Evaluate accuracy (number from 0 to 1) of a model in a given question-answer dataset.
-    
+
+    ``parser`` is the model-family QA parser (DI, §3.2); when unset the module
+    default :data:`_DEFAULT_PARSER` (Qwen1.5) is used, reproducing the previous
+    inline prompt/answer-token behaviour. The parser is assumed run-constant, so
+    it is not part of the subset cache key.
+
     Result is constant with a fixed seed."""
     set_seed(seed)
     tokenizer.padding_side = "left"
@@ -132,7 +110,7 @@ def evaluate_qa(
         key = _cache_key(dataset_kwargs, n, seed)
         cache = _DATA_CACHE.get(key)
         if cache is None:
-            cache = _prepare(dataset_kwargs, n, tokenizer, seed)
+            cache = _prepare(dataset_kwargs, n, tokenizer, seed, parser=parser)
             _DATA_CACHE[key] = cache
 
         prompts = cache["prompts"]

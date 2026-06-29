@@ -7,15 +7,18 @@ from experts_fusion.config import (
     EXPERTS,
     MODEL_NAME,
     MODEL_DTYPE,
+    TOP_K,
     VALIDATION_DATASET_NAME,
     DATASET_TEXT_FIELD,
     INSPECT_FUSION_METHOD,
+    ROUTER_ADAPTER,
     device,
     DATA_DIR,
 )
 
 from common import layout
 from common.fusion_layer import get_fusion_layer_by_index
+from common.model_topology import discover_moe_layers
 
 EXAMPLES = 10
 # Number of tokens generated per prompt in the before/after qualitative comparison.
@@ -65,7 +68,7 @@ for ind in range(EXAMPLES):
 base_examples = generate_examples(model, examples)
 
 
-for layer in LAYERS:
+for layer in discover_moe_layers(model, selected=LAYERS):
     del model.model.layers[layer].mlp
     torch.cuda.empty_cache()
     new_mlp = get_fusion_layer_by_index(
@@ -74,7 +77,9 @@ for layer in LAYERS:
         DATA_DIR,
         device=device,
         use_default_experts=False,
-        num_experts=EXPERTS
+        num_experts=EXPERTS,
+        router_adapter=ROUTER_ADAPTER,
+        top_k=TOP_K,
     ).to(device)
     model.model.layers[layer].mlp = new_mlp
 

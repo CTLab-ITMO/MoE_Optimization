@@ -5,6 +5,7 @@ from tqdm import tqdm
 import transformers
 import datasets
 from common import layout
+from common.model_topology import discover_moe_layers
 from experts_fusion.config import (
     MODEL_NAME,
     MODEL_DTYPE,
@@ -29,13 +30,12 @@ if "model" not in globals():
 if "tokenizer" not in globals():
     tokenizer = transformers.AutoTokenizer.from_pretrained(MODEL_NAME)
 
-# Remove extra layers
-MAX_LAYERS = max(LAYERS) + 1
-for i in range(MAX_LAYERS, len(model.model.layers)):
-    del model.model.layers[MAX_LAYERS]
-
 torch.cuda.empty_cache()
 model = model.to(device)
+
+# MoE layers to capture inputs for (§3.2): discovery instead of range(N)+del; on
+# Qwen1.5-MoE this is exactly LAYERS, while a hybrid stack skips dense layers.
+moe_layers = discover_moe_layers(model, selected=LAYERS)
 
 
 if "_train_data" not in globals():
@@ -64,7 +64,7 @@ class Logger(nn.Module):
         return res
 
 
-for n_layer in LAYERS:
+for n_layer in moe_layers:
     logger = Logger(model.model.layers[n_layer].mlp)
     model.model.layers[n_layer].mlp = logger
     os.makedirs(layout.mlp_inputs_dir(DATA_DIR), exist_ok=True)

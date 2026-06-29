@@ -1,5 +1,9 @@
 import torch
 
+from common.expert_adapter import Qwen15ExpertAdapter
+from common.qa_parser import Qwen15QAParser
+from common.router import Qwen15RouterAdapter
+
 DATA_DIR = "./data/data_experts_fusion"
 
 MODEL_NAME = "Qwen/Qwen1.5-MoE-A2.7B-Chat"
@@ -36,6 +40,18 @@ MIN_PAIR_VALIDATION_SAMPLES = 10
 INSPECT_FUSION_METHOD = "ZipIt"
 
 SEED = 42
+
+# Model/tokenizer adapters (dependency injection, §3.2). Each hides a
+# model-family-specific concern behind a common/ interface; the Qwen15* defaults
+# reproduce the current Qwen1.5-MoE behavior. Swap the instance to retarget the
+# pipeline at another family without editing the stages.
+#   - ROUTER_ADAPTER: canonicalizes the gate output into (selected_experts,
+#     routing_weights); normalize_topk=False matches Qwen1.5 norm_topk_prob=False.
+#   - EXPERT_ADAPTER: extracts each routed expert as an AdvancedMLP (stage 3).
+#   - QA_PARSER: builds the eval prompt + resolves answer-letter token ids (stage 9).
+ROUTER_ADAPTER = Qwen15RouterAdapter()
+EXPERT_ADAPTER = Qwen15ExpertAdapter()
+QA_PARSER = Qwen15QAParser()
 
 # "activation_correlation", "random", "output_similarity"
 PAIRING_METHOD = "activation_correlation"

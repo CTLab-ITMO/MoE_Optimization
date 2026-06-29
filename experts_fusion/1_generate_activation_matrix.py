@@ -5,6 +5,7 @@ from tqdm import tqdm
 import transformers
 import datasets
 from common import layout
+from common.model_topology import discover_moe_layers
 from experts_fusion.config import (
     MODEL_NAME,
     MODEL_DTYPE,
@@ -15,6 +16,7 @@ from experts_fusion.config import (
     VALIDATION_SIZE,
     LAYERS,
     TOP_K,
+    ROUTER_ADAPTER,
     device,
     DATA_DIR
 )
@@ -30,11 +32,6 @@ set_seed(SEED)
 model = transformers.AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map=device, dtype=MODEL_DTYPE)
 tokenizer = transformers.AutoTokenizer.from_pretrained(MODEL_NAME)
 
-# Remove extra layers
-MAX_LAYERS = max(LAYERS) + 1
-for i in range(MAX_LAYERS, len(model.model.layers)):
-    del model.model.layers[MAX_LAYERS]
-
 torch.cuda.empty_cache()
 model = model.to(device)
 
@@ -48,9 +45,10 @@ print("Example of validation data:", validation_data[0])
 class ExpertsLogger(nn.Module):
     """Simple class for saving activated experts based on gate"""
 
-    def __init__(self, gate: nn.Module):
+    def __init__(self, gate: nn.Module, router_adapter=ROUTER_ADAPTER):
         super().__init__()
         self.gate = gate
+        self.router = router_adapter
         self.num_experts = gate.num_experts
         self.experts: torch.Tensor | None = torch.zeros(
             (self.num_experts, self.num_experts)
@@ -59,19 +57,18 @@ class ExpertsLogger(nn.Module):
     def forward(self, x: torch.Tensor):
         router_logits = self.gate(x)
 
-        if isinstance(router_logits, tuple):
-            routing_weights = router_logits[0]
-            selected_experts = router_logits[-1]
-        else:
-            routing_weights = router_logits.softmax(dim=1, dtype=torch.float)
-            _, selected_experts = torch.topk(routing_weights, TOP_K, dim=-1)
+        # Canonicalize the gate output through the shared router adapter (§3.2):
+        # the same adapter decodes the gate at inference (FusionLayer), so the
+        # co-activation signal cannot diverge from the real routing. Only the
+        # selected experts matter for co-activation counting.
+        selected_experts = self.router.route(router_logits, top_k=TOP_K).selected_experts
         if self.experts is not None:
             for experts_stack in selected_experts:
                 for expert1 in experts_stack:
                     for expert2 in experts_stack:
                         self.experts[expert1, expert2] += 1
 
-        del routing_weights, selected_experts
+        del selected_experts
         torch.cuda.empty_cache()
 
         return router_logits
@@ -86,8 +83,12 @@ class ExpertsLogger(nn.Module):
         self.experts = None
 
 
+# Discover which of the requested LAYERS are actually MoE (§3.2) instead of
+# trimming the stack with range(N)+del and indexing blindly; on Qwen1.5-MoE every
+# layer is MoE, so this yields exactly LAYERS (behaviour-neutral), while a hybrid
+# dense+sparse stack skips its dense layers rather than crashing.
 loggers = dict()
-for i in LAYERS:
+for i in discover_moe_layers(model, selected=LAYERS):
     if isinstance(model.model.layers[i].mlp.gate, ExpertsLogger):
         loggers[i] = ExpertsLogger(model.model.layers[i].mlp.gate.gate)
     else:

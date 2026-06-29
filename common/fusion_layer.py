@@ -2,17 +2,27 @@ import glob
 
 from torch import nn
 import torch
-import torch.nn.functional as F
 
 from common import layout
+from common.expert_adapter import Qwen15SharedExpert
 from common.fused_group import MLPFusedGroup
+from common.router import Qwen15RouterAdapter
 
 
 class FusionLayer(nn.Module):
     """New version of MLP layer after fusion of experts"""
-    def __init__(self, *, experts, expert_pairs, fusion_experts, gate, shared_expert, shared_expert_gate, use_default_experts):
+    def __init__(self, *, experts, expert_pairs, fusion_experts, gate, shared_expert, shared_expert_gate, use_default_experts, router=None, top_k=None):
         super().__init__()
         self.gate = gate
+        # Router canonicalization goes through the shared adapter (§3.2): the same
+        # RouterAdapter used at co-activation capture (stage 1) decodes the gate
+        # output here at inference, so the grouping signal and the real routing
+        # cannot diverge. The default Qwen15RouterAdapter reproduces the legacy
+        # ``_, routing_weights, selected_experts = self.gate(...)`` for a 3-tuple
+        # gate exactly. ``top_k`` is only consumed on the bare-logits branch (a raw
+        # Qwen gate); for a tuple gate it is ignored, so ``None`` is fine there.
+        self.router = router if router is not None else Qwen15RouterAdapter()
+        self.top_k = top_k
         if use_default_experts:
             self.experts = nn.ModuleList(experts)
         self.expert_pairs = expert_pairs
@@ -25,8 +35,13 @@ class FusionLayer(nn.Module):
         # and ``reconstruct`` delegates to ``forward_unzip`` -- numerically
         # identical to the legacy path, but the layer no longer assumes k == 2.
         self.fusion_groups = [MLPFusedGroup(expert) for expert in self.fusion_experts]
-        self.shared_expert = shared_expert
-        self.shared_expert_gate = shared_expert_gate
+        # Shared/residual pathway behind the model-family adapter (§3.2): the
+        # sigmoid-gated ``F.sigmoid(shared_expert_gate(x)) * shared_expert(x)``
+        # formula now lives in Qwen15SharedExpert, which also tolerates an absent
+        # shared expert (Mixtral/Qwen3 -> contributes zeros). Numerically identical
+        # to the inline computation; presence is exposed via ``self.shared.has_shared``
+        # rather than assuming exactly two ``.pt`` files.
+        self.shared = Qwen15SharedExpert(shared_expert, shared_expert_gate)
         self.use_default_experts = use_default_experts
 
         self.num_experts = len(experts)
@@ -38,11 +53,10 @@ class FusionLayer(nn.Module):
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         batch_size, sequence_length, hidden_dim = hidden_states.shape
         hidden_states_reshaped = hidden_states.view(-1, hidden_dim)
-        shared_expert_output = self.shared_expert(hidden_states_reshaped)
-        _, routing_weights, selected_experts = self.gate(hidden_states_reshaped)
+        shared_expert_output = self.shared(hidden_states_reshaped)
+        decision = self.router.route(self.gate(hidden_states_reshaped), top_k=self.top_k)
+        routing_weights, selected_experts = decision.routing_weights, decision.selected_experts
         expert_output = self._forward(hidden_states_reshaped, selected_experts, routing_weights)
-
-        shared_expert_output = F.sigmoid(self.shared_expert_gate(hidden_states_reshaped)) * shared_expert_output
 
         expert_output = expert_output + shared_expert_output
         expert_output = expert_output.reshape(batch_size, sequence_length, hidden_dim)
@@ -82,11 +96,10 @@ class FusionLayer(nn.Module):
         Can be used for comparing previous and new version of layer in one model."""
         batch_size, sequence_length, hidden_dim = hidden_states.shape
         hidden_states_reshaped = hidden_states.view(-1, hidden_dim)
-        shared_expert_output = self.shared_expert(hidden_states_reshaped)
-        _, routing_weights, selected_experts = self.gate(hidden_states_reshaped)
+        shared_expert_output = self.shared(hidden_states_reshaped)
+        decision = self.router.route(self.gate(hidden_states_reshaped), top_k=self.top_k)
+        routing_weights, selected_experts = decision.routing_weights, decision.selected_experts
         expert_output = self._forward_default(hidden_states_reshaped, selected_experts, routing_weights)
-
-        shared_expert_output = F.sigmoid(self.shared_expert_gate(hidden_states_reshaped)) * shared_expert_output
 
         expert_output = expert_output + shared_expert_output
         expert_output = expert_output.reshape(batch_size, sequence_length, hidden_dim)
@@ -118,11 +131,17 @@ class FusionLayer(nn.Module):
 
 
 def get_fusion_layer_by_index(layer_index, experts_dir, data_dir, device=torch.device("cpu"),
-                              use_default_experts=True, num_experts=None):
+                              use_default_experts=True, num_experts=None,
+                              router_adapter=None, top_k=None):
     """After fusion of experts allow to load new layer with given layer index and data dirs.
 
     ``num_experts`` may be ``None``; in that case it is inferred from the number of
     ``expert_*.pt`` files saved under ``{data_dir}/experts/{layer_index}``.
+
+    ``router_adapter`` / ``top_k`` are the model-family router DI (§3.2): when
+    unset the layer falls back to a default :class:`Qwen15RouterAdapter`, which
+    reproduces the legacy 3-tuple gate unpacking. A caller running a raw
+    bare-logits Qwen gate passes its ``config.TOP_K`` so the adapter can top-k it.
     """
     if num_experts is None:
         num_experts = len(glob.glob(layout.expert_glob(data_dir, layer_index)))
@@ -151,5 +170,7 @@ def get_fusion_layer_by_index(layer_index, experts_dir, data_dir, device=torch.d
         gate=gate,
         shared_expert=shared_expert,
         shared_expert_gate=shared_expert_gate,
-        use_default_experts=use_default_experts
+        use_default_experts=use_default_experts,
+        router=router_adapter,
+        top_k=top_k,
     )
