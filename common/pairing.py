@@ -1,3 +1,10 @@
+"""Function-style pairing primitives: co-activation / output-similarity affinity,
+optimal (blossom) and random matching, and the ``get_pairs`` dispatcher.
+
+The class-based grouping registry (``AffinityProvider`` x ``Partitioner``) in
+:mod:`common.grouping` reuses these primitives; they are kept here as standalone
+functions for the legacy grouping step and for direct reuse.
+"""
 import os
 from typing import Optional
 import torch

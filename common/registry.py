@@ -26,7 +26,7 @@ Library code only -- this module never imports an experiment ``config``.
 """
 
 from collections.abc import Mapping
-from typing import Callable, Iterator, Optional
+from typing import Iterator
 
 
 class RegistryError(Exception):

@@ -131,7 +131,7 @@ class FusionMethod(ABC):
         if len(mlps) != 2:
             raise NotImplementedError(
                 f"fusion method {self.name!r} supports only k=2 "
-                f"(got {len(mlps)} experts); k>2 is left to other researchers (§3.1)"
+                f"(got {len(mlps)} experts); k>2 is left to other researchers"
             )
         if train_data is None:
             train_data = []

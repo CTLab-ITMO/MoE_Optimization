@@ -111,7 +111,7 @@ def resolve_question(sample: dict) -> str:
     for key in QUESTION_KEYS:
         if key in sample:
             return sample[key]
-    raise KeyError("sample has neither 'question' nor 'sentence'")
+    raise KeyError(f"sample has none of the question keys {QUESTION_KEYS}")
 
 
 def resolve_choices(sample: dict) -> tuple[list, list]:

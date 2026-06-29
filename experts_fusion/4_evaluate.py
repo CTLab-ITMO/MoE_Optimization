@@ -154,7 +154,13 @@ def accuracy(model, tokenizer, moe_layers, originals):
             model.model.layers[layer].mlp = originals[layer]
 
     base_train = _eval_train(model, tokenizer)
-    base_test = _eval_test(model, tokenizer)
+    # base_test is only used by the best-layer and smart sweeps; skip the full
+    # test-set eval when neither runs (each eval re-seeds, so this is neutral).
+    base_test = (
+        _eval_test(model, tokenizer)
+        if REPLACE_BEST_LAYERS_SEQUANTIAL or REPLACE_LAYERS_SMART_SEQUANTIAL
+        else None
+    )
     base_size = count_params(model)
 
     for name in eval_names:

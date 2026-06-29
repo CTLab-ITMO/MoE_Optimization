@@ -30,8 +30,8 @@ REPLACE_LAYERS_SMART_SEQUANTIAL = False
 # comparison (True) or load only fused experts for production-style evaluation (False).
 USE_DEFAULT_EXPERTS = False
 
-# Minimum number of validation activations a group must have before stage 3
-# (fusion) computes and records its fusion metrics.
+# A group's fusion metrics are computed only when it has strictly MORE than this
+# many validation activations (stage 3), i.e. the effective minimum is this + 1.
 MIN_PAIR_VALIDATION_SAMPLES = 10
 
 # Fusion method whose saved experts the stage-4 diagnostics (recon benchmark +

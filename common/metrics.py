@@ -230,7 +230,8 @@ class Top5(Metric):
     log_scale = False
 
     def __call__(self, x, y, ctx=None):
-        return _topk_agreement(x, y, k=min(5, x.shape[-1]))
+        # _topk_agreement already clamps k to the output width.
+        return _topk_agreement(x, y, k=5)
 
 
 class EntropyGap(Metric):
