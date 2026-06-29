@@ -28,6 +28,12 @@ FUSION_EXPERTS_DIRNAME = "fusion_experts"
 # artifact). Reserved here so the new and legacy layouts never share a directory.
 GROUPS_DIRNAME = "groups"
 
+# Diagnostic plots live under DATA_DIR (never CWD-relative ``plots/``; §1.4). The
+# legacy stage-6 plotting wrote to ``plots/fusion/<timestamp>`` in the cwd; the
+# new module scopes them under DATA_DIR so different experiments never collide.
+PLOTS_DIRNAME = "plots"
+FUSION_SUBDIR = "fusion"
+
 # DATA_DIR layout version. A loader validates it and refuses a directory written
 # under a different layout, so the new (groups/, safetensors) and legacy (pairs/,
 # pickle) trees can never be silently mixed.
@@ -165,6 +171,15 @@ def group_activations_path(data_dir: str, split: str, layer: int) -> str:
     ``activations/pairs_*`` artifact.
     """
     return f"{groups_dir(data_dir)}/{split}_activations_{layer}.pt"
+
+
+# --------------------------------------------------------------------------- #
+# plots/<subdir>  (DATA_DIR-scoped diagnostic plots; §1.4)
+# --------------------------------------------------------------------------- #
+def plots_dir(data_dir: str, subdir: str = "") -> str:
+    """DATA_DIR-scoped directory for diagnostic plots (never CWD-relative; §1.4)."""
+    base = f"{data_dir}/{PLOTS_DIRNAME}"
+    return f"{base}/{subdir}" if subdir else base
 
 
 # --------------------------------------------------------------------------- #

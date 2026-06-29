@@ -288,3 +288,37 @@ def test_register_upgrader_collision_raises(restore_upgraders):
         @S.register_upgrader(7)
         def _second(art):
             return art
+
+
+# --------------------------------------------------------------------------- #
+# Transient-IO retry on save (§6 IO_SAVE_RETRIES, kept on the central save path).
+# --------------------------------------------------------------------------- #
+def test_save_retries_transient_io_then_succeeds(path, monkeypatch):
+    real_save_file = S.save_file
+    calls = {"n": 0}
+
+    def flaky(prepared, target, metadata):
+        calls["n"] += 1
+        if calls["n"] < S.IO_SAVE_RETRIES:  # fail every attempt but the last
+            raise OSError("transient write failure")
+        return real_save_file(prepared, target, metadata=metadata)
+
+    monkeypatch.setattr(S, "save_file", flaky)
+    S.save(path, {"w": torch.ones(3)})
+
+    assert calls["n"] == S.IO_SAVE_RETRIES
+    assert torch.equal(S.load(path).tensors["w"], torch.ones(3))
+
+
+def test_save_reraises_after_retries_exhausted(path, monkeypatch):
+    calls = {"n": 0}
+
+    def always_fail(prepared, target, metadata):
+        calls["n"] += 1
+        raise OSError("disk gone")
+
+    monkeypatch.setattr(S, "save_file", always_fail)
+    with pytest.raises(OSError, match="disk gone"):
+        S.save(path, {"w": torch.ones(3)})
+
+    assert calls["n"] == S.IO_SAVE_RETRIES

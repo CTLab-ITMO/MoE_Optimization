@@ -117,3 +117,11 @@ def test_validate_layout_version_raises_on_mismatch(tmp_path):
     layout.write_layout_version(data_dir, version=layout.LAYOUT_VERSION + 1)
     with pytest.raises(layout.LayoutVersionError):
         layout.validate_layout_version(data_dir)
+
+
+def test_plots_dir_is_scoped_under_data_dir():
+    data_dir = "/tmp/data_experts_fusion"
+    assert layout.plots_dir(data_dir) == f"{data_dir}/{layout.PLOTS_DIRNAME}"
+    assert layout.plots_dir(data_dir, layout.FUSION_SUBDIR) == (
+        f"{data_dir}/{layout.PLOTS_DIRNAME}/{layout.FUSION_SUBDIR}"
+    )

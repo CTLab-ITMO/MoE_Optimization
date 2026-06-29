@@ -32,7 +32,7 @@ from common.mlp_utils import (
     select_best_fused,
     test_model_on_data,
 )
-from common.names import BEST_PREFIX
+from common.names import BEST_PREFIX, TIME_METRIC
 from common.registry import require_all_registered
 from common.seeding import set_seed
 from common.serialization import make_provenance
@@ -85,6 +85,14 @@ def _save_fused(name, layer, group, mlp, upstream_hash) -> None:
 method_names = list(fusion_methods.keys())
 best_names = [f"{BEST_PREFIX}{metric}" for metric in selected_best_metrics]
 
+# Per-scored-group reconstruction reports, collected for the best-effort
+# diagnostic plots below (the descendant of the legacy stage-6 plotting block).
+# ``resumed_any`` records whether any group was skipped as already-fresh: on a
+# partial resume the plots would cover only the re-scored subset, so we skip
+# plotting entirely rather than overwrite a complete plot with a partial one.
+experiment_results = []
+resumed_any = False
+
 for layer in LAYERS:
     partition = Partition.load(layout.group_path(DATA_DIR, layer))
     partition_fingerprint = provenance.header_hash(layout.group_path(DATA_DIR, layer))
@@ -121,6 +129,7 @@ for layer in LAYERS:
             )
             for name in method_names + best_names
         ):
+            resumed_any = True
             continue
 
         member_a, member_b = group.members  # k == 2 (our implementations)
@@ -145,8 +154,47 @@ for layer in LAYERS:
         chosen = select_best_fused(
             fused, results, selected_best_metrics, method_names=method_names
         )
+        if results is not None:
+            experiment_results.append(results)
 
         for name, mlp in list(fused.items()) + list(chosen.items()):
             _save_fused(name, layer, group_idx, mlp, upstream(name))
 
     print(f"layer {layer}: fused {partition.num_groups} groups")
+
+
+def _plot_fusion_diagnostics() -> None:
+    """Best-effort distribution plots of the per-method reconstruction metrics.
+
+    Descendant of the legacy stage-6 plotting block, but every output lands under
+    ``DATA_DIR/plots`` (never CWD-relative ``plots/``; §1.4). Plotted only on a
+    full (non-resumed) run, so a partial resume never overwrites a complete plot
+    with a subset. Best-effort: the caller wraps this so any failure is printed
+    and skipped rather than breaking the fusion stage.
+    """
+    if resumed_any or not experiment_results:
+        return
+    from common import plots
+
+    plot_metrics = list(selected_best_metrics.keys()) + [TIME_METRIC]
+    data = {
+        metric: {
+            name: [report[name][metric] for report in experiment_results]
+            for name in method_names
+        }
+        for metric in plot_metrics
+    }
+    medians = plots.metric_medians(data, plot_metrics, method_names)
+    for metric in plot_metrics:
+        print(f"median {metric}:")
+        for name in method_names:
+            print(f"  {name}: {medians[metric][name]:.3f}")
+    out_dir = layout.plots_dir(DATA_DIR, layout.FUSION_SUBDIR)
+    written = plots.plot_fusion_metric_grids(data, plot_metrics, out_dir)
+    print(f"fusion diagnostics: {len(written)} plot(s) under {out_dir}")
+
+
+try:
+    _plot_fusion_diagnostics()
+except Exception as exc:  # diagnostics are best-effort; never break fusion
+    print(f"[diagnostics] fusion metric plots skipped: {exc!r}")
