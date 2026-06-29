@@ -14,33 +14,33 @@ class FusionLayer(nn.Module):
     def __init__(self, *, experts, expert_pairs, fusion_experts, gate, shared_expert, shared_expert_gate, use_default_experts, router=None, top_k=None):
         super().__init__()
         self.gate = gate
-        # Router canonicalization goes through the shared adapter (§3.2): the same
-        # RouterAdapter used at co-activation capture (stage 1) decodes the gate
-        # output here at inference, so the grouping signal and the real routing
-        # cannot diverge. The default Qwen15RouterAdapter reproduces the legacy
+        # Router canonicalization goes through the shared adapter: the same
+        # RouterAdapter used at co-activation capture decodes the gate output
+        # here at inference, so the grouping signal and the real routing cannot
+        # diverge. The default Qwen15RouterAdapter unpacks
         # ``_, routing_weights, selected_experts = self.gate(...)`` for a 3-tuple
-        # gate exactly. ``top_k`` is only consumed on the bare-logits branch (a raw
-        # Qwen gate); for a tuple gate it is ignored, so ``None`` is fine there.
+        # gate. ``top_k`` is only consumed on the bare-logits branch (a raw Qwen
+        # gate); for a tuple gate it is ignored, so ``None`` is fine there.
         self.router = router if router is not None else Qwen15RouterAdapter()
         self.top_k = top_k
         if use_default_experts:
             self.experts = nn.ModuleList(experts)
         self.expert_pairs = expert_pairs
         self.fusion_experts = nn.ModuleList(fusion_experts)
-        # Runtime reconstruction contract (§3.7): each fused expert is wrapped in
-        # a FusedGroup, and inference reconstructs member ``m`` via
+        # Runtime reconstruction contract: each fused expert is wrapped in a
+        # FusedGroup, and inference reconstructs member ``m`` via
         # ``group.reconstruct(x, m)`` instead of the layer hard-coding
         # ``forward_unzip(out=0|1)``. The groups reference the same modules held
         # in ``fusion_experts`` (so ``.to(...)`` on the layer moves them too),
-        # and ``reconstruct`` delegates to ``forward_unzip`` -- numerically
-        # identical to the legacy path, but the layer no longer assumes k == 2.
+        # and ``reconstruct`` delegates to ``forward_unzip`` -- so the layer no
+        # longer assumes k == 2.
         self.fusion_groups = [MLPFusedGroup(expert) for expert in self.fusion_experts]
-        # Shared/residual pathway behind the model-family adapter (§3.2): the
+        # Shared/residual pathway behind the model-family adapter: the
         # sigmoid-gated ``F.sigmoid(shared_expert_gate(x)) * shared_expert(x)``
-        # formula now lives in Qwen15SharedExpert, which also tolerates an absent
-        # shared expert (Mixtral/Qwen3 -> contributes zeros). Numerically identical
-        # to the inline computation; presence is exposed via ``self.shared.has_shared``
-        # rather than assuming exactly two ``.pt`` files.
+        # formula lives in Qwen15SharedExpert, which also tolerates an absent
+        # shared expert (Mixtral/Qwen3 -> contributes zeros). Presence is exposed
+        # via ``self.shared.has_shared`` rather than assuming exactly two ``.pt``
+        # files.
         self.shared = Qwen15SharedExpert(shared_expert, shared_expert_gate)
         self.use_default_experts = use_default_experts
 
@@ -138,10 +138,10 @@ def get_fusion_layer_by_index(layer_index, experts_dir, data_dir, device=torch.d
     ``num_experts`` may be ``None``; in that case it is inferred from the number of
     ``expert_*.pt`` files saved under ``{data_dir}/experts/{layer_index}``.
 
-    ``router_adapter`` / ``top_k`` are the model-family router DI (§3.2): when
+    ``router_adapter`` / ``top_k`` are the injected model-family router: when
     unset the layer falls back to a default :class:`Qwen15RouterAdapter`, which
-    reproduces the legacy 3-tuple gate unpacking. A caller running a raw
-    bare-logits Qwen gate passes its ``config.TOP_K`` so the adapter can top-k it.
+    handles the 3-tuple gate unpacking. A caller running a raw bare-logits Qwen
+    gate passes its ``config.TOP_K`` so the adapter can top-k it.
     """
     if num_experts is None:
         num_experts = len(glob.glob(layout.expert_glob(data_dir, layer_index)))
@@ -179,18 +179,17 @@ def get_fusion_layer_by_index(layer_index, experts_dir, data_dir, device=torch.d
 def get_fusion_layer_from_groups(layer_index, method, data_dir, device=torch.device("cpu"),
                                  use_default_experts=False, num_experts=None,
                                  router_adapter=None, top_k=None):
-    """Build a :class:`FusionLayer` from the new module's versioned artifacts (S8).
+    """Build a :class:`FusionLayer` from the versioned grouping/fusion artifacts.
 
-    The counterpart of :func:`get_fusion_layer_by_index` for the
-    ``experts_fusion`` module's S2/S3 artifact classes: the pairing comes from
-    the ``groups/`` :class:`~common.artifacts.Partition` (``to_pairs()``,
-    preserving group order + tuple orientation) and each fused expert from a
+    The counterpart of :func:`get_fusion_layer_by_index` for the grouping and
+    fusion artifact classes: the pairing comes from the ``groups/``
+    :class:`~common.artifacts.Partition` (``to_pairs()``, preserving group order
+    + tuple orientation) and each fused expert from a
     :class:`~common.fused_group.FusedExpert` (``state_dict`` + header
-    safetensors), instead of the legacy pickled ``pairs/`` list and pickled
-    ``AdvancedMLP``. The gate / shared expert / raw experts are still the
-    module artifacts (pickled), so this stays additive: the legacy loader above
-    is untouched. Numerically identical: the loaded fused ``AdvancedMLP`` is the
-    same module, wrapped in the same :class:`~common.fused_group.MLPFusedGroup`.
+    safetensors), instead of a pickled ``pairs/`` list and pickled
+    ``AdvancedMLP``. The gate / shared expert / raw experts are still loaded as
+    pickled module artifacts. The loaded fused ``AdvancedMLP`` is wrapped in a
+    :class:`~common.fused_group.MLPFusedGroup`.
     """
     from common.artifacts import Partition
     from common.fused_group import FusedExpert

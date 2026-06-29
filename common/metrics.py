@@ -64,7 +64,7 @@ class Metric(ABC):
     # True if the metric's spread reads better on a log scale (so plotting / set
     # selection log-transforms it). Carried as a class flag -- like
     # ``higher_is_better`` -- so the "log-safe" set is derived from the metric
-    # classes instead of a literal duplicated in stage 6.
+    # classes instead of a separately maintained literal.
     log_scale: bool
 
     # ctx carries optional shared state (labels, device, run metadata) for
@@ -263,14 +263,14 @@ METRICS: list[Metric] = [
 
 METRICS_BY_NAME: dict[str, Metric] = {metric.name: metric for metric in METRICS}
 
-# name -> True if a greater value is better. Consumed by stage 6/9 ``Best_<metric>``.
+# name -> True if a greater value is better. Consumed by ``Best_<metric>`` selection.
 best_metrics: dict[str, bool] = {
     metric.name: metric.higher_is_better for metric in METRICS
 }
 
 # Metric names whose spread reads better on a log scale. Derived from the
 # ``log_scale`` class flag so it cannot silently drift from the metric set when
-# a metric is added or renamed (stage 6 adds the pseudo-metric ``Time`` itself).
+# a metric is added or renamed (the fusion step adds the pseudo-metric ``Time``).
 log_safe_metrics: set[str] = {metric.name for metric in METRICS if metric.log_scale}
 
 # Entry-point group a third-party package uses to advertise a metric plugin.
@@ -286,5 +286,5 @@ def _build_metric_registry() -> Registry:
 
 
 # name -> Metric instance; the single source of truth the stages validate
-# ``FILTER_METRICS`` against (§1.6) and extend via ``register`` without a fork.
+# ``FILTER_METRICS`` against and extend via ``register`` without a fork.
 METRIC_REGISTRY: Registry = _build_metric_registry()

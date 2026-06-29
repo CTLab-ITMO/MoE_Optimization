@@ -1,21 +1,21 @@
-"""Meaningful stored-data types for the pipeline (§2.4).
+"""Meaningful stored-data types for the pipeline.
 
 Every artifact a stage writes is an object of a class with its own interface and
-metadata, persisted through the versioned ``state_dict`` + header serializer
-(§3.5) -- never a bare list/tensor and never a pickled module. This module holds
-the *data* artifacts; the fused-group runtime contract lives in
+metadata, persisted through the versioned ``state_dict`` + header serializer --
+never a bare list/tensor and never a pickled module. This module holds the
+*data* artifacts; the fused-group runtime contract lives in
 :mod:`common.fused_group`.
 
 Classes:
 
 * :class:`Partition` / :class:`Group` -- a grouping result (list of groups, each
-  a collection of expert indices) plus the grouping-method metadata. Replaces
-  the raw ``pairs/N.pt`` tuple list. :meth:`Partition.from_pairs` is **order-
-  and orientation-preserving**: ``from_pairs(pairs).groups[i].members ==
-  (pairs[i][0], pairs[i][1])`` for all ``i`` -- the silent-break invariant that
-  keeps the ``i.pt`` index and the ``out=0/1`` member orientation in sync.
+  a collection of expert indices) plus the grouping-method metadata.
+  :meth:`Partition.from_pairs` is **order- and orientation-preserving**:
+  ``from_pairs(pairs).groups[i].members == (pairs[i][0], pairs[i][1])`` for all
+  ``i`` -- the invariant that keeps the per-group index and the ``out=0/1``
+  member orientation in sync.
 * :class:`GroupActivationIndex` -- per-group lists of the example indices that
-  activate each group. Replaces the raw per-pair lists of the old stage 5.
+  activate each group.
 * :class:`CoActivationMatrix` -- an ``EXPERTS x EXPERTS`` co-activation matrix
   plus metadata (split, sample size).
 
@@ -120,8 +120,7 @@ class GroupActivationIndex:
     """Per-group lists of example indices that activate each group.
 
     ``indices[g]`` is the list of example indices that activated group ``g``.
-    Replaces the raw per-pair index lists of the old stage 5; the group order
-    matches the :class:`Partition` it was built against.
+    The group order matches the :class:`Partition` it was built against.
     """
 
     indices: tuple[tuple[int, ...], ...]

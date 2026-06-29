@@ -98,28 +98,28 @@ class FusionMethod(ABC):
         ctx: Optional[StageContext] = None,
     ) -> MLP:
         # Concrete k == 2 contract: explicit, named parameters (no ``**kwargs``),
-        # so typos in a subclass's own arguments are caught (§1.8/§3.7). The
-        # variadic, forward-compatible contract lives on ``__call__`` below.
+        # so typos in a subclass's own arguments are caught. The variadic,
+        # forward-compatible contract lives on ``__call__`` below.
         raise NotImplementedError()
 
     def __call__(self, *mlps, train_data=None, create_new: bool = True,
                  ctx: Optional[StageContext] = None, **kwargs) -> MLP:
-        """Frozen, k-agnostic public fusion contract (§3.1/§3.7).
+        """Frozen, k-agnostic public fusion contract.
 
         The interface is variadic in the experts (``*mlps``) and carries
         everything else as keyword-only state -- ``train_data`` (calibration
         rows), ``create_new`` and the dynamic-state ``ctx`` -- plus a forward
         compatible ``**kwargs`` that lets the contract grow without breaking
-        subclasses. Our implementations support only ``k == 2`` (§3.1): a
+        subclasses. Our implementations support only ``k == 2``: a
         ``len(mlps) != 2`` call raises a clear error; the generalization is left
         to other researchers.
 
-        Backward compatibility: the legacy/positional form
+        Backward compatibility: the positional form
         ``method(mlp_a, mlp_b, train_data)`` passes ``train_data`` as the third
         positional argument. With ``train_data`` unset and exactly three
-        positionals, the last one is rebound as ``train_data`` -- so the
-        untouched legacy module and every existing call site keep working, while
-        ``method(*[a, b], train_data=data)`` is the new k-agnostic form. Both
+        positionals, the last one is rebound as ``train_data`` -- so every
+        existing positional call site keeps working, while
+        ``method(*[a, b], train_data=data)`` is the k-agnostic form. Both
         reach the same ``merge`` and are numerically identical.
 
         ``**kwargs`` is the interface's forward-compat slot only; it is not
@@ -136,8 +136,8 @@ class FusionMethod(ABC):
         if train_data is None:
             train_data = []
         mlp_a, mlp_b = mlps
-        # ``ctx`` is an additive, optional carrier of dynamic state (seeding in
-        # S4); methods that do not consume it ignore it.
+        # ``ctx`` is an additive, optional carrier of dynamic state (e.g.
+        # seeding); methods that do not consume it ignore it.
         if self.needs_data and len(train_data) == 0:
             return AverageFusion().merge(mlp_a, mlp_b, train_data, create_new, ctx)
         return self.merge(mlp_a, mlp_b, train_data, create_new, ctx)
@@ -369,9 +369,9 @@ class FisherFusion(FusionMethod):
 
     def merge(self, mlp_a, mlp_b, train_data, create_new=True, ctx=None):
         data = as_2d_tensor(train_data, device=model_device(mlp_a))
-        # Order-independent eps draw (S4): one per-pair generator feeds both
+        # Order-independent eps draw: one per-pair generator feeds both
         # experts' Fisher estimates (A then B, so they still get distinct eps).
-        # ctx=None keeps the legacy global-RNG behaviour.
+        # ctx=None keeps the global-RNG behaviour.
         generator = (
             ctx.generator("fusion", method=self.name, device=model_device(mlp_a))
             if ctx is not None
@@ -482,8 +482,8 @@ class LeastSquaresAdapter(FusionMethod):
         all_tokens = as_tensor(train_data)
         targets = torch.cat([mlp_a.forward(all_tokens), mlp_b.forward(all_tokens)], dim=-1)
         # Public unmerge refit instead of poking ``.down``/``.U`` directly: the
-        # fused expert owns the reconstruction (§3.7). Numerically identical to
-        # the old in-line solve (drops ``down``, then least-squares-fits ``U``).
+        # fused expert owns the reconstruction. Numerically identical to a direct
+        # in-line solve (drops ``down``, then least-squares-fits ``U``).
         fused.refit_unmerge(all_tokens, targets)
         return fused
 
@@ -549,7 +549,7 @@ def _build_fusion_registry() -> Registry:
     return registry
 
 
-# The single source of truth the stages read from (§3.7): a name -> instance
+# The single source of truth the stages read from: a name -> instance
 # Mapping, extensible via ``register`` / ``load_entry_points`` without a fork.
 FUSION_REGISTRY: Registry = _build_fusion_registry()
 

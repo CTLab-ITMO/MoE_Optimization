@@ -9,10 +9,9 @@ from common.seeding import set_seed
 
 _DATA_CACHE: dict = {}
 
-# Default model-family QA parser (§3.2). The prompt format and answer-token
-# resolution are now owned by a Qwen15QAParser; the module-level default
-# reproduces the previous inline behaviour so callers that pass no parser (the
-# untouched legacy stage 9) are byte-identical.
+# Default model-family QA parser. The prompt format and answer-token resolution
+# are owned by a Qwen15QAParser; the module-level default reproduces the inline
+# behaviour so callers that pass no parser get the same result.
 _DEFAULT_PARSER = Qwen15QAParser()
 
 
@@ -53,8 +52,8 @@ def _join_or(items: list) -> str:
     return ", ".join(items[:-1]) + f", or {items[-1]}"
 
 
-# The schema-aware field extraction now lives in the declarative
-# common.dataset_schema registry (§4.2); these stay as thin, behaviour-identical
+# The schema-aware field extraction lives in the declarative
+# common.dataset_schema registry; these stay as thin, behaviour-identical
 # wrappers so existing callers/tests keep working.
 def _extract_question(sample: dict) -> str:
     return dataset_schema.resolve_question(sample)
@@ -69,7 +68,7 @@ def _extract_answer(sample: dict, labels: list) -> str:
 
 
 # Prompt format and answer-token resolution are owned by the model-family
-# parser (§3.2); these wrappers delegate to the module default so the inline
+# parser; these wrappers delegate to the module default so the inline
 # behaviour is preserved for callers that do not inject their own parser.
 def _format_prompt(sample: dict, tokenizer, letters: list) -> str:
     return _DEFAULT_PARSER.format_prompt(sample, tokenizer, letters)
@@ -116,9 +115,9 @@ def evaluate_qa(
 ) -> float:
     """Evaluate accuracy (number from 0 to 1) of a model in a given question-answer dataset.
 
-    ``parser`` is the model-family QA parser (DI, §3.2); when unset the module
-    default :data:`_DEFAULT_PARSER` (Qwen1.5) is used, reproducing the previous
-    inline prompt/answer-token behaviour. The tokenizer and parser identity are
+    ``parser`` is the injected model-family QA parser; when unset the module
+    default :data:`_DEFAULT_PARSER` (Qwen1.5) is used, reproducing the inline
+    prompt/answer-token behaviour. The tokenizer and parser identity are
     part of the subset cache key, so evaluating a second model in the same process
     does not reuse the first model's rendered prompts.
 

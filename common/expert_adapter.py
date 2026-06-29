@@ -4,10 +4,9 @@ Two pieces of the pipeline reach directly into a concrete MoE module layout and
 hard-code Qwen1.5 assumptions; this module turns each into a model-family
 adapter so a new family is a new subclass rather than an edit to a stage.
 
-* :class:`ExpertAdapter` -- replaces the inline expert extraction in stage 3
-  (``experts_fusion/3_save_experts.py``). Stage 3 wraps each routed expert into
-  an :class:`~common.mlp.AdvancedMLP`, picking one of two layouts via a
-  ``try/except TypeError`` on ``for i, expert in enumerate(experts)``:
+* :class:`ExpertAdapter` -- factors out the inline expert extraction that wraps
+  each routed expert into an :class:`~common.mlp.AdvancedMLP`, picking one of two
+  layouts via a ``try/except TypeError`` on ``for i, expert in enumerate(experts)``:
 
     - the **ModuleList** layout (one module per expert exposing
       ``.gate_proj`` / ``.up_proj`` / ``.down_proj``), handled by
@@ -18,9 +17,9 @@ adapter so a new family is a new subclass rather than an edit to a stage.
       ``down_proj`` tensors), which builds a fresh ``AdvancedMLP`` and *clones*
       the per-expert weight slices.
 
-  :class:`Qwen15ExpertAdapter` reproduces both branches exactly (same ops,
-  dims, dtypes, orientation, sharing-vs-cloning). The caller casts to the model
-  dtype afterwards, so :meth:`~Qwen15ExpertAdapter.extract` does no dtype cast.
+  :class:`Qwen15ExpertAdapter` implements both branches (matching ops, dims,
+  dtypes, orientation, sharing-vs-cloning). The caller casts to the model dtype
+  afterwards, so :meth:`~Qwen15ExpertAdapter.extract` does no dtype cast.
 
 * :class:`SharedExpertAdapter` -- replaces the inline shared/residual pathway of
   :class:`common.fusion_layer.FusionLayer`, whose ``forward`` computes
@@ -30,9 +29,9 @@ adapter so a new family is a new subclass rather than an edit to a stage.
   supports families with no shared expert (Mixtral / Qwen3): when the shared
   expert is absent it contributes nothing (``torch.zeros_like(x)``).
 
-Per the house convention (§3.7) the variadic ``**kwargs`` lives only on the
-*abstract* signatures (forward-compatible contract slot); concrete adapters take
-explicit, named parameters so a typo is caught rather than silently swallowed.
+The variadic ``**kwargs`` lives only on the *abstract* signatures (a
+forward-compatible contract slot); concrete adapters take explicit, named
+parameters so a typo is caught rather than silently swallowed.
 
 Library code only -- this module never imports an experiment ``config``.
 """
@@ -72,8 +71,8 @@ class ExpertAdapter(ABC):
     The frozen contract is :meth:`count` (how many experts a layer's container
     holds) and :meth:`extract` (build the ``AdvancedMLP`` for one expert on a
     given device, with no dtype cast -- the caller casts). ``**kwargs`` is the
-    forward-compatible interface slot only (§3.7); concrete adapters take
-    explicit named parameters.
+    forward-compatible interface slot only; concrete adapters take explicit
+    named parameters.
     """
 
     @abstractmethod
@@ -90,17 +89,16 @@ class ExpertAdapter(ABC):
 class Qwen15ExpertAdapter(ExpertAdapter):
     """Expert extraction for the Qwen1.5-MoE / Mixtral-style and combined layouts.
 
-    Reproduces stage 3 (``experts_fusion/3_save_experts.py``) exactly. The layout
-    is detected the same way stage 3 picks its branch: by whether ``experts`` is
-    iterable (an ``nn.ModuleList`` of per-expert modules) or a single combined
-    container (``for i, expert in enumerate(experts)`` raising ``TypeError``).
+    The layout is detected by whether ``experts`` is iterable (an
+    ``nn.ModuleList`` of per-expert modules) or a single combined container
+    (``for i, expert in enumerate(experts)`` raising ``TypeError``).
     """
 
     @staticmethod
     def _is_module_list(experts) -> bool:
         """True for the ModuleList layout (iterable), False for the combined one.
 
-        Mirrors stage 3's ``try/except TypeError`` on ``enumerate(experts)``:
+        Uses a ``try/except TypeError`` on ``enumerate(experts)``:
         ``enumerate`` calls ``iter(experts)``, so a non-iterable combined
         container raises ``TypeError`` and selects the combined branch.
         """
@@ -123,7 +121,7 @@ class Qwen15ExpertAdapter(ExpertAdapter):
     def _extract_module_list(self, experts, index: int, device) -> AdvancedMLP:
         """ModuleList branch: delegate to ``turn_in_mlp`` (shares the projections).
 
-        Reproduces ``turn_in_mlp(expert, device=device)`` from stage 3: the
+        Delegates to ``turn_in_mlp(expert, device=device)``: the
         returned ``AdvancedMLP`` reuses ``expert.gate_proj`` / ``.up_proj`` /
         ``.down_proj`` directly (no clone). Validates the projection weights up
         front so a quantized expert fails with a clear error.
@@ -139,7 +137,7 @@ class Qwen15ExpertAdapter(ExpertAdapter):
     def _extract_combined(self, experts, index: int, device) -> AdvancedMLP:
         """Combined branch: build a fresh ``AdvancedMLP`` from sliced/cloned weights.
 
-        Reproduces the ``except TypeError`` branch of stage 3: a single container
+        The ``except TypeError`` branch: a single container
         exposes ``num_experts`` / ``hidden_dim`` / ``intermediate_dim`` and the
         stacked ``gate_up_proj`` (``[E, 2 * intermediate, hidden]``) and
         ``down_proj`` (``[E, hidden, intermediate]``) tensors. The gate/up halves
@@ -177,7 +175,7 @@ class SharedExpertAdapter(ABC):
 
     The frozen contract is :meth:`forward`, computing the family's shared-expert
     contribution for a hidden-state batch. ``**kwargs`` is the
-    forward-compatible interface slot only (§3.7). Concrete adapters are
+    forward-compatible interface slot only. Concrete adapters are
     ``nn.Module``-compatible callables so they move with ``.to(...)`` and slot
     into the layer like any submodule.
     """

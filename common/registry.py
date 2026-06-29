@@ -1,8 +1,8 @@
-"""Generic, in-tree registry with additive out-of-tree extension (§3.7).
+"""Generic, in-tree registry with additive out-of-tree extension.
 
-The pipeline used to read its fusion methods / metrics / grouping names from
-literal lists and ``if``-chains. This module replaces that with a single
-:class:`Registry` type so a new strategy is *registered*, not forked in:
+Instead of reading fusion methods / metrics / grouping names from literal lists
+and ``if``-chains, the pipeline uses a single :class:`Registry` type so a new
+strategy is *registered*, not forked in:
 
 * in-tree strategies are registered in a fixed, pinned order (the order the
   golden ``registry`` snapshot guards);
@@ -17,7 +17,7 @@ A :class:`Registry` is an ordered :class:`~collections.abc.Mapping`
 stages already iterate (``.items()`` / ``.keys()`` / ``registry[name]`` /
 ``name in registry``). Iteration order is registration order.
 
-Config validation (§1.6) is driven from :meth:`Registry.names` via
+Config validation is driven from :meth:`Registry.names` via
 :func:`require_registered` / :func:`require_all_registered`, so a bad config
 choice fails fast at the top of a stage with the valid set spelled out, rather
 than deep inside with a ``KeyError`` or a silently skipped branch.
@@ -147,7 +147,7 @@ def _iter_entry_points(group: str):
 
 
 # --------------------------------------------------------------------------- #
-# Config validation driven from Registry.names() (§1.6).
+# Config validation driven from Registry.names().
 # --------------------------------------------------------------------------- #
 def require_registered(value, registry: Registry, *, field: str) -> None:
     """Raise a clear error if ``value`` is not a registered name.

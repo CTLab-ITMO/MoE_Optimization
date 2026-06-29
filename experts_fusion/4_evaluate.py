@@ -1,18 +1,17 @@
-"""Stage 4 -- evaluation of the compressed model (§2.2, §3.4).
+"""Stage 4 -- evaluation of the compressed model.
 
-Collapses the old stages 7 (reconstruction benchmark), 8 (qualitative
-generation) and 9 (final accuracy) into one stage that loads the base model
-**once** (§3.4 load-once) and reuses it across every method by swapping the MoE
-``mlp`` modules in and out, instead of the old stage 9's ``from_pretrained`` per
-method (~15x model loads).
+Loads the base model **once** (load-once) and reuses it across every method by
+swapping the MoE ``mlp`` modules in and out, instead of reloading the model per
+method (~15x model loads). Covers the reconstruction benchmark, qualitative
+generation and final accuracy.
 
 Load-once correctness: the original ``mlp`` modules are snapshotted once and the
 model is fully restored between methods, so a method never sees another method's
-replacement -- the parity property the load-once / load-per-method test checks.
-The eval RNG is reset inside :func:`~common.qa_eval.evaluate_qa` per call.
+replacement. The eval RNG is reset inside :func:`~common.qa_eval.evaluate_qa`
+per call.
 
 Accuracy (the measured result, the golden gate) is computed first and written
-under ``DATA_DIR`` (§1.4: no CWD-relative ``test_result_*``). The reconstruction
+under ``DATA_DIR`` (no CWD-relative ``test_result_*``). The reconstruction
 benchmark and the qualitative generation are best-effort diagnostics run
 afterwards, so a fake/CPU-only quirk in a diagnostic never blocks the measured
 results.
@@ -148,7 +147,7 @@ def _save_list(values, mode, name, kind):
 
 
 def accuracy(model, tokenizer, moe_layers, originals):
-    """Reproduce the old stage 9 accuracy sweeps on the single, load-once model."""
+    """Accuracy sweeps on the single, load-once model."""
 
     def restore_all():
         for layer in moe_layers:
@@ -199,7 +198,7 @@ def accuracy(model, tokenizer, moe_layers, originals):
 
 
 def _smart_accuracy(model, tokenizer, moe_layers, originals, base_test, base_size):
-    """Greedy best-next-layer accuracy sweep (old stage 9 smart-seq block)."""
+    """Greedy best-next-layer accuracy sweep."""
 
     def restore_all():
         for layer in moe_layers:

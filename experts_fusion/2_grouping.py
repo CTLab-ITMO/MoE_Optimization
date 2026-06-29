@@ -1,15 +1,13 @@
-"""Stage 2 -- grouping + per-group activation join (§2.2, §3.4).
+"""Stage 2 -- grouping + per-group activation join.
 
-Collapses the old stage 2 (pairing) and the join half of the old stage 5 into a
-pure-CPU stage that needs no model: changing the grouping method only re-runs
-this stage, not the (expensive) capture in stage 1 -- the §3.4 cut line.
+A pure-CPU stage that needs no model: changing the grouping method only re-runs
+this stage, not the (expensive) capture in stage 1.
 
 * **Grouping**: the registered :class:`~common.grouping.Grouping` strategy
   partitions each layer's experts into a :class:`~common.artifacts.Partition`,
-  saved to the versioned ``groups/`` prefix (replacing the legacy pickled
-  ``pairs/``). The default ``activation_correlation`` reads the stage-1
-  co-activation matrix and reproduces the legacy pairing exactly (group order +
-  tuple orientation).
+  saved to the versioned ``groups/`` prefix. The default
+  ``activation_correlation`` reads the stage-1 co-activation matrix to pair
+  experts (group order + tuple orientation are deterministic).
 * **Join**: for each split, the per-example top-k selections (stage 1) are joined
   with the partition into a :class:`~common.artifacts.GroupActivationIndex` --
   for each group, the (ascending) indices of the examples that activate it. This
@@ -48,7 +46,7 @@ set_seed(SEED)
 
 grouping = GROUPING_REGISTRY[PAIRING_METHOD]
 # Base context: the run seed gives the stochastic strategies (random /
-# output_similarity) an order-independent per-layer generator (S4); the default
+# output_similarity) an order-independent per-layer generator; the default
 # activation_correlation is deterministic and ignores it.
 base_ctx = StageContext(seed=SEED, device=device, data_dir=DATA_DIR, n_experts=EXPERTS)
 
@@ -56,10 +54,9 @@ base_ctx = StageContext(seed=SEED, device=device, data_dir=DATA_DIR, n_experts=E
 def join_group_activations(partition, topk_list) -> list[list[int]]:
     """For each group, the ascending example indices that activate it.
 
-    Generalizes the old per-pair index build (stage 5) to k-agnostic groups:
-    an expert -> group map turns each example's top-k selections into the set of
+    An expert -> group map turns each example's top-k selections into the set of
     groups it activated. Ascending order is deterministic; the deterministic
-    fusion methods are order-invariant, so this matches the legacy join.
+    fusion methods are order-invariant.
     """
     expert_to_group = [-1] * EXPERTS
     for group_idx, group in enumerate(partition.groups):

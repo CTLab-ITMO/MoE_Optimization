@@ -1,28 +1,21 @@
-"""Stage 1 -- preprocessing and raw-data capture (§2.2, §3.4, §3.6).
+"""Stage 1 -- preprocessing and raw-data capture.
 
-Collapses the old stages 1 (co-activation matrices), 3 (saved experts), 4
-(MLP-block inputs) and the top-k half of 5 into one stage with two sub-steps:
+Two sub-steps:
 
 * **1a -- weight extraction** (CPU, no dataset): load the model on CPU and save
   every layer's experts (via the model-family ``EXPERT_ADAPTER``), gate and
-  shared-expert pathway. This is the dataset-free half and matches the old
-  stage 3 exactly (same adapter, same dtype, same files).
+  shared-expert pathway. This is the dataset-free half.
 * **1b -- capture** (single forward pass per split, non-destructive hooks): load
   the model on ``device`` and register a forward-*pre*-hook on each MoE layer's
   ``mlp``. The hook captures the block input (the MLP-block inputs) and routes it
   through the layer's gate to accumulate the ``EXPERTS x EXPERTS`` co-activation
-  matrix and the per-example top-k selections -- all in one pass, instead of the
-  three separate model passes the old stages 1/4/5 used. Hooks (not module
-  replacement) keep the forward identical to the originals.
-
-The capture is equivalent to the old per-stage passes because the fake oracle's
-hidden states are a deterministic function of the input (S8): the captured
-artifacts no longer depend on how many forwards ran before them.
+  matrix and the per-example top-k selections -- all in one pass. Hooks (not
+  module replacement) keep the forward identical to the originals.
 
 The grouping signal (co-activation) does not depend on the grouping itself, so it
-lives here in stage 1; the per-group join (top-k x Partition) is stage 2's job
-(§3.4 cut line). Finally stage 1 stamps the provenance: ``config_snapshot.json``
-(every later stage asserts against it), a ``RunManifest`` and the ``_layout_version``.
+lives here in stage 1; the per-group join (top-k x Partition) is stage 2's job.
+Finally stage 1 stamps the provenance: ``config_snapshot.json`` (every later
+stage asserts against it), a ``RunManifest`` and the ``_layout_version``.
 """
 import os
 
@@ -62,7 +55,7 @@ provenance.write_config_snapshot(DATA_DIR, config_snapshot_dict())
 
 
 # --------------------------------------------------------------------------- #
-# 1a -- weight extraction (CPU, no dataset). Matches the old stage 3 exactly.
+# 1a -- weight extraction (CPU, no dataset).
 # --------------------------------------------------------------------------- #
 def extract_weights() -> None:
     set_seed(SEED)
@@ -94,9 +87,9 @@ def _capture_split(model, tokenizer, data, moe_layers, n_experts):
     """Run one forward pass over ``data`` capturing all three raw artifacts.
 
     Returns ``(coactivation, mlp_inputs, topk)`` keyed by layer:
-    ``coactivation[L]`` an ``EXPERTS x EXPERTS`` count matrix (old stage 1),
-    ``mlp_inputs[L]`` the list of block-input row vectors (old stage 4), and
-    ``topk[L]`` the per-example top-k selection list (old stage 5, first half).
+    ``coactivation[L]`` an ``EXPERTS x EXPERTS`` count matrix,
+    ``mlp_inputs[L]`` the list of block-input row vectors, and
+    ``topk[L]`` the per-example top-k selection list.
     """
     coactivation = {l: torch.zeros(n_experts, n_experts) for l in moe_layers}
     mlp_inputs = {l: [] for l in moe_layers}
@@ -106,8 +99,8 @@ def _capture_split(model, tokenizer, data, moe_layers, n_experts):
     def make_hook(layer):
         def hook(module, args):
             # Block input to this layer's mlp. Batch is 1 (one example fed at a
-            # time), so [0] selects the sequence rows -- the same vectors the old
-            # stage 4 Logger captured and the old stage 5 routed.
+            # time), so [0] selects the sequence rows -- the vectors captured as
+            # MLP inputs and routed through the gate.
             block_rows = args[0].detach()[0, :, :]
             for row in block_rows.cpu():
                 mlp_inputs[layer].append(row)

@@ -2,30 +2,26 @@
 
 A fused group is the result of merging ``k`` experts into one compact module.
 At inference the layer must be able to recover *each original member's* output
-from that compact module. The old pipeline did this with
-:meth:`AdvancedMLP.forward_unzip` and a positional ``out=0|1`` argument baked
-into :class:`~common.fusion_layer.FusionLayer`. That hard-codes ``k == 2``.
-
-This module defines the contract the layer depends on instead:
+from that compact module. Rather than baking a positional ``out=0|1`` argument
+(which hard-codes ``k == 2``) into :class:`~common.fusion_layer.FusionLayer`,
+this module defines the contract the layer depends on:
 
 * :class:`FusedGroup` -- abstract, ``k``-agnostic: ``group_size`` plus
   ``reconstruct(x, member) -> Tensor`` (the output of member ``member`` for
   input ``x``). A ``k > 2`` group can implement this without touching the layer.
-* :class:`MLPFusedGroup` -- the concrete ``k == 2`` implementation backing the
-  current pipeline. Its :meth:`reconstruct` *is* one implementation of the
-  contract: it delegates straight to :meth:`AdvancedMLP.forward_unzip`, so it is
-  numerically identical to the legacy path.
-* :class:`FusedExpert` -- the on-disk artifact (§2.4) for a fused group. It
-  serializes the *reconstruction contract* (group size + reconstruction kind),
-  not just the weights, on top of the versioned ``state_dict`` + header
-  serializer (§3.5). It never pickles an ``nn.Module``.
+* :class:`MLPFusedGroup` -- the concrete ``k == 2`` implementation. Its
+  :meth:`reconstruct` delegates straight to :meth:`AdvancedMLP.forward_unzip`.
+* :class:`FusedExpert` -- the on-disk artifact for a fused group. It serializes
+  the *reconstruction contract* (group size + reconstruction kind), not just the
+  weights, on top of the versioned ``state_dict`` + header serializer. It never
+  pickles an ``nn.Module``.
 
-:class:`~common.fusion_layer.FusionLayer` now reconstructs through
+:class:`~common.fusion_layer.FusionLayer` reconstructs through
 :meth:`reconstruct` (wrapping each fused expert in an :class:`MLPFusedGroup`)
-instead of the baked-in ``forward_unzip(out=)``, and the least-squares adapter
+instead of a baked-in ``forward_unzip(out=)``, and the least-squares adapter
 refits its unmerge matrix through the public
 :meth:`~common.mlp.AdvancedMLP.refit_unmerge` rather than poking ``.U``/``.down``
-from the outside -- both wired in S5 and proven equivalent to ``forward_unzip``.
+from the outside.
 
 Library code only -- this module never imports an experiment ``config``.
 """
@@ -53,7 +49,7 @@ RECONSTRUCTION_FIELD = "reconstruction"
 PAYLOAD_FUSED_EXPERT = "fused_expert"
 
 # The zip/``build_MU`` unmerge is strictly a pairwise (k == 2) construction; its
-# generalization is left to other researchers (§3.1).
+# generalization is left to other researchers.
 _ZIP_UNMERGE_GROUP_SIZE = 2
 
 
@@ -88,8 +84,7 @@ class MLPFusedGroup(FusedGroup):
     """Pairwise (``k == 2``) fused group backed by :meth:`AdvancedMLP.forward_unzip`.
 
     The reconstruction of member ``m`` is exactly ``mlp.forward_unzip(x, out=m)``
-    -- the zip/``build_MU`` unmerge -- so this group is numerically identical to
-    the legacy :class:`~common.fusion_layer.FusionLayer` path. The member order
+    -- the zip/``build_MU`` unmerge. The member order
     is the orientation contract: member ``0`` is the first original expert,
     member ``1`` the second (``out=(0 if expert_idx == pair[0] else 1)``).
     """
@@ -118,12 +113,12 @@ class MLPFusedGroup(FusedGroup):
 
 
 class FusedExpert:
-    """Serializable artifact (§2.4) for one fused group of ``k`` experts.
+    """Serializable artifact for one fused group of ``k`` experts.
 
     Wraps the fused :class:`AdvancedMLP` together with the reconstruction
     contract metadata (``group_size`` + reconstruction kind) so a loader can
     rebuild the *runtime* :class:`FusedGroup`, not just the weights. Persisted
-    through the versioned ``state_dict`` + header serializer (§3.5): never a
+    through the versioned ``state_dict`` + header serializer: never a
     pickled module.
     """
 
@@ -189,7 +184,7 @@ class FusedExpert:
     def save(self, path, *, provenance: Optional[dict] = None) -> None:
         """Persist to ``path`` as a versioned safetensors artifact.
 
-        ``provenance`` is the optional header slot (§3.6): stage 3 stores the
+        ``provenance`` is the optional header slot: the fusion step stores the
         upstream hash there so a resume can skip an already-fresh work item.
         """
         artifact = self.to_artifact()

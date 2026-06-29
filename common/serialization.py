@@ -46,11 +46,11 @@ from common.numeric import _default_device
 # changes and register an upgrader (see register_upgrader).
 FORMAT_VERSION = 1
 
-# Number of attempts (>= 1) to write an artifact before giving up. The legacy
-# stage carried this knob (``IO_SAVE_RETRIES``) around a flaky pickle
-# ``torch.save``; safetensors never pickles, but a transient filesystem failure
-# (network mount, full-then-freed disk) can still hit the single ``save_file``
-# call, so the retry resilience is kept on the centralized save path (§6).
+# Number of attempts (>= 1) to write an artifact before giving up. This knob
+# originally guarded a flaky pickle ``torch.save``; safetensors never pickles,
+# but a transient filesystem failure (network mount, full-then-freed disk) can
+# still hit the single ``save_file`` call, so the retry resilience is kept on
+# the centralized save path.
 IO_SAVE_RETRIES = 3
 
 # safetensors metadata key holding the JSON header, and the header fields the
@@ -94,7 +94,7 @@ class ArtifactInfo:
 
 
 # --------------------------------------------------------------------------- #
-# Provenance slot (§3.6). The slot exists from v1; later stages populate it
+# Provenance slot. The slot exists from v1; later stages populate it
 # fully (commit / config-hash / dataset fingerprint).
 # --------------------------------------------------------------------------- #
 def make_provenance(
@@ -160,7 +160,7 @@ def save(
         full_header[PROVENANCE_FIELD] = provenance
     prepared = _prepare_tensors(tensors)
     metadata = {_HEADER_KEY: json.dumps(full_header)}
-    for attempt in range(IO_SAVE_RETRIES):  # a few attempts (§6)
+    for attempt in range(IO_SAVE_RETRIES):  # a few attempts before giving up
         try:
             save_file(prepared, str(path), metadata=metadata)
             return

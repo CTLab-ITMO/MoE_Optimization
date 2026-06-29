@@ -1,8 +1,7 @@
 """Diagnostic plots of per-method fusion reconstruction-metric distributions.
 
-Ported from the legacy stage-6 plotting block, with one structural change: every
-output is written under an explicit ``out_dir`` (a ``DATA_DIR``-scoped plots
-directory) instead of CWD-relative ``plots/`` (§1.4). matplotlib runs head-less
+Every output is written under an explicit ``out_dir`` (a ``DATA_DIR``-scoped
+plots directory) instead of CWD-relative ``plots/``. matplotlib runs head-less
 (Agg backend); the kde grid is skipped when seaborn is unavailable.
 
 These are best-effort diagnostics: :func:`plot_fusion_metric_grids` renders each
@@ -34,7 +33,7 @@ except Exception:  # seaborn is an optional dependency
 
 # Reconstruction metrics above this magnitude are unstable outliers (a fusion
 # that blew up); clamp them out of the distribution plots so the axes stay
-# readable. (Legacy ``MAX_PLOT_METRIC_VALUE``, §6.)
+# readable.
 MAX_PLOT_METRIC_VALUE = 1e6
 
 # Floor for the log-transform so log(0)/log(negative) never reaches matplotlib.
@@ -66,7 +65,7 @@ def _clamp(values, max_value) -> list:
 
 
 def _log_if_needed(values, metric, log_safe):
-    """Log-transform values whose spread reads better on a log scale (§4.4)."""
+    """Log-transform values whose spread reads better on a log scale."""
     if metric in log_safe:
         return np.log(np.maximum(np.asarray(values, dtype=np.float64), _LOG_FLOOR))
     return values
@@ -86,14 +85,14 @@ def plot_fusion_metric_grids(
     ``data`` maps ``metric -> {method_name -> [values across (layer, group)]}``;
     ``metrics`` is the ordered list of metric names to panel (one subplot column
     each). Every output is written under ``out_dir`` (a ``DATA_DIR``-scoped
-    directory), never CWD-relative ``plots/`` (§1.4).
+    directory), never CWD-relative ``plots/``.
 
     Each grid is rendered independently: a failure in one grid warns and is
     skipped so the others still render. Returns the list of written file paths.
     """
     if log_safe is None:
-        # ``Time`` is plotted on a log axis too (legacy parity), so add it to the
-        # log_scale-derived metric set (§4.4) rather than re-listing literals.
+        # ``Time`` is plotted on a log axis too, so add it to the
+        # log_scale-derived metric set rather than re-listing literals.
         log_safe = set(log_safe_metrics) | {TIME_METRIC}
     os.makedirs(out_dir, exist_ok=True)
 

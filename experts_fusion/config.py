@@ -13,12 +13,12 @@ TRAIN_DATASET_NAME = {"path": "cais/mmlu", "name": "all", "split": "auxiliary_tr
 VALIDATION_DATASET_NAME = {"path": "cais/mmlu", "name": "all", "split": "validation"}
 TEST_DATASET_NAME = {"path": "cais/mmlu", "name": "all", "split": "test"}
 
-# Column name holding the input text in the datasets above (read by stages 1, 4, 8).
+# Column name holding the input text in the datasets above (read by stages 1 and 4).
 DATASET_TEXT_FIELD = "question"
 
-TRAIN_SIZE = 1_024       # reconstruction train + stage-9 order-selection QA
-VALIDATION_SIZE = 1_024  # reconstruction validation (held-out, stages 1-8)
-TEST_SIZE = 15_000       # final accuracy QA (stage 9), large for tight CI
+TRAIN_SIZE = 1_024       # reconstruction train + order-selection QA
+VALIDATION_SIZE = 1_024  # reconstruction validation (held-out)
+TEST_SIZE = 15_000       # final accuracy QA, large for tight CI
 LAYERS = list(range(24))
 TOP_K = 4
 
@@ -40,7 +40,7 @@ INSPECT_FUSION_METHOD = "ZipIt"
 
 SEED = 42
 
-# Model/tokenizer adapters (dependency injection, §3.2). Each hides a
+# Model/tokenizer adapters (dependency injection). Each hides a
 # model-family-specific concern behind a common/ interface; the Qwen15* defaults
 # reproduce the current Qwen1.5-MoE behavior. Swap the instance to retarget the
 # pipeline at another family without editing the stages.
@@ -75,14 +75,14 @@ _SNAPSHOT_EXCLUDED = {"DATA_DIR"}
 
 
 def config_snapshot_dict() -> dict:
-    """The run config as a plain value map for the provenance snapshot (§3.6).
+    """The run config as a plain value map for the provenance snapshot.
 
     Stage 1 writes this canonicalized (``common.provenance``: ``device`` dropped,
     dtype/adapter values stabilized to names) to ``config_snapshot.json``; every
     later stage compares the live config against it and fails fast on drift. The
     function reads the module globals at call time, so a test that monkeypatches
     a config attribute is reflected here. The config serializes itself -- the
-    library code in ``common`` never imports this module (§1.3).
+    library code in ``common`` never imports this module.
     """
     return {
         "MODEL_NAME": MODEL_NAME,

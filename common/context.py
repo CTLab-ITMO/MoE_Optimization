@@ -1,19 +1,19 @@
-"""Single object of dynamic per-stage state passed to extension points (§3.7).
+"""Single object of dynamic per-stage state passed to extension points.
 
 A plugin (fusion method, grouping strategy, metric) receives the *dynamic* state
 it might need through one :class:`StageContext`, rather than through a bag of
-``**kwargs`` the driver fills in blindly (§2.5). Static configuration of a method
-stays in its ``__init__``; everything that varies per run / per layer / per group
-travels in the context. This is what makes the k-agnostic signature freeze (S5)
-possible: a method's signature can be ``(*mlps, ctx, **kwargs)`` because all the
-moving parts live behind ``ctx``.
+``**kwargs`` the driver fills in blindly. Static configuration of a method stays
+in its ``__init__``; everything that varies per run / per layer / per group
+travels in the context. This is what lets the method signature stay frozen as
+``(*mlps, ctx, **kwargs)`` regardless of ``k``: all the moving parts live behind
+``ctx``.
 
 Every field is optional and the dataclass is frozen: contexts are cheap, derived
 values (``for_layer`` / ``for_group``) return new instances, and new fields may
-only be added as further optional fields (additive extension, §1.8/§2.5).
+only be added as further optional fields (additive extension).
 
-Its main job in S4 is to carry the *seeding* coordinates: :meth:`generator`
-returns an order-independent :class:`torch.Generator` (via
+Its main job is to carry the *seeding* coordinates: :meth:`generator` returns an
+order-independent :class:`torch.Generator` (via
 :func:`common.seeding.seed_for`) for the layer/group the context points at, so a
 stochastic op no longer consumes the global RNG stream.
 

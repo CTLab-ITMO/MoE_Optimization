@@ -1,4 +1,4 @@
-"""Determinism and seeding for the fusion pipeline (§1.7, §3.3).
+"""Determinism and seeding for the fusion pipeline.
 
 Two layers:
 
@@ -9,8 +9,8 @@ Two layers:
   global RNG stream. Because the seed depends only on the *coordinates* of the
   work item (and the base seed), not on how many random draws happened before
   it, the result is **invariant to the traversal order** of the pipeline. That
-  closes the latent §3.3 bug where ``set_seed`` once-per-stage plus random draws
-  inside nested loops made every stochastic method order-dependent.
+  avoids the trap where ``set_seed`` once-per-stage plus random draws inside
+  nested loops would make every stochastic method order-dependent.
 
 The hash is :mod:`hashlib`-based on purpose: Python's builtin ``hash()`` is
 salted per process (``PYTHONHASHSEED``) and would make seeds non-reproducible

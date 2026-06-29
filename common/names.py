@@ -9,15 +9,15 @@ Covered contracts:
 
 * :class:`PairingMethod` -- grouping/pairing method names (dispatch in
   :func:`common.pairing.get_pairs`, the ``config.PAIRING_METHOD`` value and the
-  stage-2 guard);
-* :class:`ReplaceMode` -- the stage-9 layer-replacement mode tags written into
-  the ``accuracy_list_<mode>_<method>.pt`` filenames;
+  grouping config guard);
+* :class:`ReplaceMode` -- the layer-replacement mode tags written into
+  the ``accuracy_list_<mode>_<method>.pt`` filenames at evaluation;
 * :data:`TIME_METRIC` -- the wall-clock key produced by
-  :func:`common.mlp_utils.test_model_on_data` and consumed by stage 6;
-* :data:`BEST_PREFIX` -- the ``Best_<metric>`` pseudo-method prefix (writer in
-  stage 6, reader in stage 9);
-* :data:`ZERO_FUSION` -- the zeroed-MLP baseline name in stage 9;
-* :data:`TEST_RESULT_PREFIX` -- the stage-9 results-directory prefix.
+  :func:`common.mlp_utils.test_model_on_data` and consumed by the fusion report;
+* :data:`BEST_PREFIX` -- the ``Best_<metric>`` pseudo-method prefix (written
+  during fusion, read at evaluation);
+* :data:`ZERO_FUSION` -- the zeroed-MLP baseline name used at evaluation;
+* :data:`TEST_RESULT_PREFIX` -- the evaluation results-directory prefix.
 
 Library code only -- this module never imports an experiment ``config``.
 """
@@ -39,23 +39,23 @@ class PairingMethod(StrEnum):
 
 
 class ReplaceMode(StrEnum):
-    """Stage-9 layer-replacement mode tags (used in saved filenames)."""
+    """Layer-replacement mode tags at evaluation (used in saved filenames)."""
 
     SEQ = "seq"
     SINGLE = "single"
     SMART_SEQ = "smart_seq"
 
 
-# Wall-clock metric key in the stage-6 fusion report (producer: mlp_utils,
-# consumer: stage 6 plotting/aggregation).
+# Wall-clock metric key in the fusion report (producer: mlp_utils,
+# consumer: the report's plotting/aggregation).
 TIME_METRIC = "Time"
 
-# Prefix of the per-metric "best fusion" pseudo-method (writer: stage 6,
-# reader: stage 9).
+# Prefix of the per-metric "best fusion" pseudo-method (written during fusion,
+# read at evaluation).
 BEST_PREFIX = "Best_"
 
-# Name of the zeroed-MLP baseline replacement in stage 9.
+# Name of the zeroed-MLP baseline replacement used at evaluation.
 ZERO_FUSION = "zero"
 
-# Prefix of the stage-9 results directory (e.g. ``test_result_<train>_<test>``).
+# Prefix of the evaluation results directory (e.g. ``test_result_<train>_<test>``).
 TEST_RESULT_PREFIX = "test_result_"

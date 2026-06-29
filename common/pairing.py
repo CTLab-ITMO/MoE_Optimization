@@ -10,8 +10,8 @@ from common.numeric import EPS, _default_device
 # NOTE: the grouping *registry* and the ``AffinityProvider`` x ``Partitioner``
 # strategy abstraction live in :mod:`common.grouping` (which reuses the
 # primitives below). This module keeps the function-style ``get_pairs`` /
-# ``build_matches`` / ``random_pairs`` / ``compute_*`` entry points the untouched
-# legacy ``Qwen_MoE_experts_fusion_experiment`` stage 2 still imports.
+# ``build_matches`` / ``random_pairs`` / ``compute_*`` entry points the legacy
+# ``Qwen_MoE_experts_fusion_experiment`` grouping step still imports.
 
 # The pairing ``torch.randperm`` draws (random split + output_similarity
 # subsample) are CPU operations, so their generator must live on the CPU even when
@@ -476,9 +476,8 @@ def get_pairs(
     device: Optional[torch.device] = None,
     # ``evolution_steps``/``progress`` are vestigial (leftovers of an abandoned
     # evolutionary-matching refinement that was never wired in) and are read
-    # nowhere below. They are kept only because the legacy stage 2 still passes
-    # them and that module must stay untouched until the S9 cutover -- remove
-    # both params then.
+    # nowhere below. They are kept only for backward compatibility with the
+    # legacy module, which still passes them.
     evolution_steps: int = 0,
     progress: bool = False,
     num_samples: int = 4096,

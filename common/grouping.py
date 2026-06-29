@@ -1,10 +1,7 @@
-"""Grouping as a two-axis, k-agnostic abstraction (§2.3, §3.7, §4.3, §4.5).
+"""Grouping as a two-axis, k-agnostic abstraction.
 
-The old pipeline picked expert pairs through a single ``get_pairs`` dispatcher --
-a chain of ``if method == ...`` branches. This module replaces that with a
-registry of :class:`Grouping` strategies decomposed along **two independent
-axes** (§3.7), so a new signal and a new algorithm combine without either
-touching the other:
+Expert grouping is decomposed along two independent axes, so a new signal and a
+new algorithm combine without either touching the other:
 
 * :class:`AffinityProvider` -- the *signal*: an ``EXPERTS x EXPERTS`` affinity
   matrix for a layer. In-tree signals: :class:`CoActivationAffinity` (gate
@@ -12,27 +9,25 @@ touching the other:
 * :class:`Partitioner` -- the *algorithm*: turns an affinity (or just the expert
   count) into a list of groups. In-tree algorithms: :class:`MatchingPartitioner`
   (max-weight matching) and :class:`RandomPartitioner`. k-means / spectral are
-  deliberately left to other researchers (over-engineering for now, S6).
+  deliberately left to other researchers.
 
 :class:`PairGrouping` is the generic matching-partitioner-over-an-affinity
 specialization that yields disjoint pairs (a :class:`~common.artifacts.Partition`
 whose every group has ``size == 2``); a pair is the ``k == 2`` case of the
 k-agnostic :meth:`Grouping.partition` contract.
 
-The three registered strategies reproduce the legacy ``get_pairs`` methods
-exactly -- same group order and tuple orientation -- so the default
-``activation_correlation + matching`` is behaviour-equivalent to the old default
-(§2.6). They reuse the same primitives (:func:`common.pairing.build_matches`,
+Each registered strategy reuses the shared primitives
+(:func:`common.pairing.build_matches`,
 :func:`common.pairing.compute_activation_correlation_matrix`,
 :func:`common.pairing.compute_output_similarity_matrix`,
-:func:`common.pairing.random_pairs`), so identity is by construction; the
-stochastic ones (``random`` / ``output_similarity``) draw from the per-layer
-:class:`torch.Generator` carried by :class:`~common.context.StageContext` (S4),
+:func:`common.pairing.random_pairs`); the stochastic ones
+(``random`` / ``output_similarity``) draw from the per-layer
+:class:`torch.Generator` carried by :class:`~common.context.StageContext`,
 making them order-invariant.
 
-Per §3.7 the variadic ``**kwargs`` lives only on the *abstract* signatures (for
-forward-compatible contract freezing); concrete implementations take explicit,
-named parameters so a typo is caught rather than silently swallowed.
+The variadic ``**kwargs`` lives only on the *abstract* signatures (so the
+contract can grow without breaking subclasses); concrete implementations take
+explicit, named parameters so a typo is caught rather than silently swallowed.
 
 Library code only -- this module never imports an experiment ``config``.
 """
@@ -54,7 +49,7 @@ from common.registry import Registry
 # the canonical registry stays pinned in-tree; see :mod:`common.registry`).
 GROUPING_ENTRY_POINT_GROUP = "moe.grouping"
 
-# Default ``output_similarity`` knobs (§4.5): exposed as explicit
+# Default ``output_similarity`` knobs: exposed as explicit
 # ``OutputSimilarityAffinity.__init__`` parameters rather than pinned inside the
 # matrix computation, so a strategy variant configures them by construction.
 DEFAULT_OUTPUT_SIMILARITY_SAMPLES = 4096
@@ -88,7 +83,7 @@ class AffinityProvider(ABC):
 
     The matrix entry ``(i, j)`` scores how much experts ``i`` and ``j`` should be
     grouped together; a :class:`Partitioner` consumes it. ``**kwargs`` is the
-    forward-compatible interface slot only (§3.7); concrete providers take
+    forward-compatible interface slot only; concrete providers take
     explicit named parameters.
     """
 
@@ -101,10 +96,9 @@ class AffinityProvider(ABC):
 
 
 class CoActivationAffinity(AffinityProvider):
-    """Gate co-activation signal: the normalized activation matrix (stage 1).
+    """Gate co-activation signal: the normalized activation matrix.
 
-    Reproduces the ``activation_correlation`` signal of the legacy ``get_pairs``
-    exactly -- it delegates to the same
+    Delegates to
     :func:`common.pairing.compute_activation_correlation_matrix`.
     """
 
@@ -113,12 +107,12 @@ class CoActivationAffinity(AffinityProvider):
 
 
 class OutputSimilarityAffinity(AffinityProvider):
-    """Expert-output cosine-similarity signal (stages 3 + 4).
+    """Expert-output cosine-similarity signal.
 
-    The ``num_samples`` / ``batch_size`` knobs (§4.5) are explicit construction
+    The ``num_samples`` / ``batch_size`` knobs are explicit construction
     parameters of the strategy, so a variant is configured by registering a new
     instance rather than by reaching into the matrix computation. The subsample
-    draw uses the order-invariant per-layer generator from ``ctx`` (S4).
+    draw uses the order-invariant per-layer generator from ``ctx``.
     """
 
     def __init__(
@@ -161,7 +155,7 @@ class Partitioner(ABC):
 
     Consumes an affinity matrix (``None`` for signal-free algorithms such as
     random) and the expert count, and returns a list of member tuples. ``**kwargs``
-    is the forward-compatible interface slot only (§3.7).
+    is the forward-compatible interface slot only.
     """
 
     @abstractmethod
@@ -179,8 +173,8 @@ class Partitioner(ABC):
 class MatchingPartitioner(Partitioner):
     """Max-weight matching over an affinity matrix -> disjoint pairs.
 
-    Delegates to :func:`common.pairing.build_matches`, so the group order and the
-    tuple orientation ``(pair[0], pair[1])`` are identical to the legacy path.
+    Delegates to :func:`common.pairing.build_matches`, which fixes the group
+    order and the tuple orientation ``(pair[0], pair[1])``.
     """
 
     def partition(self, affinity, n_experts, ctx):
@@ -193,7 +187,7 @@ class RandomPartitioner(Partitioner):
     """Random disjoint pairing of the experts (signal-free).
 
     Delegates to :func:`common.pairing.random_pairs` with the order-invariant
-    per-layer generator from ``ctx`` (S4), so the split is reproducible and
+    per-layer generator from ``ctx``, so the split is reproducible and
     independent of pipeline traversal order.
     """
 
@@ -218,7 +212,7 @@ class Grouping(ABC):
     :class:`~common.artifacts.Partition` of arbitrarily sized groups. A new
     grouping (clusters, overlapping groups, hierarchies) is a new subclass /
     registry entry, never a change to this base. ``**kwargs`` is the
-    forward-compatible interface slot only (§3.7).
+    forward-compatible interface slot only.
     """
 
     name: str
@@ -232,7 +226,7 @@ class Grouping(ABC):
 class PairGrouping(Grouping):
     """Disjoint-pairs grouping: a :class:`Partitioner` over an :class:`AffinityProvider`.
 
-    The generic ``k == 2`` specialization (§2.3): every produced group is a pair.
+    The generic ``k == 2`` specialization: every produced group is a pair.
     Composing one affinity with one partitioner is the whole "signal x algorithm"
     decomposition; the three in-tree strategies differ only in which pair they are
     built from.
@@ -272,7 +266,7 @@ def _build_grouping_registry() -> Registry:
 
     Pinned to the :class:`~common.names.PairingMethod` order so the golden
     ``pairing_methods`` snapshot is an exact match and config validation of
-    ``PAIRING_METHOD`` is driven from :meth:`Registry.names` (§1.6/§4.3).
+    ``PAIRING_METHOD`` is driven from :meth:`Registry.names`.
     Extensible without a fork via ``register`` / ``load_entry_points``.
     """
     registry = Registry("grouping")
@@ -299,6 +293,6 @@ def _build_grouping_registry() -> Registry:
     return registry
 
 
-# The single source of truth the grouping stage reads from (§3.7): a
+# The single source of truth the grouping stage reads from: a
 # name -> Grouping Mapping, extensible via ``register`` / ``load_entry_points``.
 GROUPING_REGISTRY: Registry = _build_grouping_registry()

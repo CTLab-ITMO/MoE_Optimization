@@ -32,8 +32,8 @@ default_device = _default_device()
 # name -> fusion instance (callable as ``method(mlp_a, mlp_b, train_data)`` or the
 # k-agnostic ``method(*mlps, train_data=...)``). This *is* the fusion registry
 # (an ordered, extensible Mapping), so the stages read methods only from the
-# registry (§3.7) -- not from a literal list -- while staying a drop-in for the
-# old ``name -> instance`` dict.
+# registry -- not from a literal list -- while staying a drop-in for a plain
+# ``name -> instance`` dict.
 FUSION_METHODS = FUSION_REGISTRY
 
 
@@ -145,19 +145,19 @@ def test_model_on_data(fused_mlp, mlp1, mlp2, test_data, ctx=None) -> dict[str, 
 
 
 def select_best_fused(fused_by_method, results_by_method, best_metrics, *, method_names=None):
-    """Pick the best fused expert per ``Best_<metric>`` pseudo-method (§3.4, §5).
+    """Pick the best fused expert per ``Best_<metric>`` pseudo-method.
 
-    The shared metric compartment + ``Best_*`` post-selector, lifted out of the
-    old stage 6 so the collapsed stage 3 (selection) and stage 4 (report) share
-    one definition. ``fused_by_method`` maps a real method name to its fused
+    The shared metric compartment + ``Best_*`` post-selector, factored out so
+    the fusion-selection step and the evaluation/report step share one
+    definition. ``fused_by_method`` maps a real method name to its fused
     expert; ``results_by_method`` maps a name to the per-metric report from
     :func:`test_model_on_data`, or is ``None`` when the group lacked enough
     validation rows to score. Returns ``{Best_<metric>: chosen fused expert}``.
 
     The no-score fallback is the first registered method via ``next(iter(...))``
-    -- never a hardcoded ``"Pruning"`` (§5). With scores, the winner for each
+    -- never a hardcoded ``"Pruning"``. With scores, the winner for each
     metric is chosen over ``method_names`` order using the metric's
-    ``higher_is_better`` flag, reproducing the legacy first-method tie-break.
+    ``higher_is_better`` flag, with a first-method tie-break.
     """
     names = list(method_names) if method_names is not None else list(fused_by_method)
     fallback = names[0]

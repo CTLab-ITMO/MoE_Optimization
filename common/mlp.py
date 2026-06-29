@@ -92,7 +92,7 @@ class Zipper(nn.Linear):
         # The zip/build_MU unmerge is strictly pairwise (k == 2): ``n`` is the
         # hidden size of two concatenated experts, halved to ``n // 2`` with
         # weight ``0.5`` and ``U = 2 * M.T``. A k>2 generalization is out of
-        # scope (§3.1), so the concatenated width must be even.
+        # scope, so the concatenated width must be even.
         assert n % 2 == 0, f"build_MU is k=2 only; expected an even width, got {n}"
 
         matches = greedy_correlation_matching(corr_matrix)
@@ -276,13 +276,13 @@ class AdvancedMLP(MLP):
         """Least-squares refit of the unmerge matrix ``U`` to reconstruct ``targets``.
 
         The public seam the least-squares adapter (``LS_*``) uses instead of
-        assigning ``.down`` / ``.U`` from the outside (§3.7): the fused expert
+        assigning ``.down`` / ``.U`` from the outside: the fused expert
         owns its reconstruction. Drops the ``down`` layer so ``forward`` returns
         the merged hidden output, then solves ``U`` minimizing
         ``|| forward(x) @ U^T - targets ||`` and installs it. ``targets`` is the
         concatenation of the members' outputs (width ``k * out_features``), so
         ``forward_unzip(x, out=m)`` recovers member ``m``. Numerically identical
-        to the old in-line ``LeastSquaresAdapter`` solve.
+        to an in-line ``LeastSquaresAdapter`` solve.
         """
         dtype = self.down.weight.dtype
         self.down = None

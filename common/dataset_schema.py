@@ -1,24 +1,22 @@
-"""Declarative dataset-schema registry replacing the qa_eval if/else chains (§4.2/§3.2).
+"""Declarative dataset-schema registry for QA evaluation samples.
 
 QA evaluation samples arrive in several shapes (MMLU, Winogrande, ARC,
-OpenBookQA, CommonsenseQA), and the legacy ``common.qa_eval`` reads each shape
-through a hand-written ``if/elif`` chain in three helpers:
+OpenBookQA, CommonsenseQA). Rather than reading each shape through a
+hand-written ``if/elif`` chain in three helpers:
 
 * ``_extract_question`` -- ``"question"`` else ``"sentence"`` else ``"question_stem"``;
 * ``_extract_choices`` -- a ``"choices"`` dict (label/text), a ``"choices"`` list
   (synthesize ``A.. letters``), or ``"option1"/"option2"``;
 * ``_extract_answer`` -- ``"answerKey"``, else the ``"answer"`` value (an int
-  index, an already-resolved letter, or a 1-based numeric string).
+  index, an already-resolved letter, or a 1-based numeric string),
 
-This module replaces those chains with a *declarative table*: each field has an
-ordered tuple of presence-keyed rules whose first match wins (the rule order is
-exactly the original ``if/elif`` priority), plus a registry of named
+this module uses a *declarative table*: each field has an ordered tuple of
+presence-keyed rules whose first match wins, plus a registry of named
 :class:`DatasetSchema` descriptors -- one per dataset family -- usable for
 introspection / detection. The module-level :func:`resolve_question`,
-:func:`resolve_choices` and :func:`resolve_answer` reproduce the inline
-``_extract_*`` behaviour EXACTLY for every sample shape, including hybrids,
-because they are driven by the same per-field key-presence priority rather than
-by a whole-sample schema guess.
+:func:`resolve_choices` and :func:`resolve_answer` handle every sample shape,
+including hybrids, because they are driven by per-field key-presence priority
+rather than by a whole-sample schema guess.
 
 Library code only -- this module never imports an experiment ``config``.
 """
@@ -221,7 +219,7 @@ def _build_schema_registry() -> Registry:
     return registry
 
 
-# The single source of truth for named dataset schemas (§3.7): a
+# The single source of truth for named dataset schemas: a
 # name -> DatasetSchema Mapping, extensible via ``register`` / ``load_entry_points``.
 SCHEMA_REGISTRY: Registry = _build_schema_registry()
 

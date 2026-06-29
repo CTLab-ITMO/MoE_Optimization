@@ -1,11 +1,11 @@
-"""Provenance, config snapshot, run manifest and idempotency (§3.6, §3.4).
+"""Provenance, config snapshot, run manifest and idempotency.
 
-The collapsed pipeline must be able to (a) record *how* each artifact was
-produced, (b) refuse to run a stage against a ``DATA_DIR`` written under a
-different config, and (c) skip a work item that is already up to date. This
-module owns those three concerns:
+The pipeline must be able to (a) record *how* each artifact was produced,
+(b) refuse to run a stage against a ``DATA_DIR`` written under a different
+config, and (c) skip a work item that is already up to date. This module owns
+those three concerns:
 
-* **Config snapshot** -- stage 1 writes a canonical ``config_snapshot.json`` of
+* **Config snapshot** -- the first stage writes a canonical ``config_snapshot.json`` of
   the run's config (ephemeral keys such as ``device`` dropped, values stabilized
   so the hash is reproducible across processes). Every later stage calls
   :func:`assert_config_matches_snapshot` and fails fast with a per-key diff if
@@ -124,7 +124,7 @@ def write_config_snapshot(data_dir: str, config: dict) -> dict:
 
 
 def read_config_snapshot(data_dir: str) -> Optional[dict]:
-    """Return the written snapshot, or ``None`` if the stage 1 snapshot is absent."""
+    """Return the written snapshot, or ``None`` if no snapshot has been written."""
     path = config_snapshot_path(data_dir)
     if not os.path.isfile(path):
         return None
@@ -138,7 +138,7 @@ def assert_config_matches_snapshot(
     """Raise :class:`ConfigMismatchError` with a per-key diff on config drift.
 
     ``keys`` optionally restricts the comparison to the fields a stage depends
-    on. An absent snapshot (no stage 1 yet) is allowed -- nothing to compare.
+    on. An absent snapshot (nothing written yet) is allowed -- nothing to compare.
     """
     snapshot = read_config_snapshot(data_dir)
     if snapshot is None:
@@ -163,7 +163,7 @@ def assert_config_matches_snapshot(
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class RunManifest:
-    """Per-run provenance written next to the artifacts (§3.6)."""
+    """Per-run provenance written next to the artifacts."""
 
     seed: Optional[int] = None
     commit: Optional[str] = None
@@ -251,7 +251,7 @@ def header_hash(path: str) -> str:
 def is_fresh(path: str, upstream_hash: str) -> bool:
     """True iff ``path`` exists and its provenance ``upstream_hash`` matches.
 
-    The skip-if-done predicate (§3.4): a fused artifact records its upstream hash
+    The skip-if-done predicate: a fused artifact records its upstream hash
     in the serializer provenance slot, so a re-run with unchanged upstream finds
     a matching hash and skips the recompute. A missing file, a header without the
     hash, or any read error all read as *not fresh* (recompute), never a crash.

@@ -1,9 +1,9 @@
 """Discover which decoder layers of a causal-LM are MoE (router + experts).
 
-Stages 1/4/5 used to assume *every* decoder layer is a sparse MoE block: they
-trimmed the stack with ``for i in range(MAX_LAYERS, len(model.model.layers)):
-del model.model.layers[MAX_LAYERS]`` and then indexed ``model.model.layers[i].mlp.gate``
-/ ``.experts`` blindly over ``LAYERS = range(N)`` (§3.2). That crashes on hybrid
+It is tempting to assume *every* decoder layer is a sparse MoE block: trim the
+stack with ``for i in range(MAX_LAYERS, len(model.model.layers)):
+del model.model.layers[MAX_LAYERS]`` and then index ``model.model.layers[i].mlp.gate``
+/ ``.experts`` blindly over ``LAYERS = range(N)``. That crashes on hybrid
 dense+sparse models (DeepSeek, Qwen3-MoE, Granite-MoE) whose early layers carry a
 plain dense MLP (``gate_proj``/``up_proj``/``down_proj``, no ``experts`` and no
 router ``gate``): indexing ``.mlp.experts`` on such a layer raises ``AttributeError``.

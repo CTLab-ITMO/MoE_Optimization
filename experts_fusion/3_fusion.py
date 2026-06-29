@@ -1,20 +1,19 @@
-"""Stage 3 -- fusion (§2.2, §3.4).
+"""Stage 3 -- fusion.
 
-Replaces the old stage 6. For every group of every layer it merges the group's
-experts with each registered fusion method, scores them on the group's held-out
-validation calibration data, and writes one versioned
+For every group of every layer it merges the group's experts with each
+registered fusion method, scores them on the group's held-out validation
+calibration data, and writes one versioned
 :class:`~common.fused_group.FusedExpert` per ``(method, layer, group)`` plus the
 per-metric ``Best_<metric>`` winners.
 
-Two pieces are lifted into ``common`` so stages 3 and 4 share one definition (the
-metric compartment, §3.4): :func:`~common.mlp_utils.test_model_on_data` scores a
-fused expert, and :func:`~common.mlp_utils.select_best_fused` picks the
-``Best_<metric>`` winner with the ``next(iter(...))`` fallback (never a hardcoded
-``"Pruning"``, §5).
+Two pieces live in ``common`` so stages 3 and 4 share one definition:
+:func:`~common.mlp_utils.test_model_on_data` scores a fused expert, and
+:func:`~common.mlp_utils.select_best_fused` picks the ``Best_<metric>`` winner
+with a ``next(iter(...))`` fallback (never a hardcoded method name).
 
-Idempotency / resume (§3.4): each fused artifact records its upstream hash
-(config hash + work-item coordinates + partition hash) in the provenance slot, so
-a re-run skips a group whose every output is already fresh.
+Idempotency / resume: each fused artifact records its upstream hash (config hash
++ work-item coordinates + partition hash) in the provenance slot, so a re-run
+skips a group whose every output is already fresh.
 """
 import os
 
@@ -67,7 +66,7 @@ if FILTER_METRICS is not None:
 
 set_seed(SEED)
 # Base context: per-layer/per-group copies give the stochastic fusion (Fisher) an
-# order-independent generator (S4, §3.3).
+# order-independent generator.
 base_ctx = StageContext(seed=SEED, device=device)
 config_fingerprint = provenance.config_hash(config_snapshot_dict())
 
@@ -90,10 +89,10 @@ method_names = list(fusion_methods.keys())
 best_names = [f"{BEST_PREFIX}{metric}" for metric in selected_best_metrics]
 
 # Per-scored-group reconstruction reports, collected for the best-effort
-# diagnostic plots below (the descendant of the legacy stage-6 plotting block).
-# ``resumed_any`` records whether any group was skipped as already-fresh: on a
-# partial resume the plots would cover only the re-scored subset, so we skip
-# plotting entirely rather than overwrite a complete plot with a partial one.
+# diagnostic plots below. ``resumed_any`` records whether any group was skipped
+# as already-fresh: on a partial resume the plots would cover only the re-scored
+# subset, so we skip plotting entirely rather than overwrite a complete plot with
+# a partial one.
 experiment_results = []
 resumed_any = False
 
@@ -170,11 +169,10 @@ for layer in LAYERS:
 def _plot_fusion_diagnostics() -> None:
     """Best-effort distribution plots of the per-method reconstruction metrics.
 
-    Descendant of the legacy stage-6 plotting block, but every output lands under
-    ``DATA_DIR/plots`` (never CWD-relative ``plots/``; §1.4). Plotted only on a
-    full (non-resumed) run, so a partial resume never overwrites a complete plot
-    with a subset. Best-effort: the caller wraps this so any failure is printed
-    and skipped rather than breaking the fusion stage.
+    Every output lands under ``DATA_DIR/plots`` (never CWD-relative ``plots/``).
+    Plotted only on a full (non-resumed) run, so a partial resume never
+    overwrites a complete plot with a subset. Best-effort: the caller wraps this
+    so any failure is printed and skipped rather than breaking the fusion stage.
     """
     if resumed_any or not experiment_results:
         return

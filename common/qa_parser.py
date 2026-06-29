@@ -1,25 +1,24 @@
-"""Model-family QA prompt / answer-token parser (§3.2).
+"""Model-family QA prompt / answer-token parser.
 
-The legacy ``common.qa_eval`` builds the evaluation prompt and resolves the
-candidate answer-letter token ids inline, hard-wired to the Qwen1.5 chat format:
+Building the evaluation prompt and resolving the candidate answer-letter token
+ids are two responsibilities that are easy to hard-wire to one chat format:
 
-* ``_format_prompt`` -- formats the options block, a fixed system instruction
-  (with an ``A or B`` / ``A, B, or C`` enumeration of the valid letters) and the
+* the prompt formats the options block, a fixed system instruction (with an
+  ``A or B`` / ``A, B, or C`` enumeration of the valid letters) and the
   question, then renders them through ``tokenizer.apply_chat_template(...)``;
-* ``_resolve_answer_token_ids`` -- encodes each *bare* letter (``"A"``, no
-  leading space) and takes the first token id.
+* the answer-token resolver encodes each *bare* letter (``"A"``, no leading
+  space) and takes the first token id.
 
-This module lifts those two responsibilities behind a :class:`QAParser` ABC so a
-new model family is a new subclass rather than an edit to the eval loop. The
-in-tree :class:`Qwen15QAParser` reproduces both inline functions EXACTLY by
-default. The single observed degree of freedom is the §3.2 "leading space"
-subtlety -- whether the answer letter is encoded as ``"A"`` or ``" A"`` -- exposed
-as a constructor flag whose DEFAULT (``leading_space=False``) reproduces the
-current behaviour.
+This module puts both behind a :class:`QAParser` ABC so a new model family is a
+new subclass rather than an edit to the eval loop. The in-tree
+:class:`Qwen15QAParser` implements the Qwen1.5 chat format. The single observed
+degree of freedom is the "leading space" subtlety -- whether the answer letter
+is encoded as ``"A"`` or ``" A"`` -- exposed as a constructor flag whose DEFAULT
+(``leading_space=False``) encodes the bare letter.
 
-Per §3.7 the variadic ``**kwargs`` lives only on the *abstract* signatures (for
-forward-compatible contract freezing); the concrete parser takes explicit, named
-parameters so a typo is caught rather than silently swallowed.
+The variadic ``**kwargs`` lives only on the *abstract* signatures (so the
+contract can grow without breaking subclasses); the concrete parser takes
+explicit, named parameters so a typo is caught rather than silently swallowed.
 
 Library code only -- this module never imports an experiment ``config``.
 """
@@ -45,7 +44,7 @@ def _join_or(items: list) -> str:
 class QAParser(ABC):
     """Build the evaluation prompt and the candidate answer-token ids.
 
-    ``**kwargs`` is the forward-compatible interface slot only (§3.7); concrete
+    ``**kwargs`` is the forward-compatible interface slot only; concrete
     parsers take explicit named parameters.
     """
 
@@ -64,8 +63,8 @@ class Qwen15QAParser(QAParser):
     """Qwen1.5 chat-format parser; reproduces the inline ``qa_eval`` logic.
 
     ``leading_space`` controls how each answer letter is encoded when resolving
-    its token id (§3.2): the DEFAULT ``False`` encodes the bare letter ``"A"``
-    (reproducing ``qa_eval._resolve_answer_token_ids`` exactly); ``True`` encodes
+    its token id: the DEFAULT ``False`` encodes the bare letter ``"A"``
+    (matching ``qa_eval._resolve_answer_token_ids``); ``True`` encodes
     a leading-space variant ``" A"`` for tokenizers that prefix word boundaries.
     """
 
