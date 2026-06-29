@@ -157,6 +157,16 @@ def group_path(data_dir: str, layer: int) -> str:
     return f"{groups_dir(data_dir)}/{layer}.pt"
 
 
+def group_activations_path(data_dir: str, split: str, layer: int) -> str:
+    """Path of a layer's per-group activating-example index (new versioned artifact).
+
+    The ``GroupActivationIndex`` counterpart of :func:`pair_activations_path`: it
+    lives under the new ``groups/`` prefix so it never collides with the legacy
+    ``activations/pairs_*`` artifact.
+    """
+    return f"{groups_dir(data_dir)}/{split}_activations_{layer}.pt"
+
+
 # --------------------------------------------------------------------------- #
 # DATA_DIR layout version.
 # --------------------------------------------------------------------------- #

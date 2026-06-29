@@ -24,7 +24,7 @@ from common.fusion import (
     as_tensor,
 )
 from common.metrics import METRICS, best_metrics
-from common.names import TIME_METRIC
+from common.names import BEST_PREFIX, TIME_METRIC
 from common.numeric import _default_device
 
 default_device = _default_device()
@@ -138,3 +138,32 @@ def test_model_on_data(fused_mlp, mlp1, mlp2, test_data) -> dict[str, float]:
         report = {metric.name: metric(real_res, new_res) for metric in METRICS}
     report[TIME_METRIC] = 1000 * timer(fused_mlp, all_tokens)
     return report
+
+
+def select_best_fused(fused_by_method, results_by_method, best_metrics, *, method_names=None):
+    """Pick the best fused expert per ``Best_<metric>`` pseudo-method (§3.4, §5).
+
+    The shared metric compartment + ``Best_*`` post-selector, lifted out of the
+    old stage 6 so the collapsed stage 3 (selection) and stage 4 (report) share
+    one definition. ``fused_by_method`` maps a real method name to its fused
+    expert; ``results_by_method`` maps a name to the per-metric report from
+    :func:`test_model_on_data`, or is ``None`` when the group lacked enough
+    validation rows to score. Returns ``{Best_<metric>: chosen fused expert}``.
+
+    The no-score fallback is the first registered method via ``next(iter(...))``
+    -- never a hardcoded ``"Pruning"`` (§5). With scores, the winner for each
+    metric is chosen over ``method_names`` order using the metric's
+    ``higher_is_better`` flag, reproducing the legacy first-method tie-break.
+    """
+    names = list(method_names) if method_names is not None else list(fused_by_method)
+    fallback = names[0]
+    chosen = {f"{BEST_PREFIX}{metric}": fused_by_method[fallback] for metric in best_metrics}
+    if results_by_method is None:
+        return chosen
+    for metric, higher_is_better in best_metrics.items():
+        best_name = names[0]
+        for name in names:
+            if (results_by_method[name][metric] > results_by_method[best_name][metric]) == higher_is_better:
+                best_name = name
+        chosen[f"{BEST_PREFIX}{metric}"] = fused_by_method[best_name]
+    return chosen

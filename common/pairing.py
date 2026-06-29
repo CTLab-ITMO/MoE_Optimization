@@ -33,10 +33,27 @@ def random_pairs(
     return [(perm[2 * i], perm[2 * i + 1]) for i in range(n_experts // 2)]
 
 
+def _load_coactivation_matrix(path: str) -> torch.Tensor:
+    """Load a co-activation matrix tolerant of both on-disk formats.
+
+    The new ``experts_fusion`` module writes a versioned
+    :class:`~common.artifacts.CoActivationMatrix` (safetensors); the untouched
+    legacy module writes a raw pickled tensor. Try the versioned class first and
+    fall back to the raw load -- additive, so the legacy path is byte-unchanged
+    (a pickle never parses as safetensors, so the fallback is unambiguous).
+    """
+    from common.artifacts import CoActivationMatrix
+
+    try:
+        return CoActivationMatrix.load(path).matrix
+    except Exception:
+        return torch.load(path)
+
+
 def compute_activation_correlation_matrix(layer: int, data_dir: str) -> torch.Tensor:
     """Load and normalise activation matrix."""
     path = layout.activation_matrix_path(data_dir, layout.TRAIN_SPLIT, layer)
-    matrix = torch.load(path).cpu().float()
+    matrix = _load_coactivation_matrix(path).cpu().float()
     matrix = matrix / matrix.sum()
     return matrix
 

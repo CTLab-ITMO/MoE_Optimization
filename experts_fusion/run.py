@@ -1,17 +1,21 @@
-"""Run the full fusion pipeline (stages 1..9) from the repository root.
+"""Run the full fusion pipeline (the four stages) from the repository root.
 
 Invoke from the repo root::
 
     python -m experts_fusion.run
 
-Each stage is a script named ``<n>_*.py`` executed in numeric order via
-``runpy`` in this single process. Stages import their config with
-``from experts_fusion.config import ...``, so the repo root must be importable
-as a package parent -- guaranteed when launched with ``-m`` from the root.
+The pipeline is four stages -- ``1_preprocess`` (model load, weight extraction,
+single-pass capture of co-activation / MLP inputs / top-k), ``2_grouping``
+(partition + per-group activation join), ``3_fusion`` (fuse each group by every
+method) and ``4_evaluate`` (load-once accuracy + diagnostics). Each is a script
+named ``<n>_*.py`` executed in numeric order via ``runpy`` in this single
+process. Stages import their config with ``from experts_fusion.config import
+...``, so the repo root must be importable as a package parent -- guaranteed
+when launched with ``-m`` from the root.
 
 Pass an explicit list of stage numbers to run a subset, e.g.::
 
-    python -m experts_fusion.run 1 2 3
+    python -m experts_fusion.run 1 2
 """
 import runpy
 import sys

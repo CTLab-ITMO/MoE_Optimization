@@ -13,8 +13,10 @@ import torch
 from torch import nn
 
 from common import layout
+from common.artifacts import CoActivationMatrix, GroupActivationIndex, Partition
+from common.fused_group import FusedExpert
 from common.mlp import AdvancedMLP
-from common.testing.fakes import H, INTER, N_EXPERTS, FakeFusionGate
+from common.testing.fakes import H, INTER, N_EXPERTS, TOP_K, FakeFusionGate
 
 
 def expert_mlp(seed=0):
@@ -90,3 +92,52 @@ class Builders:
             for i in range(len(pairs)):
                 torch.save(expert_mlp(i),
                            _ensure_parent(layout.fusion_expert_path(self.data_dir, name, layer, i)))
+
+    # ----------------------------------------------------------------------- #
+    # New-module (S8) versioned artifacts.
+    # ----------------------------------------------------------------------- #
+    def coactivation_matrices(self):
+        """Versioned ``CoActivationMatrix`` artifacts (new stage-1 co-activation)."""
+        for layer in self.layers:
+            m = torch.rand(self.n_experts, self.n_experts)
+            m = m + m.t()
+            CoActivationMatrix(m, split=layout.TRAIN_SPLIT, sample_size=8).save(
+                _ensure_parent(layout.activation_matrix_path(self.data_dir, layout.TRAIN_SPLIT, layer)))
+            CoActivationMatrix(m.clone(), split=layout.VALIDATION_SPLIT, sample_size=8).save(
+                _ensure_parent(layout.activation_matrix_path(self.data_dir, layout.VALIDATION_SPLIT, layer)))
+
+    def topk_all(self, n=16):
+        """Per-example top-k selection lists (new stage-1 raw top-k)."""
+        for layer in self.layers:
+            for split in (layout.TRAIN_SPLIT, layout.VALIDATION_SPLIT):
+                selections = [
+                    torch.tensor([(i + k) % self.n_experts for k in range(TOP_K)])
+                    for i in range(n)
+                ]
+                torch.save(selections, _ensure_parent(
+                    layout.activations_all_path(self.data_dir, split, layer)))
+
+    def partition(self, pairs=None):
+        """Versioned ``Partition`` artifact under ``groups/`` (new stage-2 output)."""
+        if pairs is None:
+            pairs = [(2 * i, 2 * i + 1) for i in range(self.n_experts // 2)]
+        for layer in self.layers:
+            Partition.from_pairs(pairs, method="activation_correlation").save(
+                _ensure_parent(layout.group_path(self.data_dir, layer)))
+        return pairs
+
+    def group_activations(self, n_groups, n=16):
+        """Versioned ``GroupActivationIndex`` artifacts (new stage-2 join)."""
+        for layer in self.layers:
+            for split in (layout.TRAIN_SPLIT, layout.VALIDATION_SPLIT):
+                GroupActivationIndex.from_lists(
+                    [list(range(n)) for _ in range(n_groups)], split=split
+                ).save(_ensure_parent(
+                    layout.group_activations_path(self.data_dir, split, layer)))
+
+    def fused_experts_v1(self, name, pairs):
+        """Versioned ``FusedExpert`` artifacts (new stage-3 output)."""
+        for layer in self.layers:
+            for i in range(len(pairs)):
+                FusedExpert(expert_mlp(i)).save(
+                    _ensure_parent(layout.fusion_expert_path(self.data_dir, name, layer, i)))

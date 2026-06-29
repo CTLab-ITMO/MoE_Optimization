@@ -186,14 +186,19 @@ class FusedExpert:
         mlp = serialization.artifact_to_mlp(artifact, device=device)
         return cls(mlp, group_size=group_size, reconstruction=reconstruction)
 
-    def save(self, path) -> None:
-        """Persist to ``path`` as a versioned safetensors artifact."""
+    def save(self, path, *, provenance: Optional[dict] = None) -> None:
+        """Persist to ``path`` as a versioned safetensors artifact.
+
+        ``provenance`` is the optional header slot (§3.6): stage 3 stores the
+        upstream hash there so a resume can skip an already-fresh work item.
+        """
         artifact = self.to_artifact()
         serialization.save(
             path,
             artifact.tensors,
             artifact.header,
             payload_type=PAYLOAD_FUSED_EXPERT,
+            provenance=provenance,
         )
 
     @classmethod

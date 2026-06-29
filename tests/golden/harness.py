@@ -5,23 +5,26 @@ FakeMoE zoo (``common.testing``) in a temporary ``DATA_DIR``, then extracts the
 order-invariant aggregates that the golden snapshot guards:
 
 * the exact ``activation_correlation`` ``Partition`` (pair list per layer,
-  preserving tuple orientation ``(pair[0], pair[1])`` and the ``i.pt`` order);
+  preserving tuple orientation ``(pair[0], pair[1])`` and the group order);
 * per-layer reconstruction MSE / RMSE / Cosine / R2 (median over pairs) for a
-  representative set of fusion methods, computed from the real stage-6 fused
-  artifacts via the same ``test_model_on_data`` the pipeline uses;
-* stage-9 ``accuracy_list`` (single-replacement mode) per method;
+  representative set of fusion methods, computed from the real fused artifacts
+  via the same ``test_model_on_data`` the pipeline uses;
+* stage ``accuracy_list`` (single-replacement mode) per method;
 * a registry snapshot (names + order of fusion methods / metrics / pairings,
   plus the ``best_metrics`` direction map).
 
-The driver is parametrized over the module under test (``ModuleSpec``) so the
-legacy ``Qwen_MoE_experts_fusion_experiment`` and the new ``experts_fusion``
-copy are held to the same ``golden_v1.json``.
+The driver is parametrized over the module under test (:class:`ModuleSpec`) so
+the legacy ``Qwen_MoE_experts_fusion_experiment`` (nine stages, pickled
+artifacts) and the new ``experts_fusion`` (four stages, versioned safetensors
+artifacts) are held to the same ``golden_v1.json``. The two modules differ only
+in their stage list, where the FakeFusionGate substitution happens, how the
+pairing / fused artifacts are stored, and where the results land -- captured by
+the :class:`ModuleSpec` fields.
 
 FakeMoE bridge: the fake router gate (``FakeRouterGate``) returns bare logits,
-whereas ``FusionLayer`` (stage 9) expects a gate returning a 3-tuple. After
-stage 3 the driver overwrites the saved ``gate.pt`` with a deterministic
-``FakeFusionGate`` -- harness glue for the fake model only; the experts and
-fused artifacts feeding stage 9 are the real chained outputs.
+whereas ``FusionLayer`` (the eval stage) expects a gate returning a 3-tuple.
+After the expert-saving stage the driver overwrites the saved ``gate.pt`` with a
+deterministic ``FakeFusionGate`` -- harness glue for the fake model only.
 """
 import glob
 import importlib
@@ -52,18 +55,60 @@ GOLDEN_SIZE = 8
 GOLDEN_FUSIONS = ["Average", "ZipIt", "Procrustes", "TIES", "Pruning", "Fisher"]
 RECON_METRICS = ["MSE", "RMSE", "Cosine", "R2"]
 
+# Artifact-format tags: the legacy module stores pickled pairs/AdvancedMLP, the
+# new module the versioned Partition (groups/) + FusedExpert (safetensors).
+FORMAT_LEGACY = "legacy"
+FORMAT_V1 = "v1"
+
+LEGACY_STAGES = (
+    "1_generate_activation_matrix.py",
+    "2_find_best_matches.py",
+    "3_save_experts.py",
+    "4_write_mlp_inputs.py",
+    "5_activations.py",
+    "6_fusion.py",
+    "9_test.py",
+)
+NEW_STAGES = (
+    "1_preprocess.py",
+    "2_grouping.py",
+    "3_fusion.py",
+    "4_evaluate.py",
+)
+
 
 @dataclass(frozen=True)
 class ModuleSpec:
     label: str
     stage_dir: Path
     config_module: str
+    stages: tuple
+    # Stage filename after which the FakeFusionGate is substituted (the stage
+    # that has just written gate.pt and before the stage that reads it for eval).
+    substitute_after: str
+    artifact_format: str
+    # ``True`` -> results land under DATA_DIR (§1.4); ``False`` -> under the cwd.
+    results_under_data_dir: bool
 
 
 LEGACY = ModuleSpec(
-    "legacy", ROOT / "Qwen_MoE_experts_fusion_experiment", "config"
+    "legacy",
+    ROOT / "Qwen_MoE_experts_fusion_experiment",
+    "config",
+    LEGACY_STAGES,
+    substitute_after="3_save_experts.py",
+    artifact_format=FORMAT_LEGACY,
+    results_under_data_dir=False,
 )
-NEW = ModuleSpec("experts_fusion", ROOT / "experts_fusion", "experts_fusion.config")
+NEW = ModuleSpec(
+    "experts_fusion",
+    ROOT / "experts_fusion",
+    "experts_fusion.config",
+    NEW_STAGES,
+    substitute_after="1_preprocess.py",
+    artifact_format=FORMAT_V1,
+    results_under_data_dir=True,
+)
 
 
 def _golden_overrides(data_dir: str) -> dict:
@@ -91,7 +136,8 @@ def _golden_overrides(data_dir: str) -> dict:
 def _substitute_gates(data_dir: str) -> None:
     """Replace each layer's saved ``gate.pt`` with a deterministic FakeFusionGate.
 
-    Stage-9 FakeMoE bridge -- see module docstring.
+    FakeMoE eval bridge -- see module docstring. Both modules save the gate at
+    ``experts/<layer>/gate.pt``.
     """
     torch.manual_seed(GOLDEN_SEED)
     for layer in GOLDEN_LAYERS:
@@ -99,7 +145,32 @@ def _substitute_gates(data_dir: str) -> None:
         torch.save(gate, os.path.join(data_dir, "experts", str(layer), "gate.pt"))
 
 
-def _compute_reconstruction(data_dir: str) -> dict:
+def _load_pairs(data_dir: str, layer: int, spec: ModuleSpec):
+    """Per-layer pairing as a ``[(a, b), ...]`` list, in either artifact format."""
+    if spec.artifact_format == FORMAT_V1:
+        from common import layout
+        from common.artifacts import Partition
+
+        return Partition.load(layout.group_path(data_dir, layer)).to_pairs()
+    return torch.load(os.path.join(data_dir, "pairs", f"{layer}.pt"))
+
+
+def _load_fused(data_dir: str, method: str, layer: int, index: int, spec: ModuleSpec):
+    """Load one fused expert as an ``AdvancedMLP``, in either artifact format."""
+    if spec.artifact_format == FORMAT_V1:
+        from common import layout
+        from common.fused_group import FusedExpert
+
+        return FusedExpert.load(
+            layout.fusion_expert_path(data_dir, method, layer, index)
+        ).mlp
+    return torch.load(
+        os.path.join(data_dir, "fusion_experts", method, str(layer), f"{index}.pt"),
+        weights_only=False,
+    )
+
+
+def _compute_reconstruction(data_dir: str, spec: ModuleSpec) -> dict:
     """Per-layer median (over pairs) reconstruction metrics for each method."""
     from common.mlp_utils import test_model_on_data
 
@@ -113,14 +184,11 @@ def _compute_reconstruction(data_dir: str) -> dict:
             for i in range(N_EXPERTS)
         ]
         val = torch.load(os.path.join(data_dir, "mlp_inputs", f"validation_{layer}.pt"))
-        pairs = torch.load(os.path.join(data_dir, "pairs", f"{layer}.pt"))
+        pairs = _load_pairs(data_dir, layer, spec)
         for method in GOLDEN_FUSIONS:
             collected = {metric: [] for metric in RECON_METRICS}
             for i, (a, b) in enumerate(pairs):
-                fused = torch.load(
-                    os.path.join(data_dir, "fusion_experts", method, str(layer), f"{i}.pt"),
-                    weights_only=False,
-                )
+                fused = _load_fused(data_dir, method, layer, i, spec)
                 report = test_model_on_data(fused, experts[a], experts[b], val)
                 for metric in RECON_METRICS:
                     collected[metric].append(report[metric])
@@ -135,18 +203,18 @@ def _finite_median(values: list) -> float:
     return float(np.median(finite)) if finite else float("nan")
 
 
-def _read_partition(data_dir: str) -> dict:
+def _read_partition(data_dir: str, spec: ModuleSpec) -> dict:
     out = {}
     for layer in GOLDEN_LAYERS:
-        pairs = torch.load(os.path.join(data_dir, "pairs", f"{layer}.pt"))
+        pairs = _load_pairs(data_dir, layer, spec)
         out[str(layer)] = [[int(a), int(b)] for (a, b) in pairs]
     return out
 
 
-def _read_accuracy(workdir: Path) -> dict:
+def _read_accuracy(results_root: Path) -> dict:
     prefix = "accuracy_list_single_"
     out = {}
-    pattern = str(workdir / "test_result_*" / "accuracy" / f"{prefix}*.pt")
+    pattern = str(results_root / "test_result_*" / "accuracy" / f"{prefix}*.pt")
     for path in sorted(glob.glob(pattern)):
         name = os.path.basename(path)[len(prefix):-len(".pt")]
         out[name] = [float(x) for x in torch.load(path)]
@@ -154,12 +222,7 @@ def _read_accuracy(workdir: Path) -> dict:
 
 
 def registry_snapshot() -> dict:
-    """Names + order of fusion methods / metrics / pairings (config-free).
-
-    The pairing-method names are read straight from the canonical
-    :data:`common.grouping.GROUPING_REGISTRY` (S6), so the snapshot now guards the
-    real grouping registry's composition and order rather than a hand-kept list.
-    """
+    """Names + order of fusion methods / metrics / pairings (config-free)."""
     from common.fusion import build_fusion_methods
     from common.grouping import GROUPING_REGISTRY
     from common.metrics import METRICS, best_metrics
@@ -173,7 +236,7 @@ def registry_snapshot() -> dict:
 
 
 def run_chain(spec: ModuleSpec, tmp_root: Path, monkeypatch) -> dict:
-    """Run stages 1-6 + 9 of ``spec``'s module on FakeMoE; return aggregates."""
+    """Run ``spec``'s value-producing stages on FakeMoE; return aggregates."""
     import runpy
 
     import seaborn
@@ -199,21 +262,22 @@ def run_chain(spec: ModuleSpec, tmp_root: Path, monkeypatch) -> dict:
 
     def stage(name: str) -> None:
         runpy.run_path(str(spec.stage_dir / name), run_name="__main__")
+        if name == spec.substitute_after:
+            _substitute_gates(str(data_dir))
 
-    stage("1_generate_activation_matrix.py")
-    stage("2_find_best_matches.py")
-    stage("3_save_experts.py")
-    _substitute_gates(str(data_dir))
-    stage("4_write_mlp_inputs.py")
-    stage("5_activations.py")
-    stage("6_fusion.py")
-    reconstruction = _compute_reconstruction(str(data_dir))
-    stage("9_test.py")
-    accuracy = _read_accuracy(workdir)
+    for name in spec.stages:
+        if name == spec.stages[-1]:
+            # The last (eval) stage produces accuracy; compute reconstruction
+            # from the fused artifacts just before it.
+            reconstruction = _compute_reconstruction(str(data_dir), spec)
+        stage(name)
+
+    results_root = data_dir if spec.results_under_data_dir else workdir
+    accuracy = _read_accuracy(results_root)
 
     return {
         "seed": GOLDEN_SEED,
-        "partition": _read_partition(str(data_dir)),
+        "partition": _read_partition(str(data_dir), spec),
         "reconstruction": reconstruction,
         "accuracy": accuracy,
     }

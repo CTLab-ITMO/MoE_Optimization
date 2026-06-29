@@ -174,3 +174,58 @@ def get_fusion_layer_by_index(layer_index, experts_dir, data_dir, device=torch.d
         router=router_adapter,
         top_k=top_k,
     )
+
+
+def get_fusion_layer_from_groups(layer_index, method, data_dir, device=torch.device("cpu"),
+                                 use_default_experts=False, num_experts=None,
+                                 router_adapter=None, top_k=None):
+    """Build a :class:`FusionLayer` from the new module's versioned artifacts (S8).
+
+    The counterpart of :func:`get_fusion_layer_by_index` for the
+    ``experts_fusion`` module's S2/S3 artifact classes: the pairing comes from
+    the ``groups/`` :class:`~common.artifacts.Partition` (``to_pairs()``,
+    preserving group order + tuple orientation) and each fused expert from a
+    :class:`~common.fused_group.FusedExpert` (``state_dict`` + header
+    safetensors), instead of the legacy pickled ``pairs/`` list and pickled
+    ``AdvancedMLP``. The gate / shared expert / raw experts are still the
+    module artifacts (pickled), so this stays additive: the legacy loader above
+    is untouched. Numerically identical: the loaded fused ``AdvancedMLP`` is the
+    same module, wrapped in the same :class:`~common.fused_group.MLPFusedGroup`.
+    """
+    from common.artifacts import Partition
+    from common.fused_group import FusedExpert
+
+    partition = Partition.load(layout.group_path(data_dir, layer_index))
+    expert_pairs = partition.to_pairs()
+    if num_experts is None:
+        num_experts = len(glob.glob(layout.expert_glob(data_dir, layer_index)))
+    if use_default_experts:
+        experts = [
+            torch.load(layout.expert_path(data_dir, layer_index, i), weights_only=False).to(device)
+            for i in range(num_experts)
+        ]
+    else:
+        experts = [None] * num_experts
+    fusion_experts = [
+        FusedExpert.load(
+            layout.fusion_expert_path(data_dir, method, layer_index, i), device=device
+        ).mlp
+        for i in range(len(expert_pairs))
+    ]
+    gate = torch.load(layout.gate_path(data_dir, layer_index), weights_only=False).to(device)
+    shared_expert = torch.load(layout.shared_expert_path(data_dir, layer_index), weights_only=False).to(device)
+    shared_expert_gate = torch.load(
+        layout.shared_expert_gate_path(data_dir, layer_index), weights_only=False
+    ).to(device)
+
+    return FusionLayer(
+        experts=experts,
+        expert_pairs=expert_pairs,
+        fusion_experts=fusion_experts,
+        gate=gate,
+        shared_expert=shared_expert,
+        shared_expert_gate=shared_expert_gate,
+        use_default_experts=use_default_experts,
+        router=router_adapter,
+        top_k=top_k,
+    )
