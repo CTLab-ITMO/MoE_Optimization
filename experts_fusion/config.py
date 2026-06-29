@@ -60,6 +60,11 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 FILTER_FUSIONS = None
 FILTER_METRICS = None
 
+# Opt-in discovery of installed third-party plugins (fusion/grouping/metric/schema)
+# advertised via entry points. Off by default so the in-tree registries stay
+# pinned; set True to let an installed plugin take effect.
+LOAD_PLUGINS = False
+
 
 def config_snapshot_dict() -> dict:
     """The run config as a plain value map for the provenance snapshot (§3.6).

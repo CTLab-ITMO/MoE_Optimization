@@ -23,20 +23,23 @@ from common import layout, provenance
 from common.artifacts import GroupActivationIndex
 from common.context import StageContext
 from common.grouping import GROUPING_REGISTRY
+from common.plugins import load_plugins
 from common.registry import require_registered
 from common.seeding import set_seed
 from experts_fusion.config import (
     DATA_DIR,
     EXPERTS,
     LAYERS,
+    LOAD_PLUGINS,
     PAIRING_METHOD,
     SEED,
     config_snapshot_dict,
     device,
 )
 
-# Validate the grouping choice against the registry, then guard against config
-# drift from the stage-1 snapshot before doing any work (§1.6, §3.6).
+# Pull in installed plugins (off by default), then validate the grouping choice
+# against the registry and guard against config drift from the stage-1 snapshot.
+load_plugins(LOAD_PLUGINS)
 require_registered(PAIRING_METHOD, GROUPING_REGISTRY, field="PAIRING_METHOD")
 provenance.assert_config_matches_snapshot(DATA_DIR, config_snapshot_dict())
 
