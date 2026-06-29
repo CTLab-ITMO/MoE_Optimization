@@ -217,9 +217,21 @@ def test_advanced_mlp_artifact_header_records_shape_and_flags():
         "hid_features": 6,
         "out_features": 4,
         "activation": "SiLU",
+        "dtype": "torch.float32",
         "has_down": False,
         "has_U": True,
     }
+
+
+def test_artifact_round_trip_preserves_bf16_dtype(path):
+    mlp = AdvancedMLP(4, 6, 4, device=CPU).to(dtype=torch.bfloat16)
+    art = S.mlp_to_artifact(mlp)
+    S.save(path, art.tensors, header=art.header)
+    assert S.peek(path).header["dtype"] == "torch.bfloat16"
+    rebuilt = S.artifact_to_mlp(S.load(path), device=CPU)
+    assert rebuilt.gate.weight.dtype == torch.bfloat16
+    assert rebuilt.up.weight.dtype == torch.bfloat16
+    assert rebuilt.down.weight.dtype == torch.bfloat16
 
 
 # --------------------------------------------------------------------------- #

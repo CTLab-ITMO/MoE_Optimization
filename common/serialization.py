@@ -265,8 +265,9 @@ def mlp_to_artifact(mlp: AdvancedMLP) -> Artifact:
     """Serialize an :class:`AdvancedMLP` as ``state_dict`` tensors + a header.
 
     The header records exactly what ``state_dict`` alone cannot: the layer
-    shape (``in/hid/out``), the activation, and whether the optional ``down``
-    layer and ``U`` unmerge matrix are present.
+    shape (``in/hid/out``), the activation, the weight dtype (so ``peek`` can
+    report it), and whether the optional ``down`` layer and ``U`` unmerge matrix
+    are present. The tensors carry their own dtype, so the round-trip is exact.
     """
     tensors = {key: value for key, value in mlp.state_dict().items()}
     header = {
@@ -274,6 +275,7 @@ def mlp_to_artifact(mlp: AdvancedMLP) -> Artifact:
         "hid_features": int(mlp.hid_features),
         "out_features": int(mlp.out_features),
         "activation": type(mlp.act).__name__,
+        "dtype": str(mlp.gate.weight.dtype),
         "has_down": mlp.down is not None,
         "has_U": mlp.U is not None,
     }
@@ -303,7 +305,10 @@ def artifact_to_mlp(artifact: Artifact, device: Optional[torch.device] = None) -
     if not header.get("has_down", "down.weight" in tensors):
         mlp.down = None
     state = {key: value for key, value in tensors.items() if key != "U"}
-    mlp.load_state_dict(state, strict=True)
+    # ``assign=True`` swaps in the saved tensors directly instead of copying into
+    # the freshly built (float32) params, so the loaded weights keep their saved
+    # dtype (e.g. bf16) -- a plain copy would silently up-cast them to float32.
+    mlp.load_state_dict(state, strict=True, assign=True)
     if header.get("has_U", "U" in tensors):
         mlp.U = torch.nn.Parameter(tensors["U"])
     return mlp
