@@ -17,9 +17,11 @@ def unite_matrix(mat1: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
     return torch.cat([mat1, mat2], dim=0)
 
 
-def build_matches(corr_matrix):
-    """Get a matrix of correlations and 
-    build matching with most sum of correlations (greedy)"""
+def greedy_correlation_matching(corr_matrix):
+    """Pair up rows greedily: repeatedly take the highest-correlation pair and
+    remove both from play. Distinct from ``pairing.build_matches`` (optimal
+    max-weight blossom matching) -- this one is the fast greedy heuristic the
+    ZipIt unmerge uses."""
     matches = []
     n = corr_matrix.shape[0]
     used = torch.zeros(n, dtype=torch.bool)
@@ -75,7 +77,7 @@ class Zipper(nn.Linear):
         # scope (§3.1), so the concatenated width must be even.
         assert n % 2 == 0, f"build_MU is k=2 only; expected an even width, got {n}"
 
-        matches = build_matches(corr_matrix)
+        matches = greedy_correlation_matching(corr_matrix)
         self.M = torch.zeros(n // 2, n).to(self.activations[0].device)
         for idx, (i, j) in enumerate(matches):
             self.M[idx, i] = 0.5

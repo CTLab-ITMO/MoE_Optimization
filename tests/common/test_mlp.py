@@ -7,7 +7,7 @@ from common.mlp import (
     MLP,
     SimpleMLP,
     Zipper,
-    build_matches,
+    greedy_correlation_matching,
     unite_matrix,
 )
 from common.numeric import solve_linear
@@ -63,31 +63,31 @@ def test_zipper_build_mu_requires_activations():
 
 
 
-def test_build_matches_returns_disjoint_pairs():
+def test_greedy_correlation_matching_returns_disjoint_pairs():
     n = 6
     corr = torch.rand(n, n)
-    corr = corr + corr.t() 
+    corr = corr + corr.t()
 
-    matches = build_matches(corr)
+    matches = greedy_correlation_matching(corr)
 
     assert len(matches) == n // 2
     seen = [idx for pair in matches for idx in pair]
     assert sorted(seen) == list(range(n))
 
 
-def test_build_matches_picks_strongest_pair():
+def test_greedy_correlation_matching_picks_strongest_pair():
     corr = torch.full((4, 4), 0.01)
     corr[1, 3] = corr[3, 1] = 10.0
     corr.fill_diagonal_(0.0)
 
-    matches = build_matches(corr)
+    matches = greedy_correlation_matching(corr)
     matches = [tuple(sorted(x)) for x in matches]
     assert (1, 3) in matches
 
 
-def test_build_matches_ignores_diagonal():
+def test_greedy_correlation_matching_ignores_diagonal():
     corr = torch.eye(4) * 100.0
-    matches = build_matches(corr)
+    matches = greedy_correlation_matching(corr)
     for i, j in matches:
         assert i != j
 
