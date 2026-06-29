@@ -1,15 +1,18 @@
 # Тесты
 
-Unit-тесты для модулей [`common/`](../common) и
-[`Qwen_MoE_experts_fusion_experiment/`](../Qwen_MoE_experts_fusion_experiment).
+Unit- и интеграционные тесты для [`common/`](../common) и пакета-пайплайна
+[`experts_fusion/`](../experts_fusion). Старый модуль
+[`Qwen_MoE_experts_fusion_experiment/`](../Qwen_MoE_experts_fusion_experiment)
+остаётся в наборе как golden-оракул эквивалентности (см. ниже).
 
-Все тесты выполняются на CPU и не требуют скачивания модели Qwen или
-наличия GPU, поэтому часть кода они не покрывают, однако позволяют запуск локально.
+Все тесты выполняются на CPU и не требуют скачивания модели Qwen или GPU
+(модель подменяется на маленький детерминированный `FakeMoE`), поэтому запускаются
+локально за секунды.
 
 ## Установка зависимостей
 
 ```bash
-pip install -r requirements.txt
+pip install -r tests/requirements.txt
 ```
 
 ## Запуск
@@ -20,33 +23,16 @@ pip install -r requirements.txt
 pytest tests
 ```
 
-Для указания процента покрытия:
+Конфигурация (`pytest.ini`) уже включает покрытие по `common`, `experts_fusion`
+и legacy-модулю; HTML-отчёт пишется в `htmlcov/`.
 
-```bash
-pytest --cov=common --cov=Qwen_MoE_experts_fusion_experiment --cov-report=html tests
-```
+## Структура
 
-## Покрытие
-
-Текущее общее покрытие --- **94%** (`common/` --- 96-100% по каждому файлу).
-
-| Файл | Покрытие |
-|------|----------|
-| common/mlp.py | 100% |
-| common/qa_eval.py | 100% |
-| common/seeding.py | 100% |
-| common/fusion.py | 99% |
-| common/metrics.py | 99% |
-| common/pairing.py | 98% |
-| common/fusion_layer.py | 98% |
-| common/mlp_utils.py | 96% |
-| Qwen_.../1_generate_activation_matrix.py | 97% |
-| Qwen_.../2_find_best_matches.py | 100% |
-| Qwen_.../3_save_experts.py | 79% |
-| Qwen_.../4_write_mlp_inputs.py | 100% |
-| Qwen_.../5_activations.py | 98% |
-| Qwen_.../6_fusion.py | 92% |
-| Qwen_.../7_final_benchmark.py | 46% |
-| Qwen_.../8_generation.py | 67% |
-| Qwen_.../9_test.py | 94% |
-| Qwen_.../config.py | 100% |
+- `tests/common/` — модули `common/` (слияние, метрики, группировка, сериализация,
+  адаптеры, реестры, провенанс, …).
+- `tests/experts_fusion/` — конфиг, швы стадий и сквозной прогон 4-стадийного пайплайна.
+- `tests/golden/` — checked-in golden (`golden_v1.json` + `harness.py`): один
+  драйвер прогоняет value-стадии **обоих** модулей на `FakeMoE` и сверяет с одним
+  снапшотом (точный `Partition`, реконструкционные метрики, `accuracy_list`,
+  снапшот реестров). Так подтверждается, что новый модуль эквивалентен старому по
+  умолчанию. Обновление golden — только под флагом `UPDATE_GOLDEN` с ревью диффа.
