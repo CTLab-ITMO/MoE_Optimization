@@ -39,6 +39,30 @@ def test_cache_key_includes_seed():
     assert k_seed_42 != k_seed_7
 
 
+def test_cache_key_includes_tokenizer_and_parser_identity():
+    # The cache stores tokenizer-rendered prompts, so a second model must not
+    # reuse the first model's cache entry.
+    class _Tok:
+        def __init__(self, name):
+            self.name_or_path = name
+
+    kwargs = {"path": "p", "split": "test"}
+    assert qa_eval._cache_key(kwargs, 10, 42, _Tok("model-A")) != (
+        qa_eval._cache_key(kwargs, 10, 42, _Tok("model-B"))
+    )
+
+    class _ParserX:
+        pass
+
+    class _ParserY:
+        pass
+
+    tok = _Tok("m")
+    assert qa_eval._cache_key(kwargs, 10, 42, tok, _ParserX()) != (
+        qa_eval._cache_key(kwargs, 10, 42, tok, _ParserY())
+    )
+
+
 def test_evaluate_qa_different_seeds_do_not_share_cache(patch_dataset):
     model = FakeModel()
     tokenizer = FakeTokenizer()

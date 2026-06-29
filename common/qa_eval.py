@@ -16,11 +16,33 @@ _DATA_CACHE: dict = {}
 _DEFAULT_PARSER = Qwen15QAParser()
 
 
-def _cache_key(dataset_kwargs: dict, n: int, seed: int) -> tuple:
-    # ``seed`` is part of the key: the cached subset is drawn with
-    # ``random.Random(seed)``, so two evaluations with different seeds must not
-    # share a cache entry (otherwise the first seed silently wins).
-    return (tuple(sorted(dataset_kwargs.items())), n, seed)
+def _tokenizer_key(tokenizer) -> tuple:
+    """Identity of a tokenizer for caching: type + model id."""
+    if tokenizer is None:
+        return ()
+    return (type(tokenizer).__name__, getattr(tokenizer, "name_or_path", None))
+
+
+def _parser_key(parser) -> tuple:
+    """Identity of a QA parser for caching: type + its config attributes."""
+    if parser is None:
+        return ()
+    return (type(parser).__name__, repr(sorted(getattr(parser, "__dict__", {}).items())))
+
+
+def _cache_key(dataset_kwargs: dict, n: int, seed: int, tokenizer=None, parser=None) -> tuple:
+    # The cache stores tokenizer-rendered prompts and encoded answer ids, so the
+    # key must include everything they depend on: the dataset, n, the ``seed``
+    # the subset is drawn with (``random.Random(seed)`` -- otherwise the first
+    # seed silently wins), and the tokenizer + parser identity (otherwise a second
+    # model in the same process would reuse the first model's prompts/token ids).
+    return (
+        tuple(sorted(dataset_kwargs.items())),
+        n,
+        seed,
+        _tokenizer_key(tokenizer),
+        _parser_key(parser),
+    )
 
 
 def _join_or(items: list) -> str:
@@ -96,18 +118,20 @@ def evaluate_qa(
 
     ``parser`` is the model-family QA parser (DI, §3.2); when unset the module
     default :data:`_DEFAULT_PARSER` (Qwen1.5) is used, reproducing the previous
-    inline prompt/answer-token behaviour. The parser is assumed run-constant, so
-    it is not part of the subset cache key.
+    inline prompt/answer-token behaviour. The tokenizer and parser identity are
+    part of the subset cache key, so evaluating a second model in the same process
+    does not reuse the first model's rendered prompts.
 
     Result is constant with a fixed seed."""
     set_seed(seed)
     tokenizer.padding_side = "left"
     tokenizer.truncation_side = "left"
 
+    parser = parser if parser is not None else _DEFAULT_PARSER
     was_training = model.training
     model.eval()
     try:
-        key = _cache_key(dataset_kwargs, n, seed)
+        key = _cache_key(dataset_kwargs, n, seed, tokenizer, parser)
         cache = _DATA_CACHE.get(key)
         if cache is None:
             cache = _prepare(dataset_kwargs, n, tokenizer, seed, parser=parser)
