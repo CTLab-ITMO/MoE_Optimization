@@ -288,3 +288,13 @@ def _build_metric_registry() -> Registry:
 # name -> Metric instance; the single source of truth the stages validate
 # ``FILTER_METRICS`` against and extend via ``register`` without a fork.
 METRIC_REGISTRY: Registry = _build_metric_registry()
+
+
+def live_best_metrics() -> dict:
+    """``name -> higher_is_better`` over the CURRENT registry.
+
+    The module-level ``best_metrics`` is frozen at import from the built-in set;
+    this reads the live registry, so a metric added by a plugin also drives a
+    ``Best_<metric>`` selection. With no plugins it equals ``best_metrics``.
+    """
+    return {name: METRIC_REGISTRY[name].higher_is_better for name in METRIC_REGISTRY}

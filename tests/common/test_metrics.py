@@ -223,3 +223,27 @@ def test_every_metric_accepts_ctx_without_changing_result():
     for name in metrics.METRIC_REGISTRY:
         metric = metrics.METRIC_REGISTRY[name]
         assert metric(x, y, ctx={"anything": 1}) == metric(x, y)
+
+
+def test_live_best_metrics_matches_static_without_plugins():
+    assert metrics.live_best_metrics() == metrics.best_metrics
+
+
+def test_live_best_metrics_picks_up_a_registered_metric(monkeypatch):
+    from common.registry import Registry
+
+    class HiMetric:
+        name = "Hi"
+        higher_is_better = True
+        log_scale = False
+
+        def __call__(self, x, y, ctx=None):
+            return 0.0
+
+    reg = Registry("metric")
+    reg.register("MSE", metrics.MSE())
+    reg.register("Hi", HiMetric())
+    monkeypatch.setattr(metrics, "METRIC_REGISTRY", reg)
+
+    live = metrics.live_best_metrics()
+    assert live == {"MSE": False, "Hi": True}

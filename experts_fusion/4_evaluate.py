@@ -27,8 +27,8 @@ from tqdm import tqdm
 from common import layout, provenance
 from common.fusion_layer import get_fusion_layer_from_groups
 from common.fusion import FUSION_REGISTRY
-from common.metrics import METRIC_REGISTRY
-from common.mlp_utils import FUSION_METHODS, best_metrics
+from common.metrics import METRIC_REGISTRY, live_best_metrics
+from common.mlp_utils import FUSION_METHODS
 from common.model_topology import discover_moe_layers
 from common.names import BEST_PREFIX, TEST_RESULT_PREFIX, ZERO_FUSION, ReplaceMode
 from common.plugins import load_plugins
@@ -78,7 +78,7 @@ layout.validate_layout_version(DATA_DIR)
 fusion_methods = dict(FUSION_METHODS)
 if FILTER_FUSIONS is not None:
     fusion_methods = {k: v for k, v in fusion_methods.items() if k in FILTER_FUSIONS}
-selected_best_metrics = dict(best_metrics)
+selected_best_metrics = live_best_metrics()
 if FILTER_METRICS is not None:
     selected_best_metrics = {k: v for k, v in selected_best_metrics.items() if k in FILTER_METRICS}
 

@@ -24,10 +24,9 @@ from common.artifacts import GroupActivationIndex, Partition
 from common.context import StageContext
 from common.fused_group import FusedExpert
 from common.fusion import FUSION_REGISTRY
-from common.metrics import METRIC_REGISTRY
+from common.metrics import METRIC_REGISTRY, live_best_metrics
 from common.mlp_utils import (
     FUSION_METHODS,
-    best_metrics,
     select_best_fused,
     test_model_on_data,
 )
@@ -60,7 +59,7 @@ layout.validate_layout_version(DATA_DIR)
 fusion_methods = dict(FUSION_METHODS)
 if FILTER_FUSIONS is not None:
     fusion_methods = {k: v for k, v in fusion_methods.items() if k in FILTER_FUSIONS}
-selected_best_metrics = dict(best_metrics)
+selected_best_metrics = live_best_metrics()
 if FILTER_METRICS is not None:
     selected_best_metrics = {k: v for k, v in selected_best_metrics.items() if k in FILTER_METRICS}
 
