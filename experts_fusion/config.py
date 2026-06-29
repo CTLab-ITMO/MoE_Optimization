@@ -65,6 +65,14 @@ FILTER_METRICS = None
 # pinned; set True to let an installed plugin take effect.
 LOAD_PLUGINS = False
 
+# Config fields deliberately kept OUT of the snapshot: DATA_DIR is the output
+# *location* (the knob for running several experiments on one disk), not artifact
+# content, so two runs at different DATA_DIRs are not "config drift". Everything
+# else that affects produced artifacts must appear in config_snapshot_dict -- a
+# test (test_experts_fusion_config) enforces this so a new field can't silently
+# escape drift detection.
+_SNAPSHOT_EXCLUDED = {"DATA_DIR"}
+
 
 def config_snapshot_dict() -> dict:
     """The run config as a plain value map for the provenance snapshot (§3.6).
@@ -102,4 +110,5 @@ def config_snapshot_dict() -> dict:
         "ROUTER_ADAPTER": ROUTER_ADAPTER,
         "EXPERT_ADAPTER": EXPERT_ADAPTER,
         "QA_PARSER": QA_PARSER,
+        "LOAD_PLUGINS": LOAD_PLUGINS,
     }

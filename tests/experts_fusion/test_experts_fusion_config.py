@@ -43,3 +43,14 @@ def test_data_dir_is_scoped_under_data_root():
     # New module writes under ./data/ (run from the repo root), not the legacy
     # module-local ./data_MMLU_1k.
     assert config.DATA_DIR.replace("\\", "/").startswith("./data/")
+
+
+def test_config_snapshot_covers_every_config_field():
+    # Every UPPER_CASE config knob must be in the snapshot (so config drift is
+    # detected) or be explicitly excluded -- a new field can't silently escape.
+    import experts_fusion.config as config
+
+    fields = {name for name in dir(config) if name.isupper() and not name.startswith("_")}
+    covered = set(config.config_snapshot_dict()) | config._SNAPSHOT_EXCLUDED
+    missing = fields - covered
+    assert not missing, f"config fields missing from snapshot/excluded: {sorted(missing)}"
