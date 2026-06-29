@@ -42,7 +42,12 @@ class StageContext:
       folded into the derived seed automatically.
     * ``model`` / ``layer`` / ``gate`` / ``tokenizer`` -- handles onto the live
       model the plugin may need (router adapter, expert weights, ...).
+    * ``n_experts`` -- number of experts in the current layer (model-derived);
+      a grouping strategy partitions this many experts.
     * ``device`` / ``dtype`` -- device + dtype policy for newly created tensors.
+    * ``data_dir`` -- the run's artifact root; readers of intermediate artifacts
+      (e.g. a grouping :class:`~common.grouping.AffinityProvider` loading the
+      co-activation matrix) resolve their paths under it via :mod:`common.layout`.
     * ``calibration_data`` / ``validation_data`` / ``labels`` -- lazily provided
       data handles (a tensor, a list or a zero-arg callable returning one).
     * ``artifact_store`` / ``logger`` -- I/O and logging sinks.
@@ -56,8 +61,10 @@ class StageContext:
     layer: Optional[Any] = None
     gate: Optional[Any] = None
     tokenizer: Optional[Any] = None
+    n_experts: Optional[int] = None
     device: Optional[torch.device] = None
     dtype: Optional[torch.dtype] = None
+    data_dir: Optional[str] = None
     calibration_data: Optional[Any] = None
     validation_data: Optional[Any] = None
     labels: Optional[Any] = None

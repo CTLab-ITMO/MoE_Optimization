@@ -181,6 +181,16 @@ def test_get_pairs_unknown_method_raises():
         pairing.get_pairs("nope", layer=0, n_experts=4, data_dir="unused")
 
 
+def test_get_pairs_random_uses_cpu_generator_under_cuda_ctx():
+    # The random split's torch.randperm is a CPU op: even when ctx.device is cuda
+    # the generator must be CPU, else randperm(..., generator=cuda_gen) raises.
+    from common.context import StageContext
+
+    ctx = StageContext(seed=1234, device=torch.device("cuda"), n_experts=8).for_layer(0)
+    pairs = pairing.get_pairs("random", layer=0, n_experts=8, data_dir="unused", ctx=ctx)
+    assert len(pairs) == 4
+
+
 def test_get_pairs_forwards_output_similarity_knobs(monkeypatch):
     # §4.5: num_samples/batch_size are exposed at the public entry (get_pairs)
     # and forwarded to compute_output_similarity_matrix, not pinned to defaults.

@@ -51,9 +51,6 @@ GOLDEN_SIZE = 8
 # Representative subset: deterministic methods (tight) + one stochastic (loose).
 GOLDEN_FUSIONS = ["Average", "ZipIt", "Procrustes", "TIES", "Pruning", "Fisher"]
 RECON_METRICS = ["MSE", "RMSE", "Cosine", "R2"]
-# Frozen pairing-method name set (literals in common.pairing.get_pairs; moved to
-# common.names in S1 -- the snapshot guards the set/order across that move).
-PAIRING_METHODS = ["activation_correlation", "random", "output_similarity"]
 
 
 @dataclass(frozen=True)
@@ -157,15 +154,21 @@ def _read_accuracy(workdir: Path) -> dict:
 
 
 def registry_snapshot() -> dict:
-    """Names + order of fusion methods / metrics / pairings (config-free)."""
+    """Names + order of fusion methods / metrics / pairings (config-free).
+
+    The pairing-method names are read straight from the canonical
+    :data:`common.grouping.GROUPING_REGISTRY` (S6), so the snapshot now guards the
+    real grouping registry's composition and order rather than a hand-kept list.
+    """
     from common.fusion import build_fusion_methods
+    from common.grouping import GROUPING_REGISTRY
     from common.metrics import METRICS, best_metrics
 
     return {
         "fusion_methods": list(build_fusion_methods().keys()),
         "metrics": [metric.name for metric in METRICS],
         "best_metrics": {name: bool(flag) for name, flag in best_metrics.items()},
-        "pairing_methods": list(PAIRING_METHODS),
+        "pairing_methods": list(GROUPING_REGISTRY.names()),
     }
 
 

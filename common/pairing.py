@@ -6,30 +6,18 @@ from common import layout
 from common.context import StageContext
 from common.names import PairingMethod
 from common.numeric import EPS, _default_device
-from common.registry import Registry
 
-# Entry-point group a third-party package uses to advertise a grouping plugin.
-GROUPING_ENTRY_POINT_GROUP = "moe.grouping"
+# NOTE: the grouping *registry* and the ``AffinityProvider`` x ``Partitioner``
+# strategy abstraction live in :mod:`common.grouping` (which reuses the
+# primitives below). This module keeps the function-style ``get_pairs`` /
+# ``build_matches`` / ``random_pairs`` / ``compute_*`` entry points the untouched
+# legacy ``Qwen_MoE_experts_fusion_experiment`` stage 2 still imports.
 
-
-def _build_grouping_registry() -> Registry:
-    """The canonical grouping registry: the pairing-method names (§4.3).
-
-    In this step the registry holds the dispatchable pairing-method names (the
-    :class:`~common.names.PairingMethod` members), so config validation of
-    ``PAIRING_METHOD`` is driven from ``GROUPING_REGISTRY.names()`` rather than a
-    hand-kept literal. The grouping *implementations* (``AffinityProvider`` x
-    ``Partitioner``) land in a later step and register under these same names.
-    """
-    registry = Registry("grouping")
-    for method in PairingMethod:
-        registry.register(str(method), method)
-    return registry
-
-
-# name -> pairing-method tag; the source of truth ``PAIRING_METHOD`` is
-# validated against (§1.6/§4.3), extensible via ``register`` without a fork.
-GROUPING_REGISTRY: Registry = _build_grouping_registry()
+# The pairing ``torch.randperm`` draws (random split + output_similarity
+# subsample) are CPU operations, so their generator must live on the CPU even when
+# the compute device is ``cuda`` -- otherwise ``randperm(..., generator=cuda_gen)``
+# raises on the GPU box. Mirrored in :mod:`common.grouping`.
+_PAIRING_DRAW_DEVICE = torch.device("cpu")
 
 
 def random_pairs(
@@ -492,7 +480,11 @@ def get_pairs(
     default ``activation_correlation`` method is deterministic and ignores it.
     """
     if method == PairingMethod.RANDOM:
-        generator = ctx.generator("pairing", method=PairingMethod.RANDOM) if ctx else None
+        generator = (
+            ctx.generator("pairing", method=PairingMethod.RANDOM, device=_PAIRING_DRAW_DEVICE)
+            if ctx
+            else None
+        )
         return random_pairs(n_experts, generator=generator)
 
     if method == PairingMethod.ACTIVATION_CORRELATION:
@@ -501,13 +493,19 @@ def get_pairs(
         if device is None:
             device = _default_device()
         generator = (
-            ctx.generator("pairing", method=PairingMethod.OUTPUT_SIMILARITY) if ctx else None
+            ctx.generator(
+                "pairing",
+                method=PairingMethod.OUTPUT_SIMILARITY,
+                device=_PAIRING_DRAW_DEVICE,
+            )
+            if ctx
+            else None
         )
         sim = compute_output_similarity_matrix(
             layer, data_dir, n_experts, device, num_samples, batch_size, generator
         )
     else:
-        expected = ", ".join(repr(name) for name in GROUPING_REGISTRY.names())
+        expected = ", ".join(repr(str(name)) for name in PairingMethod)
         raise ValueError(
             f"Unknown PAIRING_METHOD: {method!r}. Expected: {expected}."
         )

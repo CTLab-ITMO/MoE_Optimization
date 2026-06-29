@@ -6,19 +6,17 @@ from matplotlib import pyplot as plt
 
 from common import layout
 from common.context import StageContext
+from common.grouping import GROUPING_REGISTRY
 from common.names import PairingMethod
-from common.pairing import (
-    GROUPING_REGISTRY,
-    get_pairs,
-    compute_activation_correlation_matrix,
-)
+from common.pairing import compute_activation_correlation_matrix
 from common.registry import require_registered
+from common.seeding import set_seed
 from experts_fusion.config import (
     LAYERS,
-    EVOLUTION_STEPS,
     EXPERTS,
     PAIRING_METHOD,
     DATA_DIR,
+    SEED,
     device,
 )
 
@@ -28,15 +26,19 @@ require_registered(PAIRING_METHOD, GROUPING_REGISTRY, field="PAIRING_METHOD")
 
 print(f"PAIRING_METHOD = {PAIRING_METHOD}")
 
-
-from common.seeding import set_seed
-from experts_fusion.config import SEED
 set_seed(SEED)
 
-# Base context carrying the run seed; the per-layer copy gives the stochastic
-# pairing methods (random / output_similarity) an order-independent generator
-# (S4, §3.3/§3.7). The default activation_correlation pairing is deterministic.
-base_ctx = StageContext(seed=SEED, device=device)
+# The grouping strategy is looked up from the registry (no if/else dispatcher):
+# the default ``activation_correlation`` is matching over the co-activation
+# affinity, reproducing the legacy pairing exactly (group order + tuple
+# orientation, §2.6).
+grouping = GROUPING_REGISTRY[PAIRING_METHOD]
+
+# Base context carrying the run seed + the dynamic state the grouping plugin
+# needs (artifact root, expert count, device). The per-layer copy gives the
+# stochastic methods (random / output_similarity) an order-independent generator
+# (S4, §3.3/§3.7); the default activation_correlation pairing is deterministic.
+base_ctx = StageContext(seed=SEED, device=device, data_dir=DATA_DIR, n_experts=EXPERTS)
 
 
 if PAIRING_METHOD == PairingMethod.ACTIVATION_CORRELATION:
@@ -49,27 +51,20 @@ if PAIRING_METHOD == PairingMethod.ACTIVATION_CORRELATION:
     plt.close()
 
 
-evolution_steps = EVOLUTION_STEPS
-
-best_pairs = {}
+partitions = {}
 for layer in LAYERS:
-    pairs = get_pairs(
-        method=PAIRING_METHOD,
-        layer=layer,
-        n_experts=EXPERTS,
-        data_dir=DATA_DIR,
-        device=device,
-        evolution_steps=evolution_steps,
-        progress=True,
-        ctx=base_ctx.for_layer(layer),
-    )
-    best_pairs[layer] = pairs
-    print(f"layer {layer}: {len(pairs)} pairs")
+    partition = grouping.partition(layer, base_ctx.for_layer(layer))
+    partitions[layer] = partition
+    print(f"layer {layer}: {partition.num_groups} groups")
 
 
+# Persist the pairwise grouping as the raw ``pairs/N.pt`` tuple list the
+# downstream stages (5/6/9) and the golden harness still read. The Partition is
+# the in-memory source of truth (it carries the method metadata); migrating the
+# on-disk artifact to the versioned ``groups/`` Partition + per-group join is the
+# job of S8, which rewires those readers together.
 os.makedirs(layout.pairs_dir(DATA_DIR), exist_ok=True)
 for layer in LAYERS:
-    torch.save(best_pairs[layer], layout.pairs_path(DATA_DIR, layer))
+    torch.save(partitions[layer].to_pairs(), layout.pairs_path(DATA_DIR, layer))
 
 print("Saved data example:", torch.load(layout.pairs_path(DATA_DIR, LAYERS[0])))
-

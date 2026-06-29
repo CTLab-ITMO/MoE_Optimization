@@ -30,8 +30,8 @@ from common.fusion import (
 from common.metrics import METRIC_REGISTRY, METRICS
 from common.mlp import AdvancedMLP
 from common.names import PairingMethod
+from common.grouping import GROUPING_REGISTRY
 from common.numeric import solve_linear
-from common.pairing import GROUPING_REGISTRY
 from common.registry import (
     Registry,
     RegistryError,

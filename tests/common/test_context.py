@@ -91,3 +91,13 @@ def test_optional_handle_fields_are_carried():
     assert ctx.dtype == torch.float32
     # Derived copies preserve the handles.
     assert ctx.for_layer(0).model is sentinel_model
+
+
+def test_grouping_state_fields_default_none_and_are_carried():
+    # The grouping plugin reads the run's artifact root + expert count from ctx
+    # (S6): both default to None and survive the per-layer derived copy.
+    assert StageContext().data_dir is None
+    assert StageContext().n_experts is None
+    ctx = StageContext(seed=1, data_dir="/tmp/run", n_experts=60).for_layer(2)
+    assert ctx.data_dir == "/tmp/run"
+    assert ctx.n_experts == 60
