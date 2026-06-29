@@ -285,19 +285,15 @@ def artifact_to_mlp(artifact: Artifact, device: Optional[torch.device] = None) -
     if device is None:
         device = _default_device()
     header = artifact.header
+    # Rebuild with the activation recorded in the header (default SiLU, the Qwen
+    # expert MLP); an unregistered activation raises in make_activation.
     activation = header.get("activation", "SiLU")
-    if activation != "SiLU":
-        # The header records the activation; AdvancedMLP is SiLU-only, so honour
-        # it explicitly instead of silently rebuilding SiLU for a non-SiLU
-        # artifact. (Configurable activations arrive with the model adapters.)
-        raise SerializationError(
-            f"artifact activation {activation!r} is not supported by AdvancedMLP (SiLU only)"
-        )
     mlp = AdvancedMLP(
         int(header["in_features"]),
         int(header["hid_features"]),
         int(header["out_features"]),
         device=device,
+        activation=activation,
     )
     tensors = {key: value.to(device) for key, value in artifact.tensors.items()}
     # Drop ``down`` before loading so the module's expected keys match the

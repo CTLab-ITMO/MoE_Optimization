@@ -192,11 +192,19 @@ def test_artifact_to_mlp_uses_default_device(path):
         assert torch.allclose(a.forward_unzip(x), recon.forward_unzip(x), atol=1e-6)
 
 
-def test_artifact_to_mlp_rejects_unsupported_activation(path):
+def test_artifact_to_mlp_round_trips_a_registered_activation():
+    mlp = AdvancedMLP(4, 6, 4, device=CPU, activation="GELU")
+    art = S.mlp_to_artifact(mlp)
+    assert art.header["activation"] == "GELU"
+    rebuilt = S.artifact_to_mlp(art, device=CPU)
+    assert type(rebuilt.act).__name__ == "GELU"
+
+
+def test_artifact_to_mlp_rejects_unregistered_activation(path):
     a, _ = _pair()
     art = S.mlp_to_artifact(a)
-    bad = S.Artifact(tensors=art.tensors, header={**art.header, "activation": "GELU"})
-    with pytest.raises(S.SerializationError):
+    bad = S.Artifact(tensors=art.tensors, header={**art.header, "activation": "Mystery"})
+    with pytest.raises(ValueError):
         S.artifact_to_mlp(bad, device=CPU)
 
 

@@ -5,6 +5,24 @@ from common.numeric import _default_device, solve_linear
 
 default_device = _default_device()
 
+# Activation modules an AdvancedMLP can use, keyed by their class name so the
+# serializer can rebuild the right one from the stored header. Register a new
+# factory to support another activation (default stays SiLU, the Qwen expert MLP).
+ACTIVATION_REGISTRY: dict = {
+    "SiLU": nn.SiLU,
+    "ReLU": nn.ReLU,
+    "GELU": nn.GELU,
+}
+
+
+def make_activation(name: str) -> nn.Module:
+    """Build the activation module registered under ``name``."""
+    if name not in ACTIVATION_REGISTRY:
+        raise ValueError(
+            f"unknown activation {name!r}; registered: {sorted(ACTIVATION_REGISTRY)}"
+        )
+    return ACTIVATION_REGISTRY[name]()
+
 
 def unite_matrix(mat1: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
     """Unite matrix A and B in block format:
@@ -184,14 +202,15 @@ class AdvancedMLP(MLP):
     """MLP with up, down and proj linear layers"""
 
     def __init__(
-        self, in_features: int, hid_features: int, out_features: int, bias: bool = False, device = default_device
+        self, in_features: int, hid_features: int, out_features: int, bias: bool = False,
+        device = default_device, activation: str = "SiLU",
     ):
         super().__init__()
         self.in_features = in_features
         self.hid_features = hid_features
         self.out_features = out_features
         self.gate = nn.Linear(in_features, hid_features, bias=bias, device=device)
-        self.act = nn.SiLU()
+        self.act = make_activation(activation)
         self.up = nn.Linear(in_features, hid_features, bias=bias, device=device)
         self.zip1 = None
         self.down = nn.Linear(hid_features, out_features, bias=bias, device=device)
