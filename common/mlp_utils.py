@@ -23,7 +23,7 @@ from common.fusion import (
     FUSION_REGISTRY,
     as_tensor,
 )
-from common.metrics import METRICS, best_metrics
+from common.metrics import METRIC_REGISTRY, best_metrics
 from common.names import BEST_PREFIX, TIME_METRIC
 from common.numeric import _default_device
 
@@ -117,8 +117,12 @@ def timer(mlp: MLP, test_data, iters=3) -> float:
 
 
 @torch.no_grad()
-def test_model_on_data(fused_mlp, mlp1, mlp2, test_data) -> dict[str, float]:
-    """Evaluate every metric (plus wall-clock ``Time`` in ms) for a fused expert."""
+def test_model_on_data(fused_mlp, mlp1, mlp2, test_data, ctx=None) -> dict[str, float]:
+    """Evaluate every registered metric (plus wall-clock ``Time`` in ms) for a fused expert.
+
+    Iterates the metric registry, so a metric registered by a plugin is computed
+    too. ``ctx`` is forwarded to each metric for the ones that use it.
+    """
     all_tokens = as_tensor(test_data)
     real_res = torch.cat([mlp1.forward(all_tokens), mlp2.forward(all_tokens)], dim=-1).float()
     new_res = fused_mlp.forward_unzip(all_tokens).float()
@@ -133,9 +137,9 @@ def test_model_on_data(fused_mlp, mlp1, mlp2, test_data) -> dict[str, float]:
             RuntimeWarning,
             stacklevel=2,
         )
-        report = {metric.name: float("nan") for metric in METRICS}
+        report = {name: float("nan") for name in METRIC_REGISTRY}
     else:
-        report = {metric.name: metric(real_res, new_res) for metric in METRICS}
+        report = {name: METRIC_REGISTRY[name](real_res, new_res, ctx=ctx) for name in METRIC_REGISTRY}
     report[TIME_METRIC] = 1000 * timer(fused_mlp, all_tokens)
     return report
 

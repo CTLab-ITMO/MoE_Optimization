@@ -129,6 +129,57 @@ def test_test_model_on_data_warns_and_nans_on_nonfinite(pair, data):
     assert math.isfinite(report["Time"])
 
 
+def test_test_model_on_data_picks_up_registered_metric(pair, data, monkeypatch):
+    """A metric added to the registry is computed (the report is registry-driven)."""
+    from common.metrics import MSE
+    from common.registry import Registry
+
+    class ConstMetric:
+        name = "Const42"
+        higher_is_better = False
+        log_scale = False
+
+        def __call__(self, x, y, ctx=None):
+            return 42.0
+
+    reg = Registry("metric")
+    reg.register("MSE", MSE())
+    reg.register("Const42", ConstMetric())
+    monkeypatch.setattr(mlp_utils, "METRIC_REGISTRY", reg)
+
+    a, b = pair
+    fused = mlp_utils.FUSION_METHODS["Average"](a, b, data)
+    report = mlp_utils.test_model_on_data(fused, a, b, data)
+    assert report["Const42"] == 42.0
+    assert "MSE" in report and "Time" in report
+
+
+def test_test_model_on_data_forwards_ctx_to_metrics(pair, data, monkeypatch):
+    """ctx passed to test_model_on_data reaches each metric."""
+    from common.registry import Registry
+
+    seen = {}
+
+    class CtxSpy:
+        name = "CtxSpy"
+        higher_is_better = False
+        log_scale = False
+
+        def __call__(self, x, y, ctx=None):
+            seen["ctx"] = ctx
+            return 0.0
+
+    reg = Registry("metric")
+    reg.register("CtxSpy", CtxSpy())
+    monkeypatch.setattr(mlp_utils, "METRIC_REGISTRY", reg)
+
+    a, b = pair
+    fused = mlp_utils.FUSION_METHODS["Average"](a, b, data)
+    sentinel = object()
+    mlp_utils.test_model_on_data(fused, a, b, data, ctx=sentinel)
+    assert seen["ctx"] is sentinel
+
+
 def test_fusion_methods_registry_complete():
     expected_base = {
         "ZipIt", "Average", "Pruning", "Procrustes", "Fisher", "TIES", "Distillation",

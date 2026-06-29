@@ -67,8 +67,11 @@ class Metric(ABC):
     # classes instead of a literal duplicated in stage 6.
     log_scale: bool
 
+    # ctx carries optional shared state (labels, device, run metadata) for
+    # metrics that need it; the built-in metrics ignore it. Keeping the slot on
+    # the interface lets a plugin metric opt in without changing every call site.
     @abstractmethod
-    def __call__(self, x: torch.Tensor, y: torch.Tensor) -> float:
+    def __call__(self, x: torch.Tensor, y: torch.Tensor, ctx=None, **kwargs) -> float:
         raise NotImplementedError()
 
 
@@ -77,7 +80,7 @@ class MSE(Metric):
     higher_is_better = False
     log_scale = True
 
-    def __call__(self, x, y):
+    def __call__(self, x, y, ctx=None):
         return torch.square(x - y).mean().item()
 
 
@@ -86,7 +89,7 @@ class RMSE(Metric):
     higher_is_better = False
     log_scale = True
 
-    def __call__(self, x, y):
+    def __call__(self, x, y, ctx=None):
         return torch.sqrt(torch.square(x - y).mean()).item()
 
 
@@ -95,7 +98,7 @@ class MAE(Metric):
     higher_is_better = False
     log_scale = True
 
-    def __call__(self, x, y):
+    def __call__(self, x, y, ctx=None):
         return torch.abs(x - y).mean().item()
 
 
@@ -109,7 +112,7 @@ class RelMSE(Metric):
     higher_is_better = False
     log_scale = True
 
-    def __call__(self, x, y):
+    def __call__(self, x, y, ctx=None):
         denom = torch.square(x - x.mean(dim=0, keepdim=True)).mean().clamp_min(EPS)
         return (torch.square(x - y).mean() / denom).item()
 
@@ -121,7 +124,7 @@ class R2(Metric):
     higher_is_better = True
     log_scale = False
 
-    def __call__(self, x, y):
+    def __call__(self, x, y, ctx=None):
         ss_res = torch.square(x - y).sum()
         ss_tot = torch.square(x - x.mean(dim=0, keepdim=True)).sum().clamp_min(EPS)
         return (1.0 - ss_res / ss_tot).item()
@@ -134,7 +137,7 @@ class Cosine(Metric):
     higher_is_better = True
     log_scale = False
 
-    def __call__(self, x, y):
+    def __call__(self, x, y, ctx=None):
         return torch.cosine_similarity(x, y).mean().item()
 
 
@@ -145,7 +148,7 @@ class Pearson(Metric):
     higher_is_better = True
     log_scale = False
 
-    def __call__(self, x, y):
+    def __call__(self, x, y, ctx=None):
         x = x.flatten().float()
         y = y.flatten().float()
         x = x - x.mean()
@@ -161,7 +164,7 @@ class CKA(Metric):
     higher_is_better = True
     log_scale = True
 
-    def __call__(self, x, y):
+    def __call__(self, x, y, ctx=None):
         x = x - x.mean(dim=0, keepdim=True)
         y = y - y.mean(dim=0, keepdim=True)
 
@@ -184,7 +187,7 @@ class KL(Metric):
     higher_is_better = False
     log_scale = True
 
-    def __call__(self, x, y):
+    def __call__(self, x, y, ctx=None):
         p = F.log_softmax(x, dim=-1)
         q = F.softmax(y, dim=-1)
         return F.kl_div(p, q, reduction="batchmean").item()
@@ -197,7 +200,7 @@ class JS(Metric):
     higher_is_better = False
     log_scale = True
 
-    def __call__(self, x, y):
+    def __call__(self, x, y, ctx=None):
         p = F.softmax(x, dim=-1)
         q = F.softmax(y, dim=-1)
         m = 0.5 * (p + q)
@@ -215,7 +218,7 @@ class Top1(Metric):
     higher_is_better = True
     log_scale = False
 
-    def __call__(self, x, y):
+    def __call__(self, x, y, ctx=None):
         return _topk_agreement(x, y, k=1)
 
 
@@ -226,7 +229,7 @@ class Top5(Metric):
     higher_is_better = True
     log_scale = False
 
-    def __call__(self, x, y):
+    def __call__(self, x, y, ctx=None):
         return _topk_agreement(x, y, k=min(5, x.shape[-1]))
 
 
@@ -237,7 +240,7 @@ class EntropyGap(Metric):
     higher_is_better = False
     log_scale = True
 
-    def __call__(self, x, y):
+    def __call__(self, x, y, ctx=None):
         return abs(prediction_entropy(x).item() - prediction_entropy(y).item())
 
 

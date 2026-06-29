@@ -212,3 +212,14 @@ def test_log_scale_flags_per_metric():
     assert MSE().log_scale is True
     assert CKA().log_scale is True
     assert EntropyGap().log_scale is True
+
+
+def test_every_metric_accepts_ctx_without_changing_result():
+    # The ctx slot is on the interface for plugins; built-in metrics ignore it,
+    # so passing one must not change the value.
+    torch.manual_seed(0)
+    x = torch.randn(16, 8)
+    y = x + 0.1 * torch.randn(16, 8)
+    for name in metrics.METRIC_REGISTRY:
+        metric = metrics.METRIC_REGISTRY[name]
+        assert metric(x, y, ctx={"anything": 1}) == metric(x, y)
