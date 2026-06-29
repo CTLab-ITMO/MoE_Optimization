@@ -74,6 +74,7 @@ load_plugins(LOAD_PLUGINS)
 require_all_registered(FILTER_FUSIONS, FUSION_REGISTRY, field="FILTER_FUSIONS")
 require_all_registered(FILTER_METRICS, METRIC_REGISTRY, field="FILTER_METRICS")
 provenance.assert_config_matches_snapshot(DATA_DIR, config_snapshot_dict())
+layout.validate_layout_version(DATA_DIR)
 
 fusion_methods = dict(FUSION_METHODS)
 if FILTER_FUSIONS is not None:

@@ -25,6 +25,7 @@ hashing, on-disk JSON and the freshness check live here.
 import hashlib
 import json
 import os
+import subprocess
 from dataclasses import asdict, dataclass
 from typing import Any, Optional
 
@@ -32,6 +33,27 @@ from common import serialization
 
 CONFIG_SNAPSHOT_FILENAME = "config_snapshot.json"
 RUN_MANIFEST_FILENAME = "run_manifest.json"
+
+
+def git_commit(repo_dir: Optional[str] = None) -> Optional[str]:
+    """Best-effort current git commit hash for provenance.
+
+    Returns ``None`` outside a repository, when git is unavailable, or on any
+    error -- provenance is recorded when it can be, never a hard dependency.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo_dir,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except Exception:
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
 
 # Config keys that are environment-specific and excluded from the canonical
 # snapshot and its hash -- a device move must not invalidate the artifacts.

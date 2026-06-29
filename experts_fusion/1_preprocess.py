@@ -174,6 +174,7 @@ def main() -> None:
 
     provenance.RunManifest(
         seed=SEED,
+        commit=provenance.git_commit(),
         model_id=MODEL_NAME,
         dataset=str(TRAIN_DATASET_NAME),
         dataset_fingerprint=provenance.dataset_fingerprint(

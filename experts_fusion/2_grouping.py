@@ -42,6 +42,7 @@ from experts_fusion.config import (
 load_plugins(LOAD_PLUGINS)
 require_registered(PAIRING_METHOD, GROUPING_REGISTRY, field="PAIRING_METHOD")
 provenance.assert_config_matches_snapshot(DATA_DIR, config_snapshot_dict())
+layout.validate_layout_version(DATA_DIR)
 
 set_seed(SEED)
 

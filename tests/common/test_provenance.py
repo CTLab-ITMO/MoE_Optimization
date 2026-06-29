@@ -6,6 +6,17 @@ from common.fused_group import FusedExpert
 from common.mlp import AdvancedMLP
 
 
+def test_git_commit_returns_hash_or_none():
+    commit = provenance.git_commit()
+    assert commit is None or (len(commit) == 40 and all(c in "0123456789abcdef" for c in commit))
+
+
+def test_git_commit_outside_a_repo_is_none(tmp_path):
+    # A directory that is not a git repo (or an unreachable cwd) yields None,
+    # never an exception -- provenance capture is best-effort.
+    assert provenance.git_commit(repo_dir=str(tmp_path)) is None
+
+
 def _cfg():
     return {
         "MODEL_NAME": "q",
