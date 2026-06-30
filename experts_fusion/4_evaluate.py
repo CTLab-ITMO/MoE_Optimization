@@ -153,12 +153,14 @@ def _save_list(values, mode, name, kind):
     torch.save(values, os.path.join(out_dir, f"{kind}_list_{mode}_{name}.pt"))
 
 
+def _restore_all(model, moe_layers, originals):
+    """Put the original mlp module back on every MoE layer (load-once restore)."""
+    for layer in moe_layers:
+        model.model.layers[layer].mlp = originals[layer]
+
+
 def accuracy(model, tokenizer, moe_layers, originals):
     """Accuracy sweeps on the single, load-once model."""
-
-    def restore_all():
-        for layer in moe_layers:
-            model.model.layers[layer].mlp = originals[layer]
 
     base_train = _eval_train(model, tokenizer)
     # base_test is only used by the best-layer and smart sweeps; skip the full
@@ -171,7 +173,7 @@ def accuracy(model, tokenizer, moe_layers, originals):
     base_size = count_params(model)
 
     for name in eval_names:
-        restore_all()
+        _restore_all(model, moe_layers, originals)
         print(f"Testing {name}")
         accuracy_list = [base_train]
         size_list = [base_size]
@@ -188,7 +190,7 @@ def accuracy(model, tokenizer, moe_layers, originals):
         _save_list(size_list, mode, name, "model_size")
 
         if REPLACE_BEST_LAYERS_SEQUENTIAL:
-            restore_all()
+            _restore_all(model, moe_layers, originals)
             best_layers = [
                 lyr for lyr, _ in sorted(
                     zip(moe_layers, accuracy_list[1:]), key=lambda pair: -pair[1]
@@ -204,7 +206,7 @@ def accuracy(model, tokenizer, moe_layers, originals):
             _save_list(best_accuracy, ReplaceMode.SEQ, name, "accuracy")
             _save_list(best_size, ReplaceMode.SEQ, name, "model_size")
 
-    restore_all()
+    _restore_all(model, moe_layers, originals)
 
     if REPLACE_LAYERS_SMART_SEQUENTIAL:
         _smart_accuracy(model, tokenizer, moe_layers, originals, base_test, base_size)
@@ -213,12 +215,8 @@ def accuracy(model, tokenizer, moe_layers, originals):
 def _smart_accuracy(model, tokenizer, moe_layers, originals, base_test, base_size):
     """Greedy best-next-layer accuracy sweep."""
 
-    def restore_all():
-        for layer in moe_layers:
-            model.model.layers[layer].mlp = originals[layer]
-
     for name in tqdm(eval_names):
-        restore_all()
+        _restore_all(model, moe_layers, originals)
         print(f"Testing {name}")
         remaining = set(moe_layers)
         accuracy_list = [base_test]
@@ -238,7 +236,7 @@ def _smart_accuracy(model, tokenizer, moe_layers, originals, base_test, base_siz
         print(f"accuracy list after {name} {ReplaceMode.SMART_SEQ}:", accuracy_list)
         _save_list(accuracy_list, ReplaceMode.SMART_SEQ, name, "accuracy")
         _save_list(size_list, ReplaceMode.SMART_SEQ, name, "model_size")
-    restore_all()
+    _restore_all(model, moe_layers, originals)
 
 
 def diagnostics(model, tokenizer, moe_layers, originals):
@@ -248,20 +246,16 @@ def diagnostics(model, tokenizer, moe_layers, originals):
     here must not block the gate, so failures are reported, not raised.
     """
 
-    def restore_all():
-        for layer in moe_layers:
-            model.model.layers[layer].mlp = originals[layer]
-
     try:
         _reconstruction_benchmark(model, moe_layers)
     except Exception as exc:  # diagnostics only -- never blocks the measured result
         print(f"[diagnostics] reconstruction benchmark skipped: {exc!r}")
-    restore_all()
+    _restore_all(model, moe_layers, originals)
     try:
         _generation(model, tokenizer, moe_layers)
     except Exception as exc:  # diagnostics only -- never blocks the measured result
         print(f"[diagnostics] generation skipped: {exc!r}")
-    restore_all()
+    _restore_all(model, moe_layers, originals)
 
 
 def _reconstruction_benchmark(model, moe_layers):
