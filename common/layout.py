@@ -1,18 +1,9 @@
-"""Single source of truth for the on-disk artifact layout under ``DATA_DIR``.
+"""Centralized path helpers for all on-disk artifacts under ``DATA_DIR``.
 
-Every stage reads and writes intermediate ``.pt`` tensors under a per-experiment
-``DATA_DIR``. The subfolder names and filename templates used to be duplicated
-between the writing stage and every reader (including :mod:`common.pairing` and
-:mod:`common.fusion_layer`), so renaming an artifact meant grepping the whole
-pipeline. This module centralizes that layout: writers, ``common`` readers and
-the test builders all import these helpers, and the ``expert_*.pt`` glob is
-derived from the same prefix as the per-expert load path.
-
-Paths are built with forward slashes to match the literals the stages already
-used (forward slashes resolve identically to ``os.path.join`` on every platform
-for file I/O), so this is a behaviour-neutral move.
-
-Library code only -- this module never imports an experiment ``config``.
+All pipeline stages import these helpers so each artifact path is defined once;
+renaming a subfolder means editing this file, not the whole pipeline.
+Paths use forward slashes (equivalent to os.path.join on all platforms).
+No experiment ``config`` is imported here.
 """
 
 import json
@@ -24,19 +15,15 @@ PAIRS_DIRNAME = "pairs"
 MLP_INPUTS_DIRNAME = "mlp_inputs"
 ACTIVATIONS_DIRNAME = "activations"
 FUSION_EXPERTS_DIRNAME = "fusion_experts"
-# New-module grouping prefix (replaces ``pairs/`` for the versioned ``Partition``
-# artifact). Reserved here so the new and legacy layouts never share a directory.
+# Grouping prefix for versioned Partition artifacts (replaces pairs/).
 GROUPS_DIRNAME = "groups"
 
-# Diagnostic plots live under DATA_DIR (never CWD-relative ``plots/``). Earlier
-# plotting wrote to ``plots/fusion/<timestamp>`` in the cwd; scoping them under
-# DATA_DIR keeps different experiments from colliding.
+# Plots are scoped under DATA_DIR, not CWD, so parallel experiments don't collide.
 PLOTS_DIRNAME = "plots"
 FUSION_SUBDIR = "fusion"
 
-# DATA_DIR layout version. A loader validates it and refuses a directory written
-# under a different layout, so the new (groups/, safetensors) and legacy (pairs/,
-# pickle) trees can never be silently mixed.
+# Stamped into DATA_DIR; loaders reject mismatches so new (groups/) and legacy
+# (pairs/) artifact trees are never silently mixed.
 LAYOUT_VERSION = 1
 LAYOUT_VERSION_FILENAME = "_layout_version"
 
@@ -66,8 +53,7 @@ def expert_path(data_dir: str, layer: int, i: int) -> str:
 def expert_glob(data_dir: str, layer: int) -> str:
     """Glob matching every saved ``expert_*.pt`` of a layer.
 
-    Derived from the same prefix as :func:`expert_path`, so the glob count and
-    the load path can never drift apart.
+    Uses the same prefix as expert_path so glob count and load path stay in sync.
     """
     return f"{experts_dir(data_dir, layer)}/expert_*.pt"
 
@@ -134,11 +120,7 @@ def pair_activations_path(data_dir: str, split: str, layer: int) -> str:
 # fusion_experts/<method>/<layer>/<i>.pt
 # --------------------------------------------------------------------------- #
 def fusion_method_dir(method: str) -> str:
-    """``DATA_DIR``-relative subdirectory of one fusion method's experts.
-
-    The relative form (no ``data_dir``) is what :func:`get_fusion_layer_by_index`
-    receives as its ``experts_dir`` argument.
-    """
+    """DATA_DIR-relative subdirectory for one fusion method's experts."""
     return f"{FUSION_EXPERTS_DIRNAME}/{method}"
 
 
@@ -164,11 +146,9 @@ def group_path(data_dir: str, layer: int) -> str:
 
 
 def group_activations_path(data_dir: str, split: str, layer: int) -> str:
-    """Path of a layer's per-group activating-example index (new versioned artifact).
+    """Path of a layer's per-group activating-example index (GroupActivationIndex).
 
-    The ``GroupActivationIndex`` counterpart of :func:`pair_activations_path`: it
-    lives under the new ``groups/`` prefix so it never collides with the legacy
-    ``activations/pairs_*`` artifact.
+    Stored under groups/ so it never collides with the legacy activations/pairs_* file.
     """
     return f"{groups_dir(data_dir)}/{split}_activations_{layer}.pt"
 
@@ -210,10 +190,9 @@ def read_layout_version(data_dir: str):
 
 
 def validate_layout_version(data_dir: str, expected: int = LAYOUT_VERSION) -> None:
-    """Raise if ``DATA_DIR`` is stamped with a different layout version.
+    """Raise if DATA_DIR is stamped with a different layout version.
 
-    An unstamped directory (``None``) is allowed -- it predates versioning -- so
-    this is a guard against *mismatch*, not against absence.
+    Unstamped directories (None) are allowed; this guards against mismatch, not absence.
     """
     found = read_layout_version(data_dir)
     if found is not None and found != expected:

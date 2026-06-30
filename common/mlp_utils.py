@@ -1,15 +1,8 @@
-"""Registries and glue utilities tying together fusion methods and metrics.
+"""Glue utilities and re-exports for the fusion pipeline.
 
-The fusion strategies live in :mod:`common.fusion` and the proxy metrics in
-:mod:`common.metrics`; this module exposes the legacy registry interface used
-across the pipeline:
-
-* ``FUSION_METHODS`` -- name -> callable fusion instance (incl. ``LS_<name>``);
-* ``best_metrics``   -- metric name -> True if a greater value is better;
-* ``test_model_on_data`` -- evaluate every metric for a fused expert.
-
-It also keeps the small helpers that are neither a fusion method nor a metric
-(timing, random-MLP sanity checks, Qwen-module adaptation).
+Exposes ``FUSION_METHODS`` (name -> callable fusion instance, incl. ``LS_<name>``),
+``best_metrics`` (name -> higher_is_better), and helpers for metric evaluation,
+timing, and Qwen-module adaptation.
 """
 
 import time
@@ -29,11 +22,8 @@ from common.numeric import _default_device
 
 default_device = _default_device()
 
-# name -> fusion instance (callable as ``method(mlp_a, mlp_b, train_data)`` or the
-# k-agnostic ``method(*mlps, train_data=...)``). This *is* the fusion registry
-# (an ordered, extensible Mapping), so the stages read methods only from the
-# registry -- not from a literal list -- while staying a drop-in for a plain
-# ``name -> instance`` dict.
+# Alias for FUSION_REGISTRY: name -> fusion instance.
+# Callable as method(*mlps, train_data=...); stages read methods only from this registry.
 FUSION_METHODS = FUSION_REGISTRY
 
 
@@ -56,10 +46,7 @@ def eval_merger(model1: MLP, model2: MLP, merged_model: MLP, data: torch.Tensor)
 def find_mlp_mse_err(
     merger, n: int, hidden: int, out: int, examples: int = 10_000, device=default_device
 ) -> torch.Tensor:
-    """Merge two random experts with ``merger`` and return reconstruction MSE.
-
-    ``examples`` is the real number of train/test rows (no hidden multiplier).
-    """
+    """Merge two random AdvancedMLP experts with ``merger`` and return reconstruction MSE on ``examples`` rows."""
     with torch.no_grad():
         mlp1 = AdvancedMLP(n, hidden, out, device=device)
         mlp2 = AdvancedMLP(n, hidden, out, device=device)
@@ -118,10 +105,9 @@ def timer(mlp: MLP, test_data, iters=3) -> float:
 
 @torch.no_grad()
 def test_model_on_data(fused_mlp, mlp1, mlp2, test_data, ctx=None) -> dict[str, float]:
-    """Evaluate every registered metric (plus wall-clock ``Time`` in ms) for a fused expert.
+    """Compute all registered metrics plus wall-clock ``Time`` (ms) for a fused expert.
 
-    Iterates the metric registry, so a newly registered metric is computed too.
-    ``ctx`` is forwarded to each metric for the ones that use it.
+    ``ctx`` is passed to each metric. New metrics are included automatically.
     """
     all_tokens = as_tensor(test_data)
     real_res = torch.cat([mlp1.forward(all_tokens), mlp2.forward(all_tokens)], dim=-1).float()
@@ -145,19 +131,13 @@ def test_model_on_data(fused_mlp, mlp1, mlp2, test_data, ctx=None) -> dict[str, 
 
 
 def select_best_fused(fused_by_method, results_by_method, best_metrics, *, method_names=None):
-    """Pick the best fused expert per ``Best_<metric>`` pseudo-method.
+    """Return ``{Best_<metric>: best_fused_expert}`` for each tracked metric.
 
-    The shared metric compartment + ``Best_*`` post-selector, factored out so
-    the fusion-selection step and the evaluation/report step share one
-    definition. ``fused_by_method`` maps a real method name to its fused
-    expert; ``results_by_method`` maps a name to the per-metric report from
-    :func:`test_model_on_data`, or is ``None`` when the group lacked enough
-    validation rows to score. Returns ``{Best_<metric>: chosen fused expert}``.
-
-    The no-score fallback is the first registered method via ``next(iter(...))``
-    -- never a hardcoded ``"Pruning"``. With scores, the winner for each
-    metric is chosen over ``method_names`` order using the metric's
-    ``higher_is_better`` flag, with a first-method tie-break.
+    ``fused_by_method``: method name -> fused expert.
+    ``results_by_method``: method name -> metric report from
+    :func:`test_model_on_data`, or ``None`` if too few validation rows to score.
+    Falls back to the first registered method when unscored; otherwise picks
+    the winner per metric using its ``higher_is_better`` flag (first-method tie-break).
     """
     names = list(method_names) if method_names is not None else list(fused_by_method)
     fallback = names[0]

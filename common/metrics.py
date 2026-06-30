@@ -1,21 +1,13 @@
-"""Proxy metrics for comparing fused-expert outputs against the originals.
+"""Metrics for comparing fused-expert outputs against originals.
 
-Every metric is a small class implementing :class:`Metric` and carrying a
-``name`` and a ``higher_is_better`` flag, so callers both compute the value and
-know the optimization direction without a separate lookup table. The reference
-tensor is always the first argument ``x`` (the original two-expert output) and
-the approximation is ``y`` (the fused output).
+Each metric is a class with ``name``, ``higher_is_better``, and ``log_scale``
+flags. ``x`` is the original output; ``y`` is the fused approximation.
 
-Two families of metrics live here:
+Two families:
+- pointwise (MSE, RMSE, MAE, RelMSE, R2, Cosine, Pearson, CKA): compare tensors directly;
+- distribution (KL, JS, Top1, Top5, EntropyGap): treat the last dimension as logits.
 
-* pointwise reconstruction error / similarity (MSE, RMSE, MAE, RelMSE, R2,
-  Cosine, Pearson, CKA) computed directly on the output tensors;
-* distribution agreement (KL, JS, Top1, Top5, EntropyGap) computed by treating
-  the last dimension of the outputs as logits.
-
-References:
-  CKA -- Kornblith, Norouzi, Lee, Hinton, "Similarity of Neural Network
-  Representations Revisited", ICML 2019.
+CKA: Kornblith et al., ICML 2019.
 """
 
 from abc import ABC, abstractmethod
@@ -23,9 +15,8 @@ from abc import ABC, abstractmethod
 import torch
 import torch.nn.functional as F
 
-# Numerical-stability epsilon guarding divisions, logs and norm denominators
-# below. Single source of truth in common.numeric; re-exported here for callers
-# that still read ``metrics.EPS``.
+# Stability epsilon for divisions and logs. Defined in common.numeric;
+# re-exported here so callers can still reference ``metrics.EPS``.
 from common.numeric import EPS
 from common.registry import Registry
 
@@ -61,15 +52,12 @@ class Metric(ABC):
 
     name: str
     higher_is_better: bool
-    # True if the metric's spread reads better on a log scale (so plotting / set
-    # selection log-transforms it). Carried as a class flag -- like
-    # ``higher_is_better`` -- so the "log-safe" set is derived from the metric
-    # classes instead of a separately maintained literal.
+    # True if the metric looks better on a log scale. Used to derive
+    # ``log_safe_metrics`` from the classes rather than a separate literal.
     log_scale: bool
 
-    # ctx carries optional shared state (labels, device, run metadata) for
-    # metrics that need it; the built-in metrics ignore it. Keeping the slot on
-    # the interface lets a new metric subclass opt in without changing call sites.
+    # Optional context (labels, device, etc.) for metrics that need shared state.
+    # Built-in metrics ignore it; custom subclasses can use it without changing call sites.
     @abstractmethod
     def __call__(self, x: torch.Tensor, y: torch.Tensor, ctx=None) -> float:
         raise NotImplementedError()
@@ -103,10 +91,7 @@ class MAE(Metric):
 
 
 class RelMSE(Metric):
-    """Normalized MSE: reconstruction error divided by the variance of x.
-
-    Equal to ``1 - R2`` up to the clamp; reported in [0, inf), lower is better.
-    """
+    """MSE normalized by the variance of x. Approximately ``1 - R2``; in [0, inf), lower is better."""
 
     name = "RelMSE"
     higher_is_better = False
@@ -245,7 +230,7 @@ class EntropyGap(Metric):
         return abs(prediction_entropy(x).item() - prediction_entropy(y).item())
 
 
-# Reported in this order; the set matches the legacy ``best_metrics`` table.
+# Metrics in display order; this list defines the default ``best_metrics`` set.
 METRICS: list[Metric] = [
     MSE(),
     RMSE(),
@@ -269,9 +254,8 @@ best_metrics: dict[str, bool] = {
     metric.name: metric.higher_is_better for metric in METRICS
 }
 
-# Metric names whose spread reads better on a log scale. Derived from the
-# ``log_scale`` class flag so it cannot silently drift from the metric set when
-# a metric is added or renamed (the fusion step adds the pseudo-metric ``Time``).
+# Metric names that look better on a log scale. Derived from the ``log_scale``
+# class flag so it stays in sync when metrics are added or renamed.
 log_safe_metrics: set[str] = {metric.name for metric in METRICS if metric.log_scale}
 
 
@@ -283,16 +267,15 @@ def _build_metric_registry() -> Registry:
     return registry
 
 
-# name -> Metric instance; the single source of truth the stages validate
-# ``FILTER_METRICS`` against and extend via ``register`` without a fork.
+# name -> Metric instance. Stages validate ``FILTER_METRICS`` against this
+# and can add new metrics via ``register``.
 METRIC_REGISTRY: Registry = _build_metric_registry()
 
 
 def live_best_metrics() -> dict:
-    """``name -> higher_is_better`` over the CURRENT registry.
+    """Return ``name -> higher_is_better`` from the live registry.
 
-    The module-level ``best_metrics`` is frozen at import from the built-in set;
-    this reads the live registry, so a metric registered after import also drives
-    a ``Best_<metric>`` selection. With only the built-ins it equals ``best_metrics``.
+    Unlike the module-level ``best_metrics`` (frozen at import), this reflects
+    any metrics added after import via ``register``.
     """
     return {name: METRIC_REGISTRY[name].higher_is_better for name in METRIC_REGISTRY}

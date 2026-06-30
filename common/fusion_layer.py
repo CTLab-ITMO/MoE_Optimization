@@ -14,33 +14,21 @@ class FusionLayer(nn.Module):
     def __init__(self, *, experts, expert_pairs, fusion_experts, gate, shared_expert, shared_expert_gate, use_default_experts, router=None, top_k=None):
         super().__init__()
         self.gate = gate
-        # Router canonicalization goes through the shared adapter: the same
-        # RouterAdapter used at co-activation capture decodes the gate output
-        # here at inference, so the grouping signal and the real routing cannot
-        # diverge. The default Qwen15RouterAdapter unpacks
-        # ``_, routing_weights, selected_experts = self.gate(...)`` for a 3-tuple
-        # gate. ``top_k`` is only consumed on the bare-logits branch (a raw Qwen
-        # gate); for a tuple gate it is ignored, so ``None`` is fine there.
+        # RouterAdapter decodes gate output the same way it was decoded during
+        # co-activation capture, keeping routing consistent. Qwen15RouterAdapter
+        # expects a 3-tuple gate; top_k is only used on bare-logits gates.
         self.router = router if router is not None else Qwen15RouterAdapter()
         self.top_k = top_k
         if use_default_experts:
             self.experts = nn.ModuleList(experts)
         self.expert_pairs = expert_pairs
         self.fusion_experts = nn.ModuleList(fusion_experts)
-        # Runtime reconstruction contract: each fused expert is wrapped in a
-        # FusedGroup, and inference reconstructs member ``m`` via
-        # ``group.reconstruct(x, m)`` instead of the layer hard-coding
-        # ``forward_unzip(out=0|1)``. The groups reference the same modules held
-        # in ``fusion_experts`` (so ``.to(...)`` on the layer moves them too),
-        # and ``reconstruct`` delegates to ``forward_unzip`` -- so the layer no
-        # longer assumes k == 2.
+        # Each fused expert is wrapped in a MLPFusedGroup. Inference calls
+        # group.reconstruct(x, member) to recover one expert's output.
+        # Groups share modules with fusion_experts, so .to() moves both.
         self.fusion_groups = [MLPFusedGroup(expert) for expert in self.fusion_experts]
-        # Shared/residual pathway behind the model-family adapter: the
-        # sigmoid-gated ``F.sigmoid(shared_expert_gate(x)) * shared_expert(x)``
-        # formula lives in Qwen15SharedExpert, which also tolerates an absent
-        # shared expert (Mixtral/Qwen3 -> contributes zeros). Presence is exposed
-        # via ``self.shared.has_shared`` rather than assuming exactly two ``.pt``
-        # files.
+        # Qwen15SharedExpert applies sigmoid(gate(x)) * expert(x). If no shared
+        # expert exists it contributes zeros; check self.shared.has_shared.
         self.shared = Qwen15SharedExpert(shared_expert, shared_expert_gate)
         self.use_default_experts = use_default_experts
 
@@ -82,8 +70,7 @@ class FusionLayer(nn.Module):
             current_state = hidden_states[token_idx]
             pair_idx = self.pair_idx[expert_idx]
             pair = self.expert_pairs[pair_idx]
-            # Member orientation contract: member 0 is the first expert of the
-            # pair, member 1 the second (``out=(0 if expert_idx == pair[0] else 1)``).
+            # member 0 = pair[0], member 1 = pair[1].
             member = 0 if expert_idx == pair[0] else 1
             current_hidden_states = self.fusion_groups[pair_idx].reconstruct(current_state, member)
             current_hidden_states = current_hidden_states * top_k_weights[token_idx, top_k_pos, None]
@@ -92,8 +79,7 @@ class FusionLayer(nn.Module):
         return final_hidden_states
 
     def forward_default(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        """Used for simulation of old version of MLP layer if default experts are provided.
-        Can be used for comparing previous and new version of layer in one model."""
+        """Run the original unfused experts. Requires use_default_experts=True. Useful for A/B comparison."""
         batch_size, sequence_length, hidden_dim = hidden_states.shape
         hidden_states_reshaped = hidden_states.view(-1, hidden_dim)
         shared_expert_output = self.shared(hidden_states_reshaped)
@@ -136,7 +122,7 @@ def _load_expert_legacy(data_dir, layer_index, i, device):
 
 
 def _load_expert_saved(data_dir, layer_index, i, device):
-    """Load a raw expert from the versioned :class:`~common.artifacts.SavedExpert`."""
+    """Load a raw expert from a versioned SavedExpert artifact."""
     from common.artifacts import SavedExpert
 
     return SavedExpert.load(layout.expert_path(data_dir, layer_index, i), device=device).mlp
@@ -144,15 +130,9 @@ def _load_expert_saved(data_dir, layer_index, i, device):
 
 def _build_fusion_layer(layer_index, data_dir, *, expert_pairs, fusion_experts, device,
                         use_default_experts, num_experts, router_adapter, top_k, load_expert):
-    """Shared core of the two loaders: load the experts/gate/shared pathway and
-    assemble the :class:`FusionLayer`. The two public functions differ only in how
-    they load ``expert_pairs`` / ``fusion_experts`` and the raw experts (``load_expert``
-    -- legacy pickle vs versioned artifacts); everything else is identical here.
-
-    ``num_experts`` may be ``None``; then it is inferred from the number of
-    ``expert_*.pt`` files saved under ``{data_dir}/experts/{layer_index}``.
-    ``router_adapter`` / ``top_k`` are the injected model-family router (a default
-    :class:`Qwen15RouterAdapter` when unset).
+    """Shared loader core: reads gate, shared expert, and raw experts, then builds a FusionLayer.
+    Both public loaders call this; they differ only in how expert_pairs/fusion_experts are sourced.
+    num_experts defaults to the count of expert_*.pt files; router_adapter defaults to Qwen15RouterAdapter.
     """
     if num_experts is None:
         num_experts = len(glob.glob(layout.expert_glob(data_dir, layer_index)))
@@ -198,12 +178,8 @@ def get_fusion_layer_by_index(layer_index, experts_dir, data_dir, device=torch.d
 def get_fusion_layer_from_groups(layer_index, method, data_dir, device=torch.device("cpu"),
                                  use_default_experts=False, num_experts=None,
                                  router_adapter=None, top_k=None):
-    """Build a :class:`FusionLayer` from the versioned grouping/fusion artifacts.
-
-    The pairing comes from the ``groups/`` :class:`~common.artifacts.Partition`
-    (``to_pairs()``, preserving group order + tuple orientation) and each fused
-    expert from a :class:`~common.fused_group.FusedExpert` (state_dict + header
-    safetensors), instead of a pickled ``pairs/`` list and pickled ``AdvancedMLP``.
+    """Build a FusionLayer from versioned artifacts (Partition grouping + FusedExpert safetensors).
+    Use this for new pipelines; get_fusion_layer_by_index is the legacy pickled equivalent.
     """
     from common.artifacts import Partition
     from common.fused_group import FusedExpert

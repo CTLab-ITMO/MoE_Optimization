@@ -1,21 +1,12 @@
-"""Single object of dynamic per-stage state passed to extension points.
+"""Container of dynamic per-stage state passed to strategies.
 
-A strategy (fusion method, grouping strategy, metric) receives the *dynamic*
-state it might need through one :class:`StageContext`, rather than through a bag
-of ad-hoc keyword arguments the driver fills in blindly. Static configuration of
-a method stays in its ``__init__``; everything that varies per run / per layer /
-per group travels in the context, so all the moving parts live behind ``ctx``.
+Strategies (fusion methods, grouping, metrics) receive runtime state through one
+:class:`StageContext` instead of ad-hoc kwargs; static config stays in ``__init__``.
+The dataclass is frozen; ``for_layer``/``for_group`` return cheap copies.
+:meth:`generator` produces an order-independent :class:`torch.Generator` so
+stochastic ops don't consume the global RNG stream.
 
-Every field is optional and the dataclass is frozen: contexts are cheap, derived
-values (``for_layer`` / ``for_group``) return new instances, and new fields may
-only be added as further optional fields (additive extension).
-
-Its main job is to carry the *seeding* coordinates: :meth:`generator` returns an
-order-independent :class:`torch.Generator` (via
-:func:`common.seeding.seed_for`) for the layer/group the context points at, so a
-stochastic op no longer consumes the global RNG stream.
-
-Library code only -- this module never imports an experiment ``config``.
+Library code only -- never imports an experiment ``config``.
 """
 
 from dataclasses import dataclass, replace
@@ -29,27 +20,17 @@ from common.seeding import seed_for as _seed_for
 
 @dataclass(frozen=True)
 class StageContext:
-    """Dynamic per-stage state shared with grouping / fusion / metric strategies.
+    """Dynamic state shared with grouping, fusion, and metric strategies.
 
-    Fields (all optional):
+    All fields are optional. Key fields:
 
-    * ``seed`` -- run-level base seed; with it set, :meth:`generator` /
-      :meth:`seed_for` derive order-independent local seeds, otherwise they
-      return ``None`` and callers fall back to the global RNG.
-    * ``layer_index`` / ``group_index`` -- coordinates of the current work item,
-      folded into the derived seed automatically.
-    * ``model`` / ``layer`` / ``gate`` / ``tokenizer`` -- handles onto the live
-      model the strategy may need (router adapter, expert weights, ...).
-    * ``n_experts`` -- number of experts in the current layer (model-derived);
-      a grouping strategy partitions this many experts.
-    * ``device`` / ``dtype`` -- device + dtype policy for newly created tensors.
-    * ``data_dir`` -- the run's artifact root; readers of intermediate artifacts
-      (e.g. a grouping :class:`~common.grouping.AffinityProvider` loading the
-      co-activation matrix) resolve their paths under it via :mod:`common.layout`.
-    * ``calibration_data`` / ``validation_data`` / ``labels`` -- lazily provided
-      data handles (a tensor, a list or a zero-arg callable returning one).
-    * ``artifact_store`` / ``logger`` -- I/O and logging sinks.
-    * ``run_metadata`` / ``config_metadata`` -- provenance maps for the run.
+    * ``seed`` -- base seed; enables order-independent local seeds via :meth:`generator`.
+    * ``layer_index`` / ``group_index`` -- current work-item coordinates, folded into derived seeds.
+    * ``model`` / ``layer`` / ``gate`` / ``tokenizer`` -- live model handles.
+    * ``n_experts`` -- expert count; grouping partitions this many experts.
+    * ``device`` / ``dtype`` / ``data_dir`` -- tensor policy and artifact root.
+    * ``calibration_data`` / ``validation_data`` / ``labels`` -- data handles (tensors or callables).
+    * ``artifact_store`` / ``logger`` / ``run_metadata`` / ``config_metadata`` -- I/O and provenance.
     """
 
     seed: Optional[int] = None
@@ -86,11 +67,7 @@ class StageContext:
         return merged
 
     def seed_for(self, stage: str, **coords) -> Optional[int]:
-        """Derived seed for ``(stage, layer, group, **coords)`` or ``None``.
-
-        Returns ``None`` when no base ``seed`` is set, signalling callers to keep
-        using the global RNG (backward-compatible default).
-        """
+        """Derive a seed for (stage, layer, group, **coords), or ``None`` if no base seed is set (caller uses global RNG)."""
         if self.seed is None:
             return None
         return _seed_for(seed=self.seed, stage=stage, **self._coords(coords))
@@ -98,11 +75,9 @@ class StageContext:
     def generator(
         self, stage: str, *, device=None, **coords
     ) -> Optional[torch.Generator]:
-        """Order-independent :class:`torch.Generator` for this work item.
+        """Return an order-independent Generator for this work item, or ``None`` if no seed is set.
 
-        ``None`` when no base ``seed`` is set (caller falls back to global RNG).
-        ``device`` defaults to the context device, then CPU; it must match the
-        device the sampler draws on.
+        ``device`` defaults to the context device then CPU; must match the device the sampler draws on.
         """
         if self.seed is None:
             return None

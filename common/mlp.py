@@ -5,9 +5,8 @@ from common.numeric import _default_device, solve_linear
 
 default_device = _default_device()
 
-# Activation modules an AdvancedMLP can use, keyed by their class name so the
-# serializer can rebuild the right one from the stored header. Register a new
-# factory to support another activation (default stays SiLU, the Qwen expert MLP).
+# Activation modules available to AdvancedMLP, keyed by class name so the
+# serializer can restore the right one. Default is SiLU (Qwen expert shape).
 ACTIVATION_REGISTRY: dict = {
     "SiLU": nn.SiLU,
     "ReLU": nn.ReLU,
@@ -25,9 +24,7 @@ def make_activation(name: str) -> nn.Module:
 
 
 def unite_matrix(mat1: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
-    """Unite matrix A and B in block format:
-    A 0
-    0 B"""
+    """Block-diagonal concatenation: [[mat1, 0], [0, mat2]]."""
     add1 = torch.zeros((mat1.shape[0], mat2.shape[1]), device=mat1.device)
     add2 = torch.zeros((mat2.shape[0], mat1.shape[1]), device=mat1.device)
     mat1 = torch.cat([mat1, add1], dim=1)
@@ -36,10 +33,8 @@ def unite_matrix(mat1: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
 
 
 def greedy_correlation_matching(corr_matrix):
-    """Pair up rows greedily: repeatedly take the highest-correlation pair and
-    remove both from play. Distinct from ``pairing.build_matches`` (optimal
-    max-weight blossom matching) -- this one is the fast greedy heuristic the
-    ZipIt unmerge uses."""
+    """Greedy row pairing: repeatedly pick the highest-correlation pair and remove both.
+    Fast heuristic used by ZipIt unmerge (not the optimal blossom matching)."""
     matches = []
     n = corr_matrix.shape[0]
     used = torch.zeros(n, dtype=torch.bool)
@@ -67,8 +62,7 @@ def greedy_correlation_matching(corr_matrix):
 
 
 class Zipper(nn.Linear):
-    """Save all inputs and build M and U matrices
-    based on greedy matching in correlation matrix"""
+    """Records inputs during a pre-zipped forward pass, then builds M (merge) and U (unmerge) via greedy correlation matching."""
 
     def __init__(self, features):
         super().__init__(features, features)
@@ -83,16 +77,14 @@ class Zipper(nn.Linear):
         return x
 
     def build_MU(self):
-        """Count M and U matrixes, using saved while training activations"""
+        """Build M and U matrices from accumulated activations."""
         assert len(self.activations) > 0
         self.dtype = self.activations[0].dtype
         activations = torch.cat(self.activations, dim=0)
         corr_matrix = torch.corrcoef(activations.T)
         n = corr_matrix.shape[0]
-        # The zip/build_MU unmerge is strictly pairwise (k == 2): ``n`` is the
-        # hidden size of two concatenated experts, halved to ``n // 2`` with
-        # weight ``0.5`` and ``U = 2 * M.T``. A k>2 generalization is out of
-        # scope, so the concatenated width must be even.
+        # Strictly k=2: n is the hidden size of two concatenated experts,
+        # halved to n//2 with weight 0.5 and U = 2*M.T. Width must be even.
         assert n % 2 == 0, f"build_MU is k=2 only; expected an even width, got {n}"
 
         matches = greedy_correlation_matching(corr_matrix)
@@ -113,7 +105,7 @@ class MLP(nn.Module):
         super().__init__()
 
     def forward_unzip(self, x: torch.Tensor, out=None):
-        """Count forward and return features of model 1 and model 2 concated"""
+        """Forward pass returning unmerged output for both member experts concatenated."""
         y = self.forward(x.to(dtype=self.gate.weight.dtype))
         if self.U is not None:
             y = y.to(dtype=self.U.dtype)
@@ -128,18 +120,18 @@ class MLP(nn.Module):
         raise NotImplementedError()
 
     def zip_with(self, other: "MLP"):
-        """Make an prezipped model with other"""
+        """Concatenate weights with ``other`` to prepare for ZipIt zipping."""
         raise NotImplementedError()
 
     def train_with(self, train_data):
-        """Run train data and eval M and U matrix"""
+        """Run examples through the model to accumulate activations, then build M and U."""
         for example in train_data:
             self.forward(example.to(next(self.parameters()).device))
         self.zip1.build_MU()
         self.zip2.build_MU()
 
     def zip(self):
-        """ZipIt operation"""
+        """Apply ZipIt: compress merged weights using M and install unmerge matrix U."""
         raise NotImplementedError()
 
 
@@ -174,13 +166,13 @@ class SimpleMLP(MLP):
         return x
 
     def zip_with(self, other: "SimpleMLP"):
-        """Make an prezipped model with other"""
+        """Block-concatenate weights with ``other`` to prepare for zipping."""
         self.fc1.weight = nn.Parameter(unite_matrix(self.fc1.weight, other.fc1.weight))
         self.fc2.weight = nn.Parameter(unite_matrix(self.fc2.weight, other.fc2.weight))
         self.zipped = True
 
     def zip(self):
-        """ZipIt operation"""
+        """Apply ZipIt: compress weights with M and install unmerge matrix U."""
         self.U = nn.Parameter(self.zip2.U)
 
         self.fc1.weight = nn.Parameter(
@@ -199,7 +191,7 @@ class SimpleMLP(MLP):
 
 
 class AdvancedMLP(MLP):
-    """MLP with up, down and proj linear layers"""
+    """Gate-up-down SiLU MLP matching the Qwen/Mixtral expert shape."""
 
     def __init__(
         self, in_features: int, hid_features: int, out_features: int, bias: bool = False,
@@ -237,7 +229,7 @@ class AdvancedMLP(MLP):
         return x.to(dtype=dtype)
 
     def zip_with(self, other: "MLP"):
-        """Make an prezipped model with other"""
+        """Block-concatenate all weights with ``other`` and insert Zipper hooks."""
         self.zip1 = Zipper(self.hid_features)
         self.zip2 = Zipper(self.out_features)
         self.gate.weight = nn.Parameter(
@@ -250,7 +242,7 @@ class AdvancedMLP(MLP):
         self.zipped = True
 
     def zip(self):
-        """ZipIt operation"""
+        """Apply ZipIt: compress gate/up/down weights with M and install unmerge matrix U."""
         self.U = nn.Parameter(self.zip2.U.to(dtype=self.gate.weight.dtype))
 
         self.gate.weight = nn.Parameter(
@@ -273,16 +265,12 @@ class AdvancedMLP(MLP):
         self.zipped = False
 
     def refit_unmerge(self, x: torch.Tensor, targets: torch.Tensor) -> "AdvancedMLP":
-        """Least-squares refit of the unmerge matrix ``U`` to reconstruct ``targets``.
+        """Refit the unmerge matrix U via least squares.
 
-        The public seam the least-squares adapter (``LS_*``) uses instead of
-        assigning ``.down`` / ``.U`` from the outside: the fused expert
-        owns its reconstruction. Drops the ``down`` layer so ``forward`` returns
-        the merged hidden output, then solves ``U`` minimizing
-        ``|| forward(x) @ U^T - targets ||`` and installs it. ``targets`` is the
-        concatenation of the members' outputs (width ``k * out_features``), so
-        ``forward_unzip(x, out=m)`` recovers member ``m``. Numerically identical
-        to an in-line ``LeastSquaresAdapter`` solve.
+        Drops ``down`` so ``forward`` returns the merged hidden state, then solves
+        ``U`` minimizing ``|| forward(x) @ U^T - targets ||``. ``targets`` must be
+        the concatenated member outputs (width ``k * out_features``); afterwards
+        ``forward_unzip(x, out=m)`` recovers member ``m``.
         """
         dtype = self.down.weight.dtype
         self.down = None

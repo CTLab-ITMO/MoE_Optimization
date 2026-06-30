@@ -1,9 +1,7 @@
-"""Function-style pairing primitives: co-activation / output-similarity affinity,
+"""Standalone pairing functions: co-activation / output-similarity affinity,
 optimal (blossom) and random matching, and the ``get_pairs`` dispatcher.
 
-The class-based grouping registry (``AffinityProvider`` x ``Partitioner``) in
-:mod:`common.grouping` reuses these primitives; they are kept here as standalone
-functions for the legacy grouping step and for direct reuse.
+``common.grouping`` reuses these same primitives via its registry.
 """
 import os
 from typing import Optional
@@ -14,40 +12,34 @@ from common.context import StageContext
 from common.names import PairingMethod
 from common.numeric import EPS, _default_device
 
-# NOTE: the grouping *registry* and the ``AffinityProvider`` x ``Partitioner``
-# strategy abstraction live in :mod:`common.grouping` (which reuses the
-# primitives below). This module keeps the function-style ``get_pairs`` /
-# ``build_matches`` / ``random_pairs`` / ``compute_*`` entry points the legacy
-# ``Qwen_MoE_experts_fusion_experiment`` grouping step still imports.
+# The registry and strategy abstraction live in common.grouping (which reuses
+# these primitives). This module keeps the function-style entry points that
+# the legacy Qwen_MoE_experts_fusion_experiment grouping step imports.
 
-# The pairing ``torch.randperm`` draws (random split + output_similarity
-# subsample) are CPU operations, so their generator must live on the CPU even when
-# the compute device is ``cuda`` -- otherwise ``randperm(..., generator=cuda_gen)``
-# raises on the GPU box. Mirrored in :mod:`common.grouping`.
+# randperm draws (random split + output_similarity subsample) must use a CPU
+# generator even when compute is on CUDA -- randperm with a CUDA generator raises.
+# Mirrored in common.grouping.
 _PAIRING_DRAW_DEVICE = torch.device("cpu")
 
 
 def random_pairs(
     n_experts: int, *, generator: Optional[torch.Generator] = None
 ) -> list[tuple[int, int]]:
-    """Use random split of n experts in n//2 pairs.
+    """Randomly split n experts into n//2 pairs.
 
-    Pass ``generator`` (a per-layer :class:`torch.Generator` from
-    :meth:`StageContext.generator`) to make the split order-independent; with
-    ``generator=None`` it draws from the global RNG (legacy behaviour).
+    Pass a ``torch.Generator`` for reproducible order-independent splits;
+    ``None`` draws from the global RNG (legacy behaviour).
     """
     perm = torch.randperm(n_experts, generator=generator).tolist()
     return [(perm[2 * i], perm[2 * i + 1]) for i in range(n_experts // 2)]
 
 
 def _load_coactivation_matrix(path: str) -> torch.Tensor:
-    """Load a co-activation matrix tolerant of both on-disk formats.
+    """Load a co-activation matrix from either on-disk format.
 
-    The new ``experts_fusion`` module writes a versioned
-    :class:`~common.artifacts.CoActivationMatrix` (safetensors); the untouched
-    legacy module writes a raw pickled tensor. Try the versioned class first and
-    fall back to the raw load -- additive, so the legacy path is byte-unchanged
-    (a pickle never parses as safetensors, so the fallback is unambiguous).
+    Tries the versioned ``CoActivationMatrix`` (safetensors) first, then falls
+    back to a raw pickled tensor (legacy). A pickle never parses as safetensors,
+    so the fallback is unambiguous.
     """
     from common.artifacts import CoActivationMatrix
 
@@ -58,10 +50,11 @@ def _load_coactivation_matrix(path: str) -> torch.Tensor:
 
 
 def _load_expert(path: str, device: torch.device):
-    """Load a raw expert as an ``AdvancedMLP``: the new module writes a versioned
-    ``SavedExpert`` (safetensors), the legacy module a raw pickled module. Try the
-    versioned class first and fall back to the raw load -- a pickle never parses as
-    safetensors, so the fallback is unambiguous (mirrors :func:`_load_coactivation_matrix`)."""
+    """Load an expert as an ``AdvancedMLP``, tolerating both on-disk formats.
+
+    Tries versioned ``SavedExpert`` (safetensors) first, then falls back to a raw
+    pickle. Mirrors ``_load_coactivation_matrix``.
+    """
     from common.artifacts import SavedExpert
 
     try:
@@ -87,15 +80,12 @@ def compute_output_similarity_matrix(
     batch_size: int = 512,
     generator: Optional[torch.Generator] = None,
 ) -> torch.Tensor:
-    """Build an EXPERTS x EXPERTS expert-output similarity matrix.
+    """Build an EXPERTS x EXPERTS cosine similarity matrix over expert outputs.
 
-    Each expert is run on a shared sample of captured MLP inputs; its per-token
-    outputs are L2-normalized and the matrix entry ``(i, j)`` is the mean cosine
-    similarity between expert ``i`` and ``j`` outputs over the sample. This is the
-    ``output_similarity`` pairing signal -- an alternative to
-    ``activation_correlation`` (gate co-activation).
-
-    Requires the saved experts and captured MLP inputs (both from preprocessing).
+    Runs each expert on a sample of captured MLP inputs, L2-normalises the outputs,
+    and computes mean pairwise cosine similarity. Used as the ``output_similarity``
+    pairing signal (alternative to ``activation_correlation``).
+    Requires saved experts and captured MLP inputs from preprocessing.
     """
     experts_dir = layout.experts_dir(data_dir, layer)
     inputs_path = layout.mlp_inputs_path(data_dir, layout.TRAIN_SPLIT, layer)
@@ -145,9 +135,11 @@ def compute_output_similarity_matrix(
 def build_matches(
     weights: torch.Tensor
 ) -> list[tuple[int, int]]:
-    """Get a matrix of correlations and 
-    build matching with most sum of correlations.
-    Based on existed algorithm for best match seek (See https://jorisvr.nl/article/maximum-matching)."""
+    """Maximum-weight perfect matching via the blossom algorithm.
+
+    Returns pairs that maximise the total edge weight.
+    See https://jorisvr.nl/article/maximum-matching.
+    """
     M = weights.detach().cpu().tolist()
     n = len(M)
     edges = [(i, j, M[i][j]) for i in range(n) for j in range(i + 1, n)]
@@ -494,26 +486,20 @@ def get_pairs(
     n_experts: int,
     data_dir: str,
     device: Optional[torch.device] = None,
-    # ``evolution_steps``/``progress`` are vestigial (leftovers of an abandoned
-    # evolutionary-matching refinement that was never wired in) and are read
-    # nowhere below. They are kept only for backward compatibility with the
-    # legacy module, which still passes them.
+    # Vestigial params, never used internally; kept for backward compatibility
+    # with the legacy module, which still passes them.
     evolution_steps: int = 0,
     progress: bool = False,
     num_samples: int = 4096,
     batch_size: int = 512,
     ctx: Optional[StageContext] = None,
 ) -> list[tuple[int, int]]:
-    """For a given method and layer return list of pairs.
+    """Return expert pairs for the given method and layer.
 
-    ``num_samples``/``batch_size`` are the ``output_similarity`` knobs, exposed
-    here at the public entry point so they are configurable from the outside
-    (they were previously pinned to the inner defaults).
-
-    ``ctx`` carries the order-independent seeding: when given (and it holds a
-    base seed) the stochastic methods (``random`` / ``output_similarity``) draw
-    from a per-layer :class:`torch.Generator` instead of the global RNG. The
-    default ``activation_correlation`` method is deterministic and ignores it.
+    ``num_samples``/``batch_size`` tune the ``output_similarity`` method.
+    ``ctx`` enables reproducible seeding: stochastic methods (``random`` /
+    ``output_similarity``) draw from a per-layer generator; ``activation_correlation``
+    is deterministic and ignores it.
     """
     if method == PairingMethod.RANDOM:
         generator = (

@@ -1,7 +1,6 @@
-"""Importable fake model zoo and artifact builders for tests and golden runs.
+"""Shared fake model zoo and artifact builders for tests.
 
-Library code (no experiment ``config`` dependency) so both the legacy and the
-new pipeline test trees -- and the golden harness -- share one source of fakes.
+No ``config`` dependency, so both legacy and new pipeline tests share these fakes.
 """
 from common.testing.builders import Builders, expert_mlp
 from common.testing.fakes import (

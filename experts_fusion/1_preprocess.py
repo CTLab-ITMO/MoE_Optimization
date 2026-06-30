@@ -1,21 +1,14 @@
 """Stage 1 -- preprocessing and raw-data capture.
 
-Two sub-steps:
+Sub-step 1a (CPU, no dataset): save each layer's experts (via EXPERT_ADAPTER),
+gate, and shared-expert weights.
 
-* **1a -- weight extraction** (CPU, no dataset): load the model on CPU and save
-  every layer's experts (via the model-family ``EXPERT_ADAPTER``), gate and
-  shared-expert pathway. This is the dataset-free half.
-* **1b -- capture** (single forward pass per split, non-destructive hooks): load
-  the model on ``device`` and register a forward-*pre*-hook on each MoE layer's
-  ``mlp``. The hook captures the block input (the MLP-block inputs) and routes it
-  through the layer's gate to accumulate the ``EXPERTS x EXPERTS`` co-activation
-  matrix and the per-example top-k selections -- all in one pass. Hooks (not
-  module replacement) keep the forward identical to the originals.
+Sub-step 1b (single forward pass per split, non-destructive hooks): a
+forward-pre-hook on each MoE layer captures, in one pass, the EXPERTS×EXPERTS
+co-activation matrix, block-input vectors, and per-example top-k selections.
 
-The grouping signal (co-activation) does not depend on the grouping itself, so it
-lives here in stage 1; the per-group join (top-k x Partition) is stage 2's job.
-Finally stage 1 stamps the provenance: ``config_snapshot.json`` (every later
-stage asserts against it), a ``RunManifest`` and the ``_layout_version``.
+Also writes provenance: ``config_snapshot.json`` (later stages assert against
+it), a ``RunManifest``, and the ``_layout_version`` marker.
 """
 import os
 
@@ -48,8 +41,8 @@ from experts_fusion.config import (
 
 print("Device:", device)
 
-# Stamp the DATA_DIR layout version + the canonical config snapshot first, so a
-# re-run against a directory written under a different layout/config fails fast.
+# Write layout version and config snapshot so a re-run against a mismatched
+# directory fails fast.
 layout.write_layout_version(DATA_DIR)
 provenance.write_config_snapshot(DATA_DIR, config_snapshot_dict())
 
@@ -84,12 +77,9 @@ def extract_weights() -> None:
 # 1b -- capture (single forward pass per split via non-destructive hooks).
 # --------------------------------------------------------------------------- #
 def _capture_split(model, tokenizer, data, moe_layers, n_experts):
-    """Run one forward pass over ``data`` capturing all three raw artifacts.
-
-    Returns ``(coactivation, mlp_inputs, topk)`` keyed by layer:
-    ``coactivation[L]`` an ``EXPERTS x EXPERTS`` count matrix,
-    ``mlp_inputs[L]`` the list of block-input row vectors, and
-    ``topk[L]`` the per-example top-k selection list.
+    """Run one forward pass over ``data``, returning three dicts keyed by layer:
+    ``coactivation[L]`` (EXPERTS×EXPERTS count matrix), ``mlp_inputs[L]``
+    (block-input row vectors), ``topk[L]`` (per-example top-k selections).
     """
     coactivation = {l: torch.zeros(n_experts, n_experts) for l in moe_layers}
     mlp_inputs = {l: [] for l in moe_layers}
@@ -98,8 +88,7 @@ def _capture_split(model, tokenizer, data, moe_layers, n_experts):
 
     def make_hook(layer):
         def hook(module, args):
-            # Block input to this layer's mlp. Batch is 1 (one example fed at a
-            # time), so [0] selects the sequence rows -- the vectors captured as
+            # [0] selects sequence rows from the batch-of-1 input; saved as
             # MLP inputs and routed through the gate.
             block_rows = args[0].detach()[0, :, :]
             for row in block_rows.cpu():

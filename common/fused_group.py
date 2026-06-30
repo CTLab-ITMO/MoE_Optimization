@@ -1,29 +1,16 @@
 """Runtime reconstruction contract for a fused group of experts.
 
-A fused group is the result of merging ``k`` experts into one compact module.
-At inference the layer must be able to recover *each original member's* output
-from that compact module. Rather than baking a positional ``out=0|1`` argument
-(which hard-codes ``k == 2``) into :class:`~common.fusion_layer.FusionLayer`,
-this module defines the contract the layer depends on:
+Merging k experts produces a compact module; at inference the layer must
+recover each original member's output from it. This module defines:
 
-* :class:`FusedGroup` -- abstract, ``k``-agnostic: ``group_size`` plus
-  ``reconstruct(x, member) -> Tensor`` (the output of member ``member`` for
-  input ``x``). A ``k > 2`` group can implement this without touching the layer.
-* :class:`MLPFusedGroup` -- the concrete ``k == 2`` implementation. Its
-  :meth:`reconstruct` delegates straight to :meth:`AdvancedMLP.forward_unzip`.
-* :class:`FusedExpert` -- the on-disk artifact for a fused group. It serializes
-  the *reconstruction contract* (group size + reconstruction kind), not just the
-  weights, on top of the versioned ``state_dict`` + header serializer. It never
-  pickles an ``nn.Module``.
+* :class:`FusedGroup` -- k-agnostic abstract contract: ``group_size`` and
+  ``reconstruct(x, member) -> Tensor``.
+* :class:`MLPFusedGroup` -- concrete k==2 implementation via
+  :meth:`AdvancedMLP.forward_unzip`.
+* :class:`FusedExpert` -- on-disk artifact storing weights plus reconstruction
+  contract metadata (group size + kind). Never pickles an nn.Module.
 
-:class:`~common.fusion_layer.FusionLayer` reconstructs through
-:meth:`reconstruct` (wrapping each fused expert in an :class:`MLPFusedGroup`)
-instead of a baked-in ``forward_unzip(out=)``, and the least-squares adapter
-refits its unmerge matrix through the public
-:meth:`~common.mlp.AdvancedMLP.refit_unmerge` rather than poking ``.U``/``.down``
-from the outside.
-
-Library code only -- this module never imports an experiment ``config``.
+Library code only -- this module never imports an experiment config.
 """
 
 from abc import ABC, abstractmethod
@@ -35,10 +22,8 @@ from common import serialization
 from common.mlp import AdvancedMLP
 from common.serialization import Artifact, SerializationError
 
-# Reconstruction-kind tag stored in a FusedExpert header. It names the
-# :class:`FusedGroup` implementation needed to rebuild the runtime group, so a
-# future ``k > 2`` (or least-squares ``refit_unmerge``) reconstruction is an
-# additive new tag rather than a breaking change.
+# Tag stored in the FusedExpert header naming which FusedGroup implementation
+# to use. Adding a new tag handles future k>2 variants without breaking changes.
 ZIP_UNMERGE_RECONSTRUCTION = "zip_unmerge"
 
 # Header fields the FusedExpert artifact owns on top of the AdvancedMLP header.
@@ -48,18 +33,14 @@ RECONSTRUCTION_FIELD = "reconstruction"
 # Payload-type tag for a fused-group artifact.
 PAYLOAD_FUSED_EXPERT = "fused_expert"
 
-# The zip/``build_MU`` unmerge is strictly a pairwise (k == 2) construction; its
-# generalization is left to other researchers.
+# zip/build_MU unmerge is strictly pairwise (k == 2).
 _ZIP_UNMERGE_GROUP_SIZE = 2
 
 
 class FusedGroup(ABC):
-    """Abstract, ``k``-agnostic runtime contract for a fused group of experts.
+    """Abstract k-agnostic contract: reconstruct any member's output from the fused module.
 
-    A concrete group reconstructs the output of any one of its ``group_size``
-    members for a given input. :class:`~common.fusion_layer.FusionLayer` depends
-    on this contract, not on a fixed ``out=0|1`` argument, so a ``k > 2`` group
-    works without changing the layer.
+    FusionLayer depends on this, not a fixed out=0|1 arg, so k>2 works without changing the layer.
     """
 
     @property
@@ -81,12 +62,9 @@ class FusedGroup(ABC):
 
 
 class MLPFusedGroup(FusedGroup):
-    """Pairwise (``k == 2``) fused group backed by :meth:`AdvancedMLP.forward_unzip`.
+    """Pairwise (k==2) fused group: reconstruct(x, m) == mlp.forward_unzip(x, out=m).
 
-    The reconstruction of member ``m`` is exactly ``mlp.forward_unzip(x, out=m)``
-    -- the zip/``build_MU`` unmerge. The member order
-    is the orientation contract: member ``0`` is the first original expert,
-    member ``1`` the second (``out=(0 if expert_idx == pair[0] else 1)``).
+    Member 0 = first original expert, member 1 = second.
     """
 
     reconstruction = ZIP_UNMERGE_RECONSTRUCTION
@@ -113,13 +91,10 @@ class MLPFusedGroup(FusedGroup):
 
 
 class FusedExpert:
-    """Serializable artifact for one fused group of ``k`` experts.
+    """On-disk artifact for one fused group.
 
-    Wraps the fused :class:`AdvancedMLP` together with the reconstruction
-    contract metadata (``group_size`` + reconstruction kind) so a loader can
-    rebuild the *runtime* :class:`FusedGroup`, not just the weights. Persisted
-    through the versioned ``state_dict`` + header serializer: never a
-    pickled module.
+    Stores the AdvancedMLP weights plus group_size and reconstruction kind so
+    the loader can rebuild the runtime FusedGroup. Never pickled.
     """
 
     def __init__(
@@ -157,11 +132,7 @@ class FusedExpert:
         return MLPFusedGroup(self.mlp)
 
     def to_artifact(self) -> Artifact:
-        """Encode as a ``state_dict`` + header :class:`~common.serialization.Artifact`.
-
-        Reuses :func:`common.serialization.mlp_to_artifact` for the weights and
-        shape/activation header, and adds the reconstruction-contract fields.
-        """
+        """Encode to a state_dict + header Artifact, adding reconstruction-contract fields."""
         base = serialization.mlp_to_artifact(self.mlp)
         header = {
             **base.header,
@@ -182,10 +153,10 @@ class FusedExpert:
         return cls(mlp, group_size=group_size, reconstruction=reconstruction)
 
     def save(self, path, *, provenance: Optional[dict] = None) -> None:
-        """Persist to ``path`` as a versioned safetensors artifact.
+        """Save to path as a versioned safetensors file.
 
-        ``provenance`` is the optional header slot: the fusion step stores the
-        upstream hash there so a resume can skip an already-fresh work item.
+        provenance is stored in the header; the fusion step uses it to skip
+        already-fresh work items on resume.
         """
         artifact = self.to_artifact()
         serialization.save(

@@ -1,25 +1,15 @@
-"""Provenance, config snapshot, run manifest and idempotency.
+"""Provenance, config snapshot, run manifest, and idempotency helpers.
 
-The pipeline must be able to (a) record *how* each artifact was produced,
-(b) refuse to run a stage against a ``DATA_DIR`` written under a different
-config, and (c) skip a work item that is already up to date. This module owns
-those three concerns:
+Three concerns:
+* **Config snapshot** -- stage 1 writes ``config_snapshot.json``; every later
+  stage calls ``assert_config_matches_snapshot`` and fails with a per-key diff
+  if the config drifted.
+* **Run manifest** -- ``RunManifest`` (seed, commit, model id, dataset
+  fingerprint, config hash) written alongside the artifacts.
+* **Idempotency** -- ``is_fresh`` checks whether a fused artifact's stored
+  upstream hash still matches; if so, the work item is skipped on re-run.
 
-* **Config snapshot** -- the first stage writes a canonical ``config_snapshot.json`` of
-  the run's config (ephemeral keys such as ``device`` dropped, values stabilized
-  so the hash is reproducible across processes). Every later stage calls
-  :func:`assert_config_matches_snapshot` and fails fast with a per-key diff if
-  the live config drifted.
-* **Run manifest** -- a per-run :class:`RunManifest` (seed, commit, model id,
-  dataset fingerprint, config hash) written alongside the artifacts.
-* **Fingerprints + idempotency** -- :func:`dataset_fingerprint` for the dataset
-  provenance and :func:`fused_upstream_hash` / :func:`is_fresh` for skip-if-done
-  resume: a fused artifact carries its upstream hash in the serializer's
-  provenance slot, and a re-run skips it when the hash still matches.
-
-Library code only -- this module never imports an experiment ``config``. The
-experiment builds the plain value map and passes it in; the canonicalization,
-hashing, on-disk JSON and the freshness check live here.
+Library-only: never imports experiment config. Callers pass a plain dict.
 """
 
 import hashlib
@@ -36,11 +26,7 @@ RUN_MANIFEST_FILENAME = "run_manifest.json"
 
 
 def git_commit(repo_dir: Optional[str] = None) -> Optional[str]:
-    """Best-effort current git commit hash for provenance.
-
-    Returns ``None`` outside a repository, when git is unavailable, or on any
-    error -- provenance is recorded when it can be, never a hard dependency.
-    """
+    """Return the current git commit hash, or None on any error."""
     try:
         result = subprocess.run(
             ["git", "rev-parse", "HEAD"],
@@ -55,8 +41,7 @@ def git_commit(repo_dir: Optional[str] = None) -> Optional[str]:
         return None
     return result.stdout.strip() or None
 
-# Config keys that are environment-specific and excluded from the canonical
-# snapshot and its hash -- a device move must not invalidate the artifacts.
+# Keys excluded from the snapshot/hash; changing these must not invalidate artifacts.
 EPHEMERAL_CONFIG_KEYS = frozenset({"device"})
 
 
@@ -64,11 +49,11 @@ EPHEMERAL_CONFIG_KEYS = frozenset({"device"})
 # Value stabilization + canonicalization (reproducible across processes).
 # --------------------------------------------------------------------------- #
 def _stable(value: Any) -> Any:
-    """Map a config value to a JSON-safe, process-stable representation.
+    """Convert a config value to a JSON-safe, process-stable form.
 
-    Plain scalars pass through; containers recurse; ``torch`` dtypes/devices and
-    types become their names; any other object becomes its *class name* (never
-    its ``repr``, whose memory address would make the hash non-reproducible).
+    Scalars pass through; containers recurse; torch dtypes/devices and types
+    become their string name. Unknown objects become their class name (not
+    repr, which contains memory addresses that differ between processes).
     """
     import torch
 
@@ -135,10 +120,9 @@ def read_config_snapshot(data_dir: str) -> Optional[dict]:
 def assert_config_matches_snapshot(
     data_dir: str, config: dict, *, keys: Optional[list] = None
 ) -> None:
-    """Raise :class:`ConfigMismatchError` with a per-key diff on config drift.
+    """Raise ConfigMismatchError with a per-key diff if the live config drifted from the snapshot.
 
-    ``keys`` optionally restricts the comparison to the fields a stage depends
-    on. An absent snapshot (nothing written yet) is allowed -- nothing to compare.
+    ``keys`` restricts comparison to specific fields. Missing snapshot is a no-op.
     """
     snapshot = read_config_snapshot(data_dir)
     if snapshot is None:
@@ -204,11 +188,10 @@ def _safe_len(obj) -> Optional[int]:
 def dataset_fingerprint(
     dataset, *, n: Optional[int] = None, seed: Optional[int] = None
 ) -> str:
-    """Stable fingerprint of a dataset selection for the provenance header.
+    """Return a short stable hash identifying this dataset selection.
 
-    Best-effort across HF datasets (``_fingerprint`` / revision) and the fake
-    QA dataset: folds in the HF fingerprint when present plus the selection size
-    and seed, so two runs over the same data + selection agree.
+    Folds in size, seed, and the HF ``_fingerprint`` when available, so two
+    runs over the same data and selection produce the same fingerprint.
     """
     parts = [f"n={n}", f"seed={seed}", f"len={_safe_len(dataset)}"]
     fingerprint = getattr(dataset, "_fingerprint", None)
@@ -224,14 +207,11 @@ def dataset_fingerprint(
 def fused_upstream_hash(
     *, config_hash: str, layer: int, method: str, group: int, extra: Optional[str] = None
 ) -> str:
-    """Cheap upstream hash for one fused ``(layer, method, group)`` work item.
+    """Hash identifying one (layer, method, group) work item for skip-if-done.
 
-    Folds in the run's config hash (model / data / seed / methods -> the experts
-    and calibration inputs) and the work-item coordinates, plus an optional
-    ``extra`` (e.g. the partition header hash). It deliberately does **not** read
-    the (potentially large) expert weights: those are fully determined by the
-    config, which is already in the hash. Stored in the artifact's provenance
-    slot so :func:`is_fresh` can decide skip-vs-recompute.
+    Combines config hash and work-item coordinates; does not read expert weights
+    (they are fully determined by the config). Stored in the artifact so
+    ``is_fresh`` can decide whether to skip recomputation.
     """
     parts = [f"cfg={config_hash}", f"layer={layer}", f"method={method}", f"group={group}"]
     if extra is not None:
@@ -249,12 +229,10 @@ def header_hash(path: str) -> str:
 # Idempotency / resume.
 # --------------------------------------------------------------------------- #
 def is_fresh(path: str, upstream_hash: str) -> bool:
-    """True iff ``path`` exists and its provenance ``upstream_hash`` matches.
+    """Return True if the artifact at ``path`` is up to date with ``upstream_hash``.
 
-    The skip-if-done predicate: a fused artifact records its upstream hash
-    in the serializer provenance slot, so a re-run with unchanged upstream finds
-    a matching hash and skips the recompute. A missing file, a header without the
-    hash, or any read error all read as *not fresh* (recompute), never a crash.
+    Checks the stored provenance hash; returns False on missing file, missing
+    hash field, or any read error (triggers recompute, never crashes).
     """
     if not os.path.isfile(path):
         return False

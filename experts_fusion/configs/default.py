@@ -1,13 +1,10 @@
-"""Default experiment config.
+"""Default experiment config for the experts-fusion pipeline.
 
-The values a run needs. Copy this file to ``experts_fusion/configs/<name>.py``,
-edit it (e.g. a different ``DATA_DIR`` + dataset), and run it with
-``python -m experts_fusion.run --config <name>`` -- several configs can run on
-one disk without colliding because every output is scoped under ``DATA_DIR``.
-
-``experts_fusion.config`` selects the active one of these by name (env var
-``EXPERTS_FUSION_CONFIG``, set by ``run.py --config``; defaults to ``default``)
-and re-exports the names in ``__all__`` below.
+To run a different experiment, copy this file to ``experts_fusion/configs/<name>.py``,
+adjust the values, and pass ``--config <name>`` to ``python -m experts_fusion.run``.
+Each config scopes its outputs under its own ``DATA_DIR``, so multiple configs coexist
+on one disk without collision. The active config is selected by the
+``EXPERTS_FUSION_CONFIG`` env var (set by ``run.py --config``; defaults to ``default``).
 """
 import torch
 
@@ -26,12 +23,12 @@ TRAIN_DATASET_NAME = {"path": "cais/mmlu", "name": "all", "split": "auxiliary_tr
 VALIDATION_DATASET_NAME = {"path": "cais/mmlu", "name": "all", "split": "validation"}
 TEST_DATASET_NAME = {"path": "cais/mmlu", "name": "all", "split": "test"}
 
-# Column name holding the input text in the datasets above (read by stages 1 and 4).
+# Input text field in the datasets above; read by stages 1 and 4.
 DATASET_TEXT_FIELD = "question"
 
-TRAIN_SIZE = 1_024       # reconstruction train + order-selection QA
-VALIDATION_SIZE = 1_024  # reconstruction validation (held-out)
-TEST_SIZE = 15_000       # final accuracy QA, large for tight CI
+TRAIN_SIZE = 1_024       # train set for reconstruction and layer-order selection
+VALIDATION_SIZE = 1_024  # held-out set for reconstruction validation
+TEST_SIZE = 15_000       # large set for final accuracy evaluation
 LAYERS = list(range(24))
 TOP_K = 4
 
@@ -39,33 +36,30 @@ REPLACE_LAYERS_SEQUENTIAL = False
 REPLACE_BEST_LAYERS_SEQUENTIAL = True
 REPLACE_LAYERS_SMART_SEQUENTIAL = False
 
-# Stage 4 (evaluate): keep original experts in memory next to fused ones for A/B
-# comparison (True) or load only fused experts for production-style evaluation (False).
+# True: keep original experts alongside fused ones for A/B comparison.
+# False: load only fused experts (production mode).
 USE_DEFAULT_EXPERTS = False
 
-# A group's fusion metrics are computed only when it has strictly MORE than this
-# many validation activations (stage 3), i.e. the effective minimum is this + 1.
+# Stage 3: compute fusion metrics only for groups with more than this many
+# validation activations (effective minimum = this value + 1).
 MIN_PAIR_VALIDATION_SAMPLES = 10
 
-# Fusion method whose saved experts the stage-4 diagnostics (recon benchmark +
-# generation) load and inspect. Must be one of the method names produced by stage 3.
+# Method whose fused experts stage 4 uses for diagnostics (recon + generation).
+# Must be one of the method names produced by stage 3.
 INSPECT_FUSION_METHOD = ZipItFusion.name
 
 SEED = 42
 
-# Model/tokenizer adapters (dependency injection). Each hides a
-# model-family-specific concern behind a common/ interface; the Qwen15* defaults
-# reproduce the current Qwen1.5-MoE behavior. Swap the instance to retarget the
-# pipeline at another family without editing the stages.
-#   - ROUTER_ADAPTER: canonicalizes the gate output into (selected_experts,
-#     routing_weights); normalize_topk=False matches Qwen1.5 norm_topk_prob=False.
-#   - EXPERT_ADAPTER: extracts each routed expert as an AdvancedMLP (stage 1).
-#   - QA_PARSER: builds the eval prompt + resolves answer-letter token ids (stage 4).
+# Dependency-injection adapters for model-family-specific logic. Swap the Qwen15*
+# instances to retarget the pipeline at another model family without touching the stages.
+#   - ROUTER_ADAPTER: gate output → (selected_experts, routing_weights).
+#   - EXPERT_ADAPTER: extracts each expert as an AdvancedMLP (stage 1).
+#   - QA_PARSER: builds eval prompts and resolves answer token ids (stage 4).
 ROUTER_ADAPTER = Qwen15RouterAdapter()
 EXPERT_ADAPTER = Qwen15ExpertAdapter()
 QA_PARSER = Qwen15QAParser()
 
-# One of the PairingMethod members (activation_correlation / random / output_similarity).
+# Expert-pairing strategy; one of: activation_correlation, random, output_similarity.
 PAIRING_METHOD = PairingMethod.ACTIVATION_CORRELATION
 
 FILTER_FUSIONS = None

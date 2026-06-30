@@ -1,28 +1,15 @@
-"""Generic in-tree registry of named strategies.
+"""Generic ordered registry mapping names to strategy objects.
 
-Instead of reading fusion methods / metrics / grouping names from literal lists
-and ``if``-chains, the pipeline uses a single :class:`Registry` type so a new
-strategy is added by *registering a subclass* in the source, not by editing
-``if``-chains across the stages:
+New strategies (fusion methods, metrics, grouping) are added by subclassing
+and calling ``register(name, instance)`` once at import — no ``if``-chains
+to update across pipeline stages.
 
-* strategies are registered in a fixed, pinned order (the order the golden
-  ``registry`` snapshot guards);
-* you add your own by writing a subclass and calling ``register(name, instance)``
-  next to the built-ins;
-* registration collisions are an explicit error (``override=False`` by default),
-  never a silent shadow.
+``Registry`` is an ordered ``Mapping`` (name → object), so stages iterate it
+with ``.items()`` / ``.keys()`` / ``registry[name]``. Registration collisions
+are always a loud error. ``require_registered`` / ``require_all_registered``
+validate config values early, failing fast with the valid set listed.
 
-A :class:`Registry` is an ordered :class:`~collections.abc.Mapping`
-(name -> object), so it is a drop-in for the plain ``name -> instance`` dicts the
-stages already iterate (``.items()`` / ``.keys()`` / ``registry[name]`` /
-``name in registry``). Iteration order is registration order.
-
-Config validation is driven from :meth:`Registry.names` via
-:func:`require_registered` / :func:`require_all_registered`, so a bad config
-choice fails fast at the top of a stage with the valid set spelled out, rather
-than deep inside with a ``KeyError`` or a silently skipped branch.
-
-Library code only -- this module never imports an experiment ``config``.
+Library code only — never imports ``config``.
 """
 
 from collections.abc import Mapping
@@ -34,12 +21,10 @@ class RegistryError(Exception):
 
 
 class Registry(Mapping):
-    """Ordered ``name -> object`` registry with collision-checked registration.
+    """Ordered ``name -> object`` store with collision-checked registration.
 
-    Implements the :class:`~collections.abc.Mapping` protocol (iteration in
-    registration order), so it can stand in for the plain dicts the pipeline
-    stages consume. New entries are added with :meth:`register`; the canonical
-    in-tree registries are populated once at import in a pinned order.
+    Implements ``Mapping`` (iteration in registration order). Add entries with
+    :meth:`register`; built-in registries are populated once at import.
     """
 
     def __init__(self, name: str):
@@ -62,10 +47,8 @@ class Registry(Mapping):
         return len(self._items)
 
     def __contains__(self, key) -> bool:
-        # Override the Mapping mixin: its default probes ``__getitem__`` and only
-        # swallows ``KeyError``, but our ``__getitem__`` raises ``RegistryError``
-        # on a miss -- so ``name in registry`` must test the backing dict directly
-        # (used by the config-validation helpers).
+        # Mapping default catches KeyError, but __getitem__ raises RegistryError,
+        # so test the backing dict directly.
         return key in self._items
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
@@ -73,21 +56,12 @@ class Registry(Mapping):
 
     # -- Registration ------------------------------------------------------- #
     def register(self, name: str, obj=None, *, override: bool = False):
-        """Register ``obj`` under ``name``; usable as a function or a decorator.
+        """Register ``obj`` under ``name``; works as a direct call or a decorator.
 
-        Function form::
+        Direct: ``registry.register("Average", AverageFusion())``
+        Decorator: ``@registry.register("Average")`` — registers and returns the class.
 
-            registry.register("Average", AverageFusion())
-
-        Decorator form (``obj`` omitted; the decorated object is registered and
-        returned unchanged)::
-
-            @registry.register("Average")
-            class AverageFusion(...):
-                ...
-
-        A name already present raises :class:`RegistryError` unless
-        ``override=True`` -- collisions are loud, never a silent shadow.
+        Raises :class:`RegistryError` on a name collision unless ``override=True``.
         """
         if obj is None:
             def decorator(decorated):
@@ -117,11 +91,9 @@ class Registry(Mapping):
 # Config validation driven from Registry.names().
 # --------------------------------------------------------------------------- #
 def require_registered(value, registry: Registry, *, field: str) -> None:
-    """Raise a clear error if ``value`` is not a registered name.
+    """Raise ``ValueError`` if ``value`` is not in ``registry``.
 
-    Validates one config choice (e.g. ``PAIRING_METHOD``) against the registry
-    at the top of a stage, so a typo fails fast with the valid set listed.
-    ``None`` is accepted (an unset/optional field).
+    Validates one config field at stage start; ``None`` is accepted (unset field).
     """
     if value is None:
         return
@@ -133,10 +105,9 @@ def require_registered(value, registry: Registry, *, field: str) -> None:
 
 
 def require_all_registered(values, registry: Registry, *, field: str) -> None:
-    """Raise if any element of ``values`` is not registered.
+    """Raise ``ValueError`` if any element of ``values`` is not in ``registry``.
 
-    For collection-valued config fields (``FILTER_FUSIONS`` / ``FILTER_METRICS``).
-    ``None`` is accepted (an unset filter); an empty collection passes trivially.
+    For collection-valued config fields. ``None`` is accepted; empty passes.
     """
     if values is None:
         return

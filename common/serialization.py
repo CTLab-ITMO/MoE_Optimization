@@ -1,33 +1,17 @@
-"""Versioned artifact (de)serializer over ``safetensors``.
+"""Versioned artifact (de)serializer over safetensors.
 
-This is the serialization contract every pipeline artifact will be built on
-(the meaningful artifact *classes* themselves land in a later step). The
-contract, in one sentence: an artifact on disk is a **``state_dict`` of tensors
-plus a JSON header of metadata** -- it is never a pickled ``nn.Module``.
+Every pipeline artifact is a ``state_dict`` of tensors plus a JSON header --
+never a pickled ``nn.Module``. Using safetensors avoids pickle hazards
+(class renames break pickles; torch>=2.6 rejects them) and lets you read
+the header and tensor shapes without loading any weights (``peek``/``load_header``).
 
-Why not ``torch.save`` of a module:
+Versioning: every header carries ``FORMAT_VERSION``; artifacts written by a
+newer reader raise ``FormatVersionError``. Header-only upgrades between
+versions use an additive registry (``register_upgrader``). Legacy pickled
+``.pt`` files (v0: ``AdvancedMLP`` or ``[(i, j)]`` pairs) are migrated via
+``migrate_v0_to_v1`` / ``load_legacy``.
 
-* pickled modules break the moment a class is renamed/moved;
-* ``torch>=2.6`` loads with ``weights_only=True`` and refuses arbitrary pickles;
-* a pickle is opaque to other tools and a security risk.
-
-``safetensors`` gives us exactly the contract for free: tensors in a flat,
-typed container (bf16-exact, no pickle) and a string metadata slot for the JSON
-header, with lazy per-key access (:func:`peek`/:func:`load_header` read the
-header and tensor shapes without materializing any weights).
-
-Versioning & migration:
-
-* every artifact header carries :data:`FORMAT_VERSION`;
-* ``version > FORMAT_VERSION`` (artifact written by a newer reader) is an
-  explicit :class:`FormatVersionError`, never a silent misread;
-* within-format header upgrades are an additive registry
-  (:func:`register_upgrader`, applied by :func:`load`);
-* the legacy pickled ``.pt`` files (v0: a pickled ``AdvancedMLP`` or a raw
-  ``(i, j)`` pair list) are bridged into the v1 envelope by
-  :func:`migrate_v0_to_v1` / :func:`load_legacy`.
-
-Library code only -- this module never imports an experiment ``config``.
+This module is library code -- it never imports an experiment config.
 """
 
 import json
@@ -46,15 +30,12 @@ from common.numeric import _default_device
 # changes and register an upgrader (see register_upgrader).
 FORMAT_VERSION = 1
 
-# Number of attempts (>= 1) to write an artifact before giving up. This knob
-# originally guarded a flaky pickle ``torch.save``; safetensors never pickles,
-# but a transient filesystem failure (network mount, full-then-freed disk) can
-# still hit the single ``save_file`` call, so the retry resilience is kept on
-# the centralized save path.
+# Max write attempts before giving up. Safetensors never pickles, but
+# transient filesystem failures (network mount, full disk) can still
+# hit save_file, so retry logic is kept on the centralized save path.
 IO_SAVE_RETRIES = 3
 
-# safetensors metadata key holding the JSON header, and the header fields the
-# serializer owns.
+# safetensors metadata key for the JSON header, and the header field names.
 _HEADER_KEY = "header"
 VERSION_FIELD = "format_version"
 PAYLOAD_TYPE_FIELD = "payload_type"
@@ -77,10 +58,9 @@ class FormatVersionError(SerializationError):
 
 @dataclass(frozen=True)
 class Artifact:
-    """A loaded artifact: a tensor ``state_dict`` plus its JSON metadata header.
+    """A loaded artifact: tensors (``state_dict``) plus a JSON metadata header.
 
-    ``header`` always carries :data:`VERSION_FIELD`; it may carry
-    :data:`PAYLOAD_TYPE_FIELD` and a :data:`PROVENANCE_FIELD` slot.
+    The header always has ``format_version``; it may also have ``payload_type`` and ``provenance``.
     """
 
     tensors: dict[str, torch.Tensor]
@@ -96,8 +76,7 @@ class ArtifactInfo:
 
 
 # --------------------------------------------------------------------------- #
-# Provenance slot. The slot exists from v1; later stages populate it
-# fully (commit / config-hash / dataset fingerprint).
+# Provenance slot -- carries commit, config-hash, dataset, and upstream hashes.
 # --------------------------------------------------------------------------- #
 def make_provenance(
     *,
@@ -147,11 +126,10 @@ def save(
     payload_type: Optional[str] = None,
     provenance: Optional[dict] = None,
 ) -> None:
-    """Write ``tensors`` + JSON ``header`` to ``path`` as a versioned safetensors.
+    """Write a state_dict and JSON header to a versioned safetensors file.
 
-    ``tensors`` must be a dict of tensors (a ``state_dict``); passing an
-    ``nn.Module`` or any non-tensor value is an error -- this serializer never
-    pickles. The current :data:`FORMAT_VERSION` is always stamped into the header.
+    ``tensors`` must be a dict of ``torch.Tensor``; passing an ``nn.Module`` or
+    any non-tensor raises an error. ``FORMAT_VERSION`` is always stamped into the header.
     """
     _validate_tensors(tensors)
     full_header = dict(header or {})
@@ -233,9 +211,9 @@ _UPGRADERS: dict[int, Callable[[Artifact], Artifact]] = {}
 
 
 def register_upgrader(from_version: int):
-    """Register an upgrader bringing a v``from_version`` artifact to the next version.
+    """Register a v``from_version`` -> v``from_version+1`` upgrade function.
 
-    Collision is an error (no silent override); the chain is applied by :func:`load`.
+    Duplicate registrations raise; the chain runs automatically in ``load``.
     """
 
     def decorator(func: Callable[[Artifact], Artifact]) -> Callable[[Artifact], Artifact]:
@@ -264,12 +242,10 @@ def _apply_upgraders(artifact: Artifact, version: int) -> Artifact:
 # AdvancedMLP <-> artifact (the expert payload).
 # --------------------------------------------------------------------------- #
 def mlp_to_artifact(mlp: AdvancedMLP) -> Artifact:
-    """Serialize an :class:`AdvancedMLP` as ``state_dict`` tensors + a header.
+    """Serialize an ``AdvancedMLP`` to an ``Artifact`` (state_dict + header).
 
-    The header records exactly what ``state_dict`` alone cannot: the layer
-    shape (``in/hid/out``), the activation, the weight dtype (so ``peek`` can
-    report it), and whether the optional ``down`` layer and ``U`` unmerge matrix
-    are present. The tensors carry their own dtype, so the round-trip is exact.
+    The header stores layer shape (in/hid/out), activation, weight dtype, and
+    flags for the optional ``down`` layer and ``U`` unmerge matrix.
     """
     tensors = {key: value for key, value in mlp.state_dict().items()}
     header = {
@@ -289,8 +265,7 @@ def artifact_to_mlp(artifact: Artifact, device: Optional[torch.device] = None) -
     if device is None:
         device = _default_device()
     header = artifact.header
-    # Rebuild with the activation recorded in the header (default SiLU, the Qwen
-    # expert MLP); an unregistered activation raises in make_activation.
+    # Use the activation from the header (default SiLU); unknown activations raise.
     activation = header.get("activation", "SiLU")
     mlp = AdvancedMLP(
         int(header["in_features"]),
@@ -300,16 +275,13 @@ def artifact_to_mlp(artifact: Artifact, device: Optional[torch.device] = None) -
         activation=activation,
     )
     tensors = {key: value.to(device) for key, value in artifact.tensors.items()}
-    # Drop ``down`` before loading so the module's expected keys match the
-    # state (an LS-fused expert has no ``down``); load weights; then attach the
-    # optional ``U`` unmerge matrix (kept out of load_state_dict so strict=True
-    # holds for the gate/up/down weights).
+    # Remove ``down`` if absent in the saved state (LS-fused experts have no down).
+    # Load weights with strict=True; attach ``U`` separately (not in state_dict).
     if not header.get("has_down", "down.weight" in tensors):
         mlp.down = None
     state = {key: value for key, value in tensors.items() if key != "U"}
-    # ``assign=True`` swaps in the saved tensors directly instead of copying into
-    # the freshly built (float32) params, so the loaded weights keep their saved
-    # dtype (e.g. bf16) -- a plain copy would silently up-cast them to float32.
+    # assign=True swaps tensors in-place, preserving their saved dtype (e.g. bf16).
+    # Without it, a copy would silently up-cast to float32.
     mlp.load_state_dict(state, strict=True, assign=True)
     if header.get("has_U", "U" in tensors):
         mlp.U = torch.nn.Parameter(tensors["U"])
@@ -342,12 +314,10 @@ def _is_pairs_list(obj) -> bool:
 
 
 def migrate_v0_to_v1(legacy_obj) -> Artifact:
-    """Wrap a legacy pickled v0 object into a v1 :class:`Artifact`.
+    """Migrate a legacy pickled v0 object to a v1 ``Artifact``.
 
-    Understands the two artifacts the old pipeline pickled: an
-    :class:`AdvancedMLP` expert and a raw ``[(i, j), ...]`` pair list. The
-    returned artifact carries its :data:`PAYLOAD_TYPE_FIELD` and is byte-free of
-    pickle; :func:`save` will stamp the current format version onto it.
+    Handles two v0 types: ``AdvancedMLP`` expert and ``[(i, j), ...]`` pair list.
+    The returned artifact has ``payload_type`` set and contains no pickle data.
     """
     if isinstance(legacy_obj, AdvancedMLP):
         artifact = mlp_to_artifact(legacy_obj)

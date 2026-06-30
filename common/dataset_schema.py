@@ -1,24 +1,14 @@
-"""Declarative dataset-schema registry for QA evaluation samples.
+"""Declarative schema registry for QA evaluation samples.
 
-QA evaluation samples arrive in several shapes (MMLU, Winogrande, ARC,
-OpenBookQA, CommonsenseQA). Rather than reading each shape through a
-hand-written ``if/elif`` chain in three helpers:
+Handles five dataset shapes (MMLU, Winogrande, ARC, OpenBookQA, CommonsenseQA)
+via ordered, presence-keyed rule tables instead of if/elif chains.
+Each field (question, choices, answer) has its own rules; the first matching
+rule wins, so hybrids work without guessing the whole-sample schema.
 
-* ``_extract_question`` -- ``"question"`` else ``"sentence"`` else ``"question_stem"``;
-* ``_extract_choices`` -- a ``"choices"`` dict (label/text), a ``"choices"`` list
-  (synthesize ``A.. letters``), or ``"option1"/"option2"``;
-* ``_extract_answer`` -- ``"answerKey"``, else the ``"answer"`` value (an int
-  index, an already-resolved letter, or a 1-based numeric string),
+Public API: ``resolve_question``, ``resolve_choices``, ``resolve_answer``.
+Named per-family schemas live in ``SCHEMA_REGISTRY``; ``detect_schema`` picks one.
 
-this module uses a *declarative table*: each field has an ordered tuple of
-presence-keyed rules whose first match wins, plus a registry of named
-:class:`DatasetSchema` descriptors -- one per dataset family -- usable for
-introspection / detection. The module-level :func:`resolve_question`,
-:func:`resolve_choices` and :func:`resolve_answer` handle every sample shape,
-including hybrids, because they are driven by per-field key-presence priority
-rather than by a whole-sample schema guess.
-
-Library code only -- this module never imports an experiment ``config``.
+Library code only -- never imports an experiment config.
 """
 
 from dataclasses import dataclass
@@ -26,15 +16,13 @@ from typing import Callable
 
 from common.registry import Registry
 
-# Ordered question-key priority, mirroring ``qa_eval._extract_question`` exactly:
-# ``question`` (MMLU / ARC / CommonsenseQA) -> ``sentence`` (Winogrande) ->
-# ``question_stem`` (OpenBookQA).
+# Question-key lookup order: "question" (MMLU/ARC/CommonsenseQA) -> "sentence" (Winogrande)
+# -> "question_stem" (OpenBookQA). First key found wins.
 QUESTION_KEYS: tuple[str, ...] = ("question", "sentence", "question_stem")
 
 
 # --------------------------------------------------------------------------- #
-# Field strategy functions (declared once; referenced by both the per-field
-# rule tables below and the named schemas in SCHEMA_REGISTRY).
+# Field strategy functions used by both the rule tables and SCHEMA_REGISTRY.
 # --------------------------------------------------------------------------- #
 def _choices_from_dict(sample: dict) -> tuple[list, list]:
     """``choices`` is a ``{"label": [...], "text": [...]}`` dict (ARC / OpenBookQA / CommonsenseQA)."""
@@ -55,11 +43,10 @@ def _choices_from_options(sample: dict) -> tuple[list, list]:
 
 
 def _resolve_answer_value(ans, labels: list) -> str:
-    """Resolve the ``"answer"`` field value, mirroring ``qa_eval._extract_answer``.
+    """Normalize the ``"answer"`` field to a label letter.
 
-    ``int`` -> ``labels[ans]`` (MMLU); an already-resolved letter is returned
-    as-is; otherwise a 1-based numeric string -> ``labels[int(ans) - 1]``
-    (Winogrande: ``'1'`` -> ``'A'``, ``'2'`` -> ``'B'``).
+    int -> labels[ans] (MMLU); letter already in labels -> returned as-is;
+    1-based string -> labels[int(ans)-1] (Winogrande: '1'->'A', '2'->'B').
     """
     if isinstance(ans, int):  # mmlu
         return labels[ans]
@@ -69,8 +56,7 @@ def _resolve_answer_value(ans, labels: list) -> str:
 
 
 # --------------------------------------------------------------------------- #
-# Per-field rule tables: ordered, presence-keyed; first match wins. The order
-# IS the ``if/elif`` priority of the inline ``_extract_*`` helpers.
+# Per-field rule tables: ordered, presence-keyed; first match wins.
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class _ChoiceRule:
@@ -97,12 +83,10 @@ _ANSWER_RULES: tuple[_AnswerRule, ...] = (
 
 
 # --------------------------------------------------------------------------- #
-# Module-level resolvers (the canonical path the stages wire against). Driven by
-# the per-field rule tables, so behaviour is identical to ``_extract_*`` for any
-# sample shape -- no whole-sample schema guess that could diverge on a hybrid.
+# Public resolvers driven by the rule tables above; work for any sample shape.
 # --------------------------------------------------------------------------- #
 def resolve_question(sample: dict) -> str:
-    """Question text, by key-presence priority (== ``qa_eval._extract_question``)."""
+    """Return question text using key-presence priority order."""
     for key in QUESTION_KEYS:
         if key in sample:
             return sample[key]
@@ -110,7 +94,7 @@ def resolve_question(sample: dict) -> str:
 
 
 def resolve_choices(sample: dict) -> tuple[list, list]:
-    """``(labels, texts)`` for a sample (== ``qa_eval._extract_choices``)."""
+    """Return ``(labels, texts)`` for a sample's choices field."""
     for rule in _CHOICE_RULES:
         if rule.detect(sample):
             return rule.resolve(sample)
@@ -118,12 +102,11 @@ def resolve_choices(sample: dict) -> tuple[list, list]:
 
 
 def resolve_answer(sample: dict, labels: list) -> str:
-    """Ground-truth answer letter for a sample (== ``qa_eval._extract_answer``)."""
+    """Return the ground-truth answer letter for a sample."""
     for rule in _ANSWER_RULES:
         if rule.detect(sample):
             return rule.resolve(sample, labels)
-    # Mirror the ``KeyError`` the inline code raises via ``sample["answer"]``
-    # when neither ``answerKey`` nor ``answer`` is present.
+    # Raise KeyError when neither "answerKey" nor "answer" is present.
     raise KeyError("answer")
 
 
@@ -132,15 +115,11 @@ def resolve_answer(sample: dict, labels: list) -> str:
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class DatasetSchema:
-    """Declarative descriptor of one dataset family's sample shape.
+    """Descriptor for one dataset family's sample shape.
 
-    Bundles the three field resolvers (question key, choices strategy, answer
-    strategy) and a ``detect`` predicate keyed on which keys a sample carries.
-    Registered by name in :data:`SCHEMA_REGISTRY`; :func:`detect_schema` returns
-    the first schema (in registration order) whose ``detect`` matches. The
-    bundled :meth:`resolve_question` / :meth:`resolve_choices` /
-    :meth:`resolve_answer` reproduce the inline ``qa_eval._extract_*`` behaviour
-    for that family.
+    Holds the question key, choices resolver, answer strategy, and a ``detect``
+    predicate. Registered by name in ``SCHEMA_REGISTRY``; ``detect_schema``
+    returns the first schema whose ``detect`` matches.
     """
 
     name: str
@@ -162,13 +141,11 @@ class DatasetSchema:
 
 
 def _build_schema_registry() -> Registry:
-    """The canonical dataset-schema registry, in detection-priority order.
+    """Build and return the named schema registry in detection-priority order.
 
-    ``commonsense_qa`` is registered before ``openbookqa`` so that the question
-    key priority (``"question"`` over ``"question_stem"``, matching
-    :data:`QUESTION_KEYS`) is preserved for any hybrid sample carrying both keys.
-    The ``commonsense_qa`` schema (``question`` + dict ``choices`` + ``answerKey``)
-    also covers ARC, which is key-identical.
+    ``commonsense_qa`` is registered before ``openbookqa`` so ``"question"``
+    takes priority over ``"question_stem"`` for hybrid samples. It also covers
+    ARC, which has the same key signature.
     """
     registry = Registry("dataset_schema")
     registry.register(
@@ -214,16 +191,12 @@ def _build_schema_registry() -> Registry:
     return registry
 
 
-# The single source of truth for named dataset schemas: a
-# name -> DatasetSchema Mapping, extended by registering a new schema in-tree.
+# Registry mapping name -> DatasetSchema; extend by registering a new schema in-tree.
 SCHEMA_REGISTRY: Registry = _build_schema_registry()
 
 
 def detect_schema(sample: dict) -> DatasetSchema:
-    """Return the first registered :class:`DatasetSchema` whose ``detect`` matches.
-
-    Raises :class:`KeyError` if no schema recognizes the sample's keys.
-    """
+    """Return the first ``DatasetSchema`` whose ``detect`` matches, or raise ``KeyError``."""
     for name in SCHEMA_REGISTRY.names():
         schema: DatasetSchema = SCHEMA_REGISTRY[name]
         if schema.detect(sample):

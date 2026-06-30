@@ -1,25 +1,15 @@
-"""Meaningful stored-data types for the pipeline.
+"""Data artifact classes for the pipeline.
 
-Every artifact a stage writes is an object of a class with its own interface and
-metadata, persisted through the versioned ``state_dict`` + header serializer --
-never a bare list/tensor and never a pickled module. This module holds the
-*data* artifacts; the fused-group runtime contract lives in
-:mod:`common.fused_group`.
+Each stage writes typed objects (not bare tensors or pickled modules) using
+versioned state_dict + JSON header serialization over safetensors.
 
 Classes:
+* Partition / Group -- grouping result: ordered list of expert-index groups plus method name.
+  from_pairs preserves order and orientation: group i gets members (pairs[i][0], pairs[i][1]).
+* GroupActivationIndex -- per-group lists of example indices that activate each group.
+* CoActivationMatrix -- EXPERTS x EXPERTS co-activation matrix with split/sample metadata.
 
-* :class:`Partition` / :class:`Group` -- a grouping result (list of groups, each
-  a collection of expert indices) plus the grouping-method metadata.
-  :meth:`Partition.from_pairs` is **order- and orientation-preserving**:
-  ``from_pairs(pairs).groups[i].members == (pairs[i][0], pairs[i][1])`` for all
-  ``i`` -- the invariant that keeps the per-group index and the ``out=0/1``
-  member orientation in sync.
-* :class:`GroupActivationIndex` -- per-group lists of the example indices that
-  activate each group.
-* :class:`CoActivationMatrix` -- an ``EXPERTS x EXPERTS`` co-activation matrix
-  plus metadata (split, sample size).
-
-Library code only -- this module never imports an experiment ``config``.
+Library code only; never imports an experiment config.
 """
 
 from dataclasses import dataclass
@@ -30,21 +20,21 @@ import torch
 from common import serialization
 from common.serialization import Artifact
 
-# Payload-type tags for the data artifacts.
+# Payload type tags used during serialization.
 PAYLOAD_PARTITION = "partition"
 PAYLOAD_GROUP_ACTIVATION_INDEX = "group_activation_index"
 PAYLOAD_COACTIVATION_MATRIX = "coactivation_matrix"
 
-# Header field holding the co-activation matrix tensor.
+# Header key for the matrix tensor.
 _MATRIX_TENSOR_KEY = "matrix"
 
 
 @dataclass(frozen=True)
 class Group:
-    """One group of fused experts: an ordered tuple of expert indices.
+    """Ordered tuple of expert indices forming one fused group.
 
-    The member order is the orientation contract (member ``0`` reconstructs as
-    ``out=0``, member ``1`` as ``out=1``); a pair is ``size == 2``.
+    Member order is the orientation contract: member 0 reconstructs as out=0,
+    member 1 as out=1. A pair group has size == 2.
     """
 
     members: tuple[int, ...]
@@ -56,10 +46,10 @@ class Group:
 
 @dataclass(frozen=True)
 class Partition:
-    """A grouping result: an ordered list of :class:`Group` + method metadata.
+    """Ordered list of Groups plus the grouping method name.
 
-    The group order is the ``i.pt`` index contract; the per-group member order is
-    the ``out=0/1`` orientation contract. Replaces the raw ``pairs/N.pt`` list.
+    Group order defines the per-group file index; member order within each group
+    defines the out=0/1 reconstruction orientation.
     """
 
     groups: tuple[Group, ...]
@@ -67,10 +57,9 @@ class Partition:
 
     @classmethod
     def from_pairs(cls, pairs, method: Optional[str] = None) -> "Partition":
-        """Build a (pairwise) partition from a ``[(i, j), ...]`` list.
+        """Build a partition from a [(i, j), ...] list.
 
-        Order- and orientation-preserving by construction: group ``i`` is
-        ``(pairs[i][0], pairs[i][1])`` -- the silent-break invariant.
+        Order- and orientation-preserving: group i gets members (pairs[i][0], pairs[i][1]).
         """
         groups = tuple(Group(members=(int(a), int(b))) for (a, b) in pairs)
         return cls(groups=groups, method=method)
@@ -119,8 +108,8 @@ class Partition:
 class GroupActivationIndex:
     """Per-group lists of example indices that activate each group.
 
-    ``indices[g]`` is the list of example indices that activated group ``g``.
-    The group order matches the :class:`Partition` it was built against.
+    indices[g] holds example indices that activated group g.
+    Group order matches the Partition this was built from.
     """
 
     indices: tuple[tuple[int, ...], ...]
@@ -174,10 +163,9 @@ class GroupActivationIndex:
 
 @dataclass(frozen=True)
 class CoActivationMatrix:
-    """An ``EXPERTS x EXPERTS`` co-activation matrix plus capture metadata.
+    """EXPERTS x EXPERTS co-activation matrix with capture metadata.
 
-    Carries the split it was captured on and the sample size, so a reader knows
-    the provenance of the grouping signal without re-deriving it.
+    Stores the data split and sample size so grouping provenance is self-contained.
     """
 
     matrix: torch.Tensor
@@ -221,9 +209,10 @@ class CoActivationMatrix:
 
 
 class SavedExpert:
-    """A single extracted expert -- an :class:`~common.mlp.AdvancedMLP` -- persisted
-    as a versioned ``state_dict`` + header safetensors artifact instead of a
-    pickled module. Reads back forward-identically (dtype preserved)."""
+    """A single extracted AdvancedMLP expert saved as a versioned safetensors artifact.
+
+    Loads back forward-identically with dtype preserved; never pickled.
+    """
 
     def __init__(self, mlp):
         self.mlp = mlp

@@ -1,14 +1,9 @@
-"""Diagnostic plots of per-method fusion reconstruction-metric distributions.
+"""Diagnostic distribution plots comparing fusion methods across metrics.
 
-Every output is written under an explicit ``out_dir`` (a ``DATA_DIR``-scoped
-plots directory) instead of CWD-relative ``plots/``. matplotlib runs head-less
-(Agg backend); the kde grid is skipped when seaborn is unavailable.
-
-These are best-effort diagnostics: :func:`plot_fusion_metric_grids` renders each
-grid independently and warns (rather than crashing) on a failing grid, and the
-calling stage wraps the whole call so plotting can never break fusion.
-
-Library code only -- this module never imports an experiment ``config``.
+Writes all output to ``out_dir`` (never CWD-relative). Uses matplotlib Agg
+(headless). KDE grids require seaborn; they are skipped when it is absent.
+Each grid fails independently with a warning so a bad plot never breaks fusion.
+Does not import experiment config.
 """
 import os
 import warnings
@@ -23,17 +18,14 @@ from matplotlib import pyplot as plt  # noqa: E402
 from common.metrics import log_safe_metrics  # noqa: E402
 from common.names import TIME_METRIC  # noqa: E402
 
-# The kde grid needs seaborn; probe once at import so the grid is cleanly skipped
-# (not error-swallowed) when the optional dependency is absent.
+# Probe seaborn once at import; grid is skipped cleanly when it is absent.
 try:
     import seaborn as _seaborn  # noqa: E402,F401 - availability probe only
     _HAS_SEABORN = True
 except Exception:  # seaborn is an optional dependency
     _HAS_SEABORN = False
 
-# Reconstruction metrics above this magnitude are unstable outliers (a fusion
-# that blew up); clamp them out of the distribution plots so the axes stay
-# readable.
+# Values at or above this are considered blown-up outliers; clamped before plotting.
 MAX_PLOT_METRIC_VALUE = 1e6
 
 # Floor for the log-transform so log(0)/log(negative) never reaches matplotlib.
@@ -47,11 +39,10 @@ def _finite_median(values) -> float:
 
 
 def metric_medians(data: dict, metrics, method_names) -> dict:
-    """Per-``(metric, method)`` finite median over the collected values.
+    """Compute finite median per (metric, method) pair.
 
-    ``data`` maps ``metric -> {method_name -> [values across (layer, group)]}``.
-    Returns ``{metric: {method_name: median}}`` -- the tabular summary the stage
-    prints alongside the plots.
+    ``data``: ``metric -> {method_name -> [values across (layer, group)]}``.
+    Returns ``{metric: {method_name: median}}``.
     """
     return {
         metric: {name: _finite_median(data[metric][name]) for name in method_names}
@@ -80,19 +71,14 @@ def plot_fusion_metric_grids(
     log_safe=None,
     use_kde: bool = True,
 ) -> list:
-    """Write per-metric distribution grids of the fusion methods under ``out_dir``.
+    """Save distribution grids (hist, violin, optional kde) for each metric to ``out_dir``.
 
-    ``data`` maps ``metric -> {method_name -> [values across (layer, group)]}``;
-    ``metrics`` is the ordered list of metric names to panel (one subplot column
-    each). Every output is written under ``out_dir`` (a ``DATA_DIR``-scoped
-    directory), never CWD-relative ``plots/``.
-
-    Each grid is rendered independently: a failure in one grid warns and is
-    skipped so the others still render. Returns the list of written file paths.
+    ``data``: ``metric -> {method_name -> [values across (layer, group)]}``.
+    Each grid (one PNG per plot type) is rendered independently; failures warn
+    and are skipped. Returns paths of files actually written.
     """
     if log_safe is None:
-        # ``Time`` is plotted on a log axis too, so add it to the
-        # log_scale-derived metric set rather than re-listing literals.
+        # Also log-transform Time without re-listing it as a literal.
         log_safe = set(log_safe_metrics) | {TIME_METRIC}
     os.makedirs(out_dir, exist_ok=True)
 
@@ -163,8 +149,7 @@ def plot_fusion_metric_grids(
         drawn = False
         for name in _names_with_data(metric):
             try:
-                # One labeled kde per method (not a wide-form list, which seaborn
-                # would mis-group by column index).
+                # Plot each method separately so seaborn labels them correctly.
                 sns.kdeplot(_series(metric, name), label=name, fill=True, alpha=0.3)
                 drawn = True
             except Exception:  # degenerate series -- skip this method's curve

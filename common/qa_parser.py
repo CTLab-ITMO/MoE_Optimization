@@ -1,25 +1,15 @@
-"""Model-family QA prompt / answer-token parser.
+"""QA prompt builder and answer-token resolver, behind an ABC.
 
-Building the evaluation prompt and resolving the candidate answer-letter token
-ids are two responsibilities that are easy to hard-wire to one chat format:
+:class:`QAParser` abstracts two things so adding a new model family means
+writing a subclass, not editing the eval loop:
 
-* the prompt formats the options block, a fixed system instruction (with an
-  ``A or B`` / ``A, B, or C`` enumeration of the valid letters) and the
-  question, then renders them through ``tokenizer.apply_chat_template(...)``;
-* the answer-token resolver encodes each *bare* letter (``"A"``, no leading
-  space) and takes the first token id.
+* ``format_prompt`` builds the chat prompt via ``tokenizer.apply_chat_template``;
+* ``resolve_answer_token_ids`` returns the first token id for each answer letter.
 
-This module puts both behind a :class:`QAParser` ABC so a new model family is a
-new subclass rather than an edit to the eval loop. The in-tree
-:class:`Qwen15QAParser` implements the Qwen1.5 chat format. The single observed
-degree of freedom is the "leading space" subtlety -- whether the answer letter
-is encoded as ``"A"`` or ``" A"`` -- exposed as a constructor flag whose DEFAULT
-(``leading_space=False``) encodes the bare letter.
+:class:`Qwen15QAParser` implements the Qwen1.5 chat format. The ``leading_space``
+flag controls whether a letter is encoded as ``"A"`` (default) or ``" A"``.
 
-The concrete parser takes explicit, named parameters so a typo is caught rather
-than silently swallowed.
-
-Library code only -- this module never imports an experiment ``config``.
+Library only -- never imports an experiment ``config``.
 """
 
 from abc import ABC, abstractmethod
@@ -28,7 +18,7 @@ from common import dataset_schema
 
 
 def _join_or(items: list) -> str:
-    """Human-readable enumeration of letters (== ``qa_eval._join_or``).
+    """Join a letter list into a readable phrase.
 
     ``[]`` -> ``""``; ``["A"]`` -> ``"A"``; ``["A", "B"]`` -> ``"A or B"``;
     ``["A", "B", "C"]`` -> ``"A, B, or C"``.
@@ -58,12 +48,10 @@ class QAParser(ABC):
 
 
 class Qwen15QAParser(QAParser):
-    """Qwen1.5 chat-format parser; reproduces the inline ``qa_eval`` logic.
+    """Qwen1.5 chat-format :class:`QAParser`.
 
-    ``leading_space`` controls how each answer letter is encoded when resolving
-    its token id: the DEFAULT ``False`` encodes the bare letter ``"A"``
-    (matching ``qa_eval._resolve_answer_token_ids``); ``True`` encodes
-    a leading-space variant ``" A"`` for tokenizers that prefix word boundaries.
+    ``leading_space=False`` (default) encodes each answer letter as ``"A"``;
+    ``True`` encodes it as ``" A"`` for tokenizers that prefix word boundaries.
     """
 
     def __init__(self, leading_space: bool = False):

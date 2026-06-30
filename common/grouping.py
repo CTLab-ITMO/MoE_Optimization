@@ -1,34 +1,14 @@
-"""Grouping as a two-axis, k-agnostic abstraction.
+"""Expert grouping abstracted on two independent axes.
 
-Expert grouping is decomposed along two independent axes, so a new signal and a
-new algorithm combine without either touching the other:
+* :class:`AffinityProvider` -- signal: an ``EXPERTS x EXPERTS`` affinity matrix for a layer.
+  In-tree: :class:`CoActivationAffinity` (gate co-activation), :class:`OutputSimilarityAffinity` (output cosine).
+* :class:`Partitioner` -- algorithm: turns an affinity matrix into a list of groups.
+  In-tree: :class:`MatchingPartitioner` (max-weight matching), :class:`RandomPartitioner`.
 
-* :class:`AffinityProvider` -- the *signal*: an ``EXPERTS x EXPERTS`` affinity
-  matrix for a layer. In-tree signals: :class:`CoActivationAffinity` (gate
-  co-activation) and :class:`OutputSimilarityAffinity` (expert-output cosine).
-* :class:`Partitioner` -- the *algorithm*: turns an affinity (or just the expert
-  count) into a list of groups. In-tree algorithms: :class:`MatchingPartitioner`
-  (max-weight matching) and :class:`RandomPartitioner`. k-means / spectral are
-  deliberately left to other researchers.
+:class:`PairGrouping` composes one affinity with one partitioner to produce disjoint pairs (the ``k == 2`` case).
 
-:class:`PairGrouping` is the generic matching-partitioner-over-an-affinity
-specialization that yields disjoint pairs (a :class:`~common.artifacts.Partition`
-whose every group has ``size == 2``); a pair is the ``k == 2`` case of the
-k-agnostic :meth:`Grouping.partition` contract.
-
-Each registered strategy reuses the shared primitives
-(:func:`common.pairing.build_matches`,
-:func:`common.pairing.compute_activation_correlation_matrix`,
-:func:`common.pairing.compute_output_similarity_matrix`,
-:func:`common.pairing.random_pairs`); the stochastic ones
-(``random`` / ``output_similarity``) draw from the per-layer
-:class:`torch.Generator` carried by :class:`~common.context.StageContext`,
-making them order-invariant.
-
-Concrete implementations take explicit, named parameters so a typo is caught
-rather than silently swallowed.
-
-Library code only -- this module never imports an experiment ``config``.
+Stochastic strategies draw from the per-layer :class:`torch.Generator` in :class:`~common.context.StageContext`
+to stay order-invariant. Library code only -- never imports an experiment ``config``.
 """
 
 from abc import ABC, abstractmethod
@@ -43,18 +23,13 @@ from common.names import PairingMethod
 from common.numeric import _default_device
 from common.registry import Registry
 
-# Default ``output_similarity`` knobs: exposed as explicit
-# ``OutputSimilarityAffinity.__init__`` parameters rather than pinned inside the
-# matrix computation, so a strategy variant configures them by construction.
+# Default knobs for output_similarity; passed as explicit constructor params to OutputSimilarityAffinity.
 DEFAULT_OUTPUT_SIMILARITY_SAMPLES = 4096
 DEFAULT_OUTPUT_SIMILARITY_BATCH_SIZE = 512
 
-# The pairing draws below (``torch.randperm`` for random pairing and the
-# output_similarity subsample) are CPU operations -- they index CPU tensors and
-# build a Python pair list -- so their generator MUST live on the CPU regardless
-# of the compute device. Deriving it from ``ctx.device`` (which is ``cuda`` on the
-# GPU box) makes ``torch.randperm(..., generator=cuda_gen)`` raise. (Unlike
-# Fisher's ``randn_like`` on a model tensor, which correctly draws on ``ctx.device``.)
+# Pairing draws (randperm, subsample) operate on CPU tensors and build Python lists,
+# so the generator must be CPU even when ctx.device is cuda -- a CUDA generator
+# would raise inside torch.randperm.
 _PAIRING_DRAW_DEVICE = torch.device("cpu")
 
 
@@ -73,11 +48,9 @@ def _require_data_dir(ctx: Optional[StageContext]) -> str:
 # Signal axis: AffinityProvider.
 # --------------------------------------------------------------------------- #
 class AffinityProvider(ABC):
-    """Signal axis: an ``EXPERTS x EXPERTS`` affinity matrix for a layer.
+    """Signal axis: produces an ``EXPERTS x EXPERTS`` affinity matrix for a layer.
 
-    The matrix entry ``(i, j)`` scores how much experts ``i`` and ``j`` should be
-    grouped together; a :class:`Partitioner` consumes it. Concrete providers take
-    explicit named parameters.
+    Entry ``(i, j)`` scores how well experts ``i`` and ``j`` fit together; consumed by a :class:`Partitioner`.
     """
 
     @abstractmethod
@@ -89,11 +62,7 @@ class AffinityProvider(ABC):
 
 
 class CoActivationAffinity(AffinityProvider):
-    """Gate co-activation signal: the normalized activation matrix.
-
-    Delegates to
-    :func:`common.pairing.compute_activation_correlation_matrix`.
-    """
+    """Gate co-activation signal; delegates to :func:`common.pairing.compute_activation_correlation_matrix`."""
 
     def affinity(self, layer, n_experts, ctx):
         return pairing.compute_activation_correlation_matrix(layer, _require_data_dir(ctx))
@@ -102,10 +71,8 @@ class CoActivationAffinity(AffinityProvider):
 class OutputSimilarityAffinity(AffinityProvider):
     """Expert-output cosine-similarity signal.
 
-    The ``num_samples`` / ``batch_size`` knobs are explicit construction
-    parameters of the strategy, so a variant is configured by registering a new
-    instance rather than by reaching into the matrix computation. The subsample
-    draw uses the order-invariant per-layer generator from ``ctx``.
+    ``num_samples``/``batch_size`` are constructor params; configure a variant by registering a new instance.
+    The subsample draw uses the per-layer generator from ``ctx`` for order-invariance.
     """
 
     def __init__(
@@ -144,10 +111,9 @@ class OutputSimilarityAffinity(AffinityProvider):
 # Algorithm axis: Partitioner.
 # --------------------------------------------------------------------------- #
 class Partitioner(ABC):
-    """Algorithm axis: build a list of expert groups.
+    """Algorithm axis: turns an affinity matrix into a list of expert groups.
 
-    Consumes an affinity matrix (``None`` for signal-free algorithms such as
-    random) and the expert count, and returns a list of member tuples.
+    Signal-free algorithms (e.g., random) pass ``None`` for the affinity.
     """
 
     @abstractmethod
@@ -162,10 +128,9 @@ class Partitioner(ABC):
 
 
 class MatchingPartitioner(Partitioner):
-    """Max-weight matching over an affinity matrix -> disjoint pairs.
+    """Max-weight matching -> disjoint pairs.
 
-    Delegates to :func:`common.pairing.build_matches`, which fixes the group
-    order and the tuple orientation ``(pair[0], pair[1])``.
+    Delegates to :func:`common.pairing.build_matches`, which fixes group order and tuple orientation.
     """
 
     def partition(self, affinity, n_experts, ctx):
@@ -175,11 +140,9 @@ class MatchingPartitioner(Partitioner):
 
 
 class RandomPartitioner(Partitioner):
-    """Random disjoint pairing of the experts (signal-free).
+    """Random disjoint pairing (signal-free).
 
-    Delegates to :func:`common.pairing.random_pairs` with the order-invariant
-    per-layer generator from ``ctx``, so the split is reproducible and
-    independent of pipeline traversal order.
+    Uses the per-layer generator from ``ctx`` for reproducible, order-invariant splits.
     """
 
     def partition(self, affinity, n_experts, ctx):
@@ -199,10 +162,8 @@ class RandomPartitioner(Partitioner):
 class Grouping(ABC):
     """k-agnostic grouping strategy: partition a layer's experts into groups.
 
-    The frozen public contract is :meth:`partition`, returning a
-    :class:`~common.artifacts.Partition` of arbitrarily sized groups. A new
-    grouping (clusters, overlapping groups, hierarchies) is a new subclass /
-    registry entry.
+    Public contract: :meth:`partition` returns a :class:`~common.artifacts.Partition`.
+    Add a new strategy by subclassing and registering.
     """
 
     name: str
@@ -214,12 +175,10 @@ class Grouping(ABC):
 
 
 class PairGrouping(Grouping):
-    """Disjoint-pairs grouping: a :class:`Partitioner` over an :class:`AffinityProvider`.
+    """Disjoint-pairs grouping: one :class:`AffinityProvider` combined with one :class:`Partitioner`.
 
-    The generic ``k == 2`` specialization: every produced group is a pair.
-    Composing one affinity with one partitioner is the whole "signal x algorithm"
-    decomposition; the three in-tree strategies differ only in which pair they are
-    built from.
+    The ``k == 2`` specialization -- every group is a pair. The three in-tree strategies
+    differ only in which affinity/partitioner pair they use.
     """
 
     def __init__(
@@ -235,10 +194,8 @@ class PairGrouping(Grouping):
     def partition(self, layer, ctx, *, n_experts: Optional[int] = None) -> Partition:
         """Return the pairwise :class:`Partition` for ``layer``.
 
-        ``n_experts`` defaults to ``ctx.n_experts``; the resolved count is handed
-        to the affinity provider and the partitioner. The signal-free random
-        algorithm needs it explicitly; for matching it is inferred from the
-        affinity matrix when otherwise unknown.
+        ``n_experts`` defaults to ``ctx.n_experts``. Random pairing requires an explicit count;
+        matching infers it from the affinity matrix shape if not provided.
         """
         n = n_experts if n_experts is not None else (ctx.n_experts if ctx is not None else None)
         matrix = self.affinity.affinity(layer, n, ctx) if self.affinity is not None else None
@@ -252,12 +209,9 @@ class PairGrouping(Grouping):
 # Canonical grouping registry (pinned order; golden ``pairing_methods`` snapshot).
 # --------------------------------------------------------------------------- #
 def _build_grouping_registry() -> Registry:
-    """The canonical grouping registry: name -> :class:`Grouping` instance.
+    """Build the canonical grouping registry (name -> :class:`Grouping` instance).
 
-    Pinned to the :class:`~common.names.PairingMethod` order so the golden
-    ``pairing_methods`` snapshot is an exact match and config validation of
-    ``PAIRING_METHOD`` is driven from :meth:`Registry.names`.
-    Extended by registering a new subclass in-tree via ``register``.
+    Registered in :class:`~common.names.PairingMethod` order. Extend by calling ``register`` with a new subclass.
     """
     registry = Registry("grouping")
     registry.register(
@@ -283,6 +237,5 @@ def _build_grouping_registry() -> Registry:
     return registry
 
 
-# The single source of truth the grouping stage reads from: a
-# name -> Grouping Mapping, extended by registering a new subclass in-tree.
+# Registry the grouping stage reads from; extend by registering a new subclass.
 GROUPING_REGISTRY: Registry = _build_grouping_registry()

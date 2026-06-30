@@ -1,50 +1,18 @@
-"""Router-output canonicalizer shared by co-activation capture and inference.
+"""Canonical MoE router interface shared by co-activation capture and inference.
 
-A MoE gate's output is decoded in three places that historically each had their
-own ``if isinstance(out, tuple)`` branch:
+A gate's output appears in two forms across the codebase:
+- **tuple** ``(logits, routing_weights, selected_experts)`` — inference/fusion layer.
+- **bare-logits tensor** — capture hooks; softmaxed and top-k'd here.
 
-* **Co-activation capture** (bare-logits branch)::
+:class:`RouterAdapter` decodes either form into a :class:`RouterDecision`.
+:class:`Qwen15RouterAdapter` is the in-tree implementation:
+- tuple: unpacked as ``(out[0], out[1], out[-1])``.
+- tensor: ``softmax(logits)`` → ``topk`` (softmax is monotonic, so this selects
+  the same experts as topk on raw logits).
 
-      routing_weights = router_logits.softmax(dim=1, dtype=torch.float)
-      _, selected_experts = torch.topk(routing_weights, TOP_K, dim=-1)
+Qwen1.5-MoE uses ``norm_topk_prob=False``, so ``normalize_topk`` defaults to ``False``.
 
-  Only ``selected_experts`` is then used (to count co-activations).
-
-* **Top-k selection capture** (bare-logits branch)::
-
-      _, selected = router_output.topk(TOP_K, dim=-1)   # topk on RAW logits
-
-  Note: no softmax. ``softmax`` is strictly monotonic, so ``topk`` over the
-  softmax and ``topk`` over the raw logits select the *same* experts for the
-  same logits -- the two paths agree by construction.
-
-* **Inference / fused layer** (``common.fusion_layer``, 3-tuple branch)::
-
-      _, routing_weights, selected_experts = self.gate(hidden_states_reshaped)
-
-  i.e. the gate returns ``(logits, routing_weights, selected_experts)`` and both
-  the weights and the selection are used downstream.
-
-:class:`RouterAdapter` folds all three into one ``route`` contract returning a
-:class:`RouterDecision`. :class:`Qwen15RouterAdapter` is the in-tree
-implementation; its default behaviour reproduces every path above exactly:
-
-* a **tuple** gate output is unpacked as ``(logits, routing_weights,
-  selected_experts) = (out[0], out[1], out[-1])`` -- both the inference path
-  (uses all three) and the capture paths (consume only ``out[-1]``);
-* a **bare-logits** tensor is softmaxed and top-k'd. ``softmax(dim=-1)`` on a 2D
-  ``[tokens, experts]`` tensor is identical to ``softmax(dim=1)`` (for 2D
-  ``dim=1`` *is* the last dim), and by the monotonicity argument above the
-  selected experts also match a raw-logit ``topk``.
-
-Qwen1.5-MoE has ``norm_topk_prob=False``, so the top-k weights are *not*
-renormalized by default (``normalize_topk=False``); the flag is exposed for
-models/configs that do renormalize.
-
-Concrete adapters take explicit, named parameters so a typo is caught rather
-than silently swallowed.
-
-Library code only -- this module never imports an experiment ``config``.
+Library code only — never imports an experiment ``config``.
 """
 
 from abc import ABC, abstractmethod
@@ -56,16 +24,12 @@ import torch
 
 @dataclass
 class RouterDecision:
-    """Canonical decoded output of a MoE router for one batch of tokens.
+    """Decoded output of a MoE router for one token batch.
 
-    * ``selected_experts`` -- the top-k expert indices (the only field the
-      capture paths consume).
-    * ``routing_weights`` -- the per-selected-expert gate weights the fused layer
-      mixes the expert outputs with. For a bare-logits gate these are the top-k slice
-      of ``softmax(logits)`` (optionally renormalized); for a tuple gate they are
-      the gate's own ``out[1]``.
-    * ``logits`` -- the raw router logits when available (``out[0]`` for a tuple
-      gate, the input tensor for a bare-logits gate).
+    - ``selected_experts``: top-k expert indices (used by all call-sites).
+    - ``routing_weights``: gate weights for mixing expert outputs — top-k softmax
+      slice (optionally renormalized) for bare-logits gates, or ``out[1]`` for tuple gates.
+    - ``logits``: raw router logits when available.
     """
 
     selected_experts: torch.Tensor
@@ -74,11 +38,9 @@ class RouterDecision:
 
 
 class RouterAdapter(ABC):
-    """Abstract canonicalizer turning a gate's output into a :class:`RouterDecision`.
+    """Abstract base: turns a gate's raw output into a :class:`RouterDecision`.
 
-    The public contract is :meth:`route`. A new router layout (a different tuple
-    arity, a sparse gate, ...) is a new subclass. Concrete adapters take explicit
-    named parameters.
+    Subclass to support a new gate layout (different tuple arity, sparse gate, etc.).
     """
 
     @abstractmethod
@@ -90,9 +52,8 @@ class RouterAdapter(ABC):
 class Qwen15RouterAdapter(RouterAdapter):
     """Router canonicalizer for Qwen1.5-MoE (and Qwen/Mixtral-shaped gates).
 
-    Reproduces the three inline call-sites exactly; see the module
-    docstring. ``normalize_topk`` mirrors ``norm_topk_prob`` -- Qwen1.5-MoE sets
-    it to ``False``, hence the default.
+    Handles both tuple gates (inference) and bare-logits tensors (capture).
+    ``normalize_topk`` mirrors ``norm_topk_prob``; Qwen1.5-MoE sets it ``False``.
     """
 
     def __init__(self, normalize_topk: bool = False):
@@ -100,8 +61,7 @@ class Qwen15RouterAdapter(RouterAdapter):
 
     def route(self, gate_output, *, top_k: int) -> RouterDecision:
         if isinstance(gate_output, tuple):
-            # Inference layout (logits, routing_weights, selected_experts); the
-            # capture tuple branches consume only out[-1].
+            # Tuple gate: (logits, routing_weights, selected_experts); capture paths use only out[-1].
             return RouterDecision(
                 selected_experts=gate_output[-1],
                 routing_weights=gate_output[1],
@@ -112,9 +72,8 @@ class Qwen15RouterAdapter(RouterAdapter):
                 "Qwen15RouterAdapter.route expects a tuple gate output or a bare "
                 f"logits Tensor, got {type(gate_output).__name__}"
             )
-        # Bare-logits path. softmax(dim=-1) == softmax(dim=1) for a 2D
-        # [tokens, experts] tensor; topk(softmax(logits)) selects the same experts
-        # as topk(raw logits) because softmax is monotonic.
+        # Bare-logits path: softmax then topk. Softmax is monotonic so topk(softmax(logits))
+        # selects the same experts as topk(raw logits).
         logits = gate_output
         routing_weights_full = logits.softmax(dim=-1, dtype=torch.float)
         top_weights, selected = torch.topk(routing_weights_full, top_k, dim=-1)

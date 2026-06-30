@@ -1,20 +1,12 @@
-"""Stage 4 -- evaluation of the compressed model.
+"""Stage 4 -- evaluate the compressed model.
 
-Loads the base model **once** (load-once) and reuses it across every method by
-swapping the MoE ``mlp`` modules in and out, instead of reloading the model per
-method (~15x model loads). Covers the reconstruction benchmark, qualitative
-generation and final accuracy.
+Loads the base model once and reuses it across all fusion methods by swapping
+MoE ``mlp`` modules in and out (no repeated model reloads). Originals are
+snapshotted and fully restored between methods.
 
-Load-once correctness: the original ``mlp`` modules are snapshotted once and the
-model is fully restored between methods, so a method never sees another method's
-replacement. The eval RNG is reset inside :func:`~common.qa_eval.evaluate_qa`
-per call.
-
-Accuracy (the measured result, the golden gate) is computed first and written
-under ``DATA_DIR`` (no CWD-relative ``test_result_*``). The reconstruction
-benchmark and the qualitative generation are best-effort diagnostics run
-afterwards, so a fake/CPU-only quirk in a diagnostic never blocks the measured
-results.
+Accuracy is the golden gate and is written first. Reconstruction benchmark and
+qualitative generation run afterwards as best-effort diagnostics; failures there
+never block the accuracy result.
 """
 import gc
 import os
@@ -59,8 +51,7 @@ from experts_fusion.config import (
     device,
 )
 
-# Number of MLP inputs stacked per forward call in the recon benchmark, and how
-# many such batches to time over.
+# Recon benchmark: inputs per batch and number of batches.
 BENCHMARK_BATCH_SIZE = 128
 BENCHMARK_NUM_BATCHES = 100
 # Qualitative generation knobs.
@@ -79,9 +70,7 @@ selected_best_metrics = live_best_metrics()
 if FILTER_METRICS is not None:
     selected_best_metrics = {k: v for k, v in selected_best_metrics.items() if k in FILTER_METRICS}
 
-# Validate the inspected method against the set stage 3 actually produced (real
-# methods + the Best_<metric> pseudo-methods), so a typo fails here instead of as
-# a later FileNotFound inside the best-effort diagnostics.
+# Validate INSPECT_FUSION_METHOD against methods produced by stage 3; a typo fails early here.
 _produced_methods = set(fusion_methods) | {f"{BEST_PREFIX}{m}" for m in selected_best_metrics}
 if INSPECT_FUSION_METHOD not in _produced_methods:
     raise ValueError(
@@ -133,8 +122,7 @@ def _build_layer(name, layer, model):
     return new_layer
 
 
-# Names evaluated: every (filtered) fusion method, the zero baseline, and the
-# per-metric Best_* pseudo-methods written by stage 3.
+# All names to evaluate: fusion methods, zero baseline, and Best_<metric> pseudo-methods.
 eval_names = list(fusion_methods.keys()) + [ZERO_FUSION]
 eval_names += [f"{BEST_PREFIX}{metric}" for metric in selected_best_metrics]
 
@@ -160,20 +148,17 @@ def _free_device_memory():
 
 
 def _swap_in(model, layer, new_mlp, originals):
-    """Put ``new_mlp`` on ``layer`` and park the displaced original on CPU.
+    """Replace layer's mlp with ``new_mlp`` and move the original to CPU.
 
-    Load-once keeps every original mlp alive in ``originals`` to restore later;
-    parking the swapped-out one on CPU keeps it off the device, so the original and
-    its fused replacement are never both resident in VRAM at once (the main
-    peak-memory win, especially for the sequential sweeps).
+    Parking the displaced module on CPU ensures the original and its replacement
+    are never both in VRAM simultaneously, reducing peak memory.
     """
     originals[layer] = originals[layer].cpu()
     model.model.layers[layer].mlp = new_mlp
 
 
 def _restore_layer(model, layer, originals):
-    """Restore the parked original (back on the model device) and drop the displaced
-    module so its device memory is freed."""
+    """Move the original mlp back to device and delete the fused replacement."""
     displaced = model.model.layers[layer].mlp
     model.model.layers[layer].mlp = originals[layer].to(device)
     del displaced
@@ -190,8 +175,7 @@ def accuracy(model, tokenizer, moe_layers, originals):
     """Accuracy sweeps on the single, load-once model."""
 
     base_train = _eval_train(model, tokenizer)
-    # base_test is only used by the best-layer and smart sweeps; skip the full
-    # test-set eval when neither runs (each eval re-seeds, so this is neutral).
+    # base_test is only needed for best-layer / smart sweeps; skip when neither is on.
     base_test = (
         _eval_test(model, tokenizer)
         if REPLACE_BEST_LAYERS_SEQUENTIAL or REPLACE_LAYERS_SMART_SEQUENTIAL
@@ -267,10 +251,9 @@ def _smart_accuracy(model, tokenizer, moe_layers, originals, base_test, base_siz
 
 
 def diagnostics(model, tokenizer, moe_layers, originals):
-    """Best-effort qualitative diagnostics (recon benchmark + generation).
+    """Run reconstruction benchmark and generation as best-effort diagnostics.
 
-    Run after the measured accuracy is already written; a fake/CPU-only quirk
-    here must not block the gate, so failures are reported, not raised.
+    Runs after accuracy is written. Failures are caught and reported, not raised.
     """
 
     try:
@@ -346,8 +329,7 @@ def main():
         MODEL_NAME, device_map=device, dtype=MODEL_DTYPE
     )
     moe_layers = discover_moe_layers(model, selected=LAYERS)
-    # Snapshot the original mlp modules once; load-once relies on restoring them
-    # between methods rather than reloading the model.
+    # Save originals once so load-once can restore them between methods.
     originals = {layer: model.model.layers[layer].mlp for layer in moe_layers}
 
     accuracy(model, tokenizer, moe_layers, originals)

@@ -1,13 +1,9 @@
-"""Active run config: selects one module under ``experts_fusion/configs/`` and
-re-exports its values, so the stages keep importing ``experts_fusion.config``.
+"""Dispatch layer: loads one config from ``experts_fusion/configs/`` and
+re-exports its values so all stages import ``experts_fusion.config``.
 
-Pick the config by name with ``run.py --config <name>`` (which sets the
-``EXPERTS_FUSION_CONFIG`` env var); the default is ``default``. Add a config by
-dropping a new ``configs/<name>.py`` next to ``default.py``.
-
-``config_snapshot_dict`` lives here (not in the selected config) so it reads
-*these* module globals -- the ones the stages and the test harness see and
-monkeypatch.
+Select a config via ``run.py --config <name>`` (sets ``EXPERTS_FUSION_CONFIG``);
+default is ``default``. Add configs by dropping a new ``configs/<name>.py``.
+``config_snapshot_dict`` lives here so it always reads the live module globals.
 """
 import importlib
 import os
@@ -28,24 +24,18 @@ for _name in _selected.__all__:
 # Environment-derived (not part of a saved config); dropped from the snapshot.
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Config fields deliberately kept OUT of the snapshot: DATA_DIR is the output
-# *location* (the knob for running several experiments on one disk), not artifact
-# content, so two runs at different DATA_DIRs are not "config drift". Everything
-# else that affects produced artifacts must appear in config_snapshot_dict -- a
-# test (test_experts_fusion_config) enforces this so a new field can't silently
-# escape drift detection.
+# DATA_DIR is excluded from the snapshot: it's the output location, not artifact
+# content, so changing it is not "config drift". Every other field that affects
+# produced artifacts must be in config_snapshot_dict (enforced by tests).
 _SNAPSHOT_EXCLUDED = {"DATA_DIR"}
 
 
 def config_snapshot_dict() -> dict:
-    """The run config as a plain value map for the provenance snapshot.
+    """Returns the active config as a plain dict for provenance snapshotting.
 
-    Stage 1 writes this canonicalized (``common.provenance``: ``device`` dropped,
-    dtype/adapter values stabilized to names) to ``config_snapshot.json``; every
-    later stage compares the live config against it and fails fast on drift. The
-    function reads the module globals at call time, so a test that monkeypatches
-    a config attribute is reflected here. The config serializes itself -- the
-    library code in ``common`` never imports this module.
+    Stage 1 writes this to ``config_snapshot.json``; later stages compare against
+    it and fail fast on drift. Reads module globals at call time, so monkeypatching
+    a config value in tests is reflected here automatically.
     """
     return {
         "MODEL_NAME": MODEL_NAME,
@@ -62,8 +52,7 @@ def config_snapshot_dict() -> dict:
         "TOP_K": TOP_K,
         "SEED": SEED,
         "PAIRING_METHOD": PAIRING_METHOD,
-        # Resolve ``None`` (= "all") to the concrete registered set, so the
-        # snapshot records exactly which methods/metrics a run used.
+        # Resolve None ("all") to the actual registered names for the snapshot.
         "FILTER_FUSIONS": FILTER_FUSIONS if FILTER_FUSIONS is not None else FUSION_REGISTRY.names(),
         "FILTER_METRICS": FILTER_METRICS if FILTER_METRICS is not None else METRIC_REGISTRY.names(),
         "USE_DEFAULT_EXPERTS": USE_DEFAULT_EXPERTS,

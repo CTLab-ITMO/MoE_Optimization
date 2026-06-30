@@ -1,8 +1,6 @@
-"""Experts-fusion pipeline (run from the repository root).
+"""Four-stage MoE expert-fusion pipeline.
 
-A package launched from the repo root via ``python -m experts_fusion.run`` (or
-per stage through the same runner). Stages import shared primitives from
-:mod:`common` and their own configuration from :mod:`experts_fusion.config`;
-there is no ``sys.path`` manipulation and no reliance on the module directory
-being the cwd.
+Run from repo root: ``python -m experts_fusion.run`` (all stages) or
+``python -m experts_fusion.run 1 2`` (subset). Stages import from ``common``
+and ``experts_fusion.config``; no ``sys.path`` manipulation needed.
 """

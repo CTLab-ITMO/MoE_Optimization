@@ -1,23 +1,12 @@
-"""Run the full fusion pipeline (the four stages) from the repository root.
+"""Run the four-stage fusion pipeline from the repository root.
 
-Invoke from the repo root::
-
-    python -m experts_fusion.run
-
-The pipeline is four stages -- ``1_preprocess`` (model load, weight extraction,
-single-pass capture of co-activation / MLP inputs / top-k), ``2_grouping``
-(partition + per-group activation join), ``3_fusion`` (fuse each group by every
-method) and ``4_evaluate`` (load-once accuracy + diagnostics). Each is a script
-named ``<n>_*.py`` executed in numeric order via ``runpy`` in this single
-process. Stages import their config with ``from experts_fusion.config import
-...``, so the repo root must be importable as a package parent -- guaranteed
-when launched with ``-m`` from the root.
-
-Pass an explicit list of stage numbers to run a subset, and ``--config`` to pick
-a config under ``experts_fusion/configs/`` (default ``default``), e.g.::
-
-    python -m experts_fusion.run 1 2
+    python -m experts_fusion.run          # all stages
+    python -m experts_fusion.run 1 2      # subset
     python -m experts_fusion.run --config winogrande
+
+Stages (each a ``<n>_*.py`` script run in-process via ``runpy``):
+1_preprocess, 2_grouping, 3_fusion, 4_evaluate.
+Launch with ``-m`` from the root so package imports resolve correctly.
 """
 import argparse
 import os
@@ -46,8 +35,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("stages", nargs="*", help="stage numbers to run (default: all)")
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
 
-    # Set before importing/running any stage so experts_fusion.config resolves to
-    # the chosen config (the stages run in this one process via runpy).
+    # Must be set before any stage runs so experts_fusion.config picks the right file.
     if args.config:
         os.environ["EXPERTS_FUSION_CONFIG"] = args.config
 

@@ -1,9 +1,7 @@
 """Reusable MoE expert-fusion primitives.
 
-The extension interfaces and their registries are re-exported here so they can be
-imported straight from ``common`` (``from common import FusionMethod,
-FUSION_REGISTRY``); the implementations live in the submodules. See
-``common/EXTENDING.md`` for how to add your own strategy in-tree.
+Re-exports interfaces and registries for direct ``from common import ...`` use.
+Implementations live in submodules; see ``common/EXTENDING.md`` to add a strategy.
 """
 from common.context import StageContext
 from common.registry import Registry, require_all_registered, require_registered

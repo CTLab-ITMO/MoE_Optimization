@@ -1,11 +1,8 @@
-"""Builders that materialize fake ``.pt`` pipeline artifacts on disk.
+"""Fake artifact builders for pipeline tests.
 
-A ``config``-free copy of the ``_Builders`` helper that used to live only in
-``tests/experiment/conftest.py``. Used by the per-stage tests to seed a stage's
-inputs without running the upstream stages, and available to the golden harness
-for the same purpose. Paths come from :mod:`common.layout`, the same single
-source of truth the pipeline stages and ``common`` readers use, so the test
-fixtures can never drift from the real layout.
+Writes ``.pt`` files (experts, matrices, partitions, fused groups, etc.) using
+``common.layout`` paths, so tests can seed a stage's inputs without running the
+upstream stages. Sharing the real layout paths prevents fixture drift.
 """
 import os
 
@@ -62,9 +59,8 @@ class Builders:
         return pairs
 
     def experts(self, saved=False):
-        # ``saved=True`` writes each expert as a versioned SavedExpert (new module);
-        # the default pickles it (legacy module). The gate / shared expert stay
-        # pickled in both.
+        # saved=True: versioned SavedExpert; False (default): legacy pickle.
+        # Gate and shared expert are always pickled.
         for layer in self.layers:
             for i in range(self.n_experts):
                 path = _ensure_parent(layout.expert_path(self.data_dir, layer, i))
@@ -100,10 +96,10 @@ class Builders:
                            _ensure_parent(layout.fusion_expert_path(self.data_dir, name, layer, i)))
 
     # ----------------------------------------------------------------------- #
-    # New-module (S8) versioned artifacts.
+    # Versioned artifact builders (new module format).
     # ----------------------------------------------------------------------- #
     def coactivation_matrices(self):
-        """Versioned ``CoActivationMatrix`` artifacts (new stage-1 co-activation)."""
+        """Write fake ``CoActivationMatrix`` artifacts for train and validation splits."""
         for layer in self.layers:
             m = torch.rand(self.n_experts, self.n_experts)
             m = m + m.t()
@@ -113,7 +109,7 @@ class Builders:
                 _ensure_parent(layout.activation_matrix_path(self.data_dir, layout.VALIDATION_SPLIT, layer)))
 
     def topk_all(self, n=16):
-        """Per-example top-k selection lists (new stage-1 raw top-k)."""
+        """Write per-example top-k expert selection tensors for both splits."""
         for layer in self.layers:
             for split in (layout.TRAIN_SPLIT, layout.VALIDATION_SPLIT):
                 selections = [
@@ -124,7 +120,7 @@ class Builders:
                     layout.activations_all_path(self.data_dir, split, layer)))
 
     def partition(self, pairs=None):
-        """Versioned ``Partition`` artifact under ``groups/`` (new stage-2 output)."""
+        """Write a ``Partition`` artifact to ``groups/`` for each layer."""
         if pairs is None:
             pairs = [(2 * i, 2 * i + 1) for i in range(self.n_experts // 2)]
         for layer in self.layers:
@@ -133,7 +129,7 @@ class Builders:
         return pairs
 
     def group_activations(self, n_groups, n=16):
-        """Versioned ``GroupActivationIndex`` artifacts (new stage-2 join)."""
+        """Write ``GroupActivationIndex`` artifacts for both splits."""
         for layer in self.layers:
             for split in (layout.TRAIN_SPLIT, layout.VALIDATION_SPLIT):
                 GroupActivationIndex.from_lists(
@@ -142,7 +138,7 @@ class Builders:
                     layout.group_activations_path(self.data_dir, split, layer)))
 
     def fused_experts_v1(self, name, pairs):
-        """Versioned ``FusedExpert`` artifacts (new stage-3 output)."""
+        """Write ``FusedExpert`` artifacts for each group in each layer."""
         for layer in self.layers:
             for i in range(len(pairs)):
                 FusedExpert(expert_mlp(i)).save(

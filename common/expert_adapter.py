@@ -1,38 +1,19 @@
 """Model-family adapters for expert extraction and the shared-expert pathway.
 
-Two pieces of the pipeline reach directly into a concrete MoE module layout and
-hard-code Qwen1.5 assumptions; this module turns each into a model-family
-adapter so a new family is a new subclass rather than an edit to a stage.
+Isolates two places that know the concrete MoE module layout, so supporting a
+new model family only requires a new subclass.
 
-* :class:`ExpertAdapter` -- factors out the inline expert extraction that wraps
-  each routed expert into an :class:`~common.mlp.AdvancedMLP`, picking one of two
-  layouts via a ``try/except TypeError`` on ``for i, expert in enumerate(experts)``:
+* ``ExpertAdapter`` -- wraps each routed expert as an ``AdvancedMLP``.
+  Handles two layouts: a ModuleList of per-expert modules (shares projections
+  via ``turn_in_mlp``) and a combined container with stacked weight tensors
+  (clones per-expert slices). No dtype cast -- the caller casts.
 
-    - the **ModuleList** layout (one module per expert exposing
-      ``.gate_proj`` / ``.up_proj`` / ``.down_proj``), handled by
-      :func:`common.mlp_utils.turn_in_mlp`, which *shares* the projection
-      modules; and
-    - the **combined** layout (a single container exposing ``num_experts`` /
-      ``hidden_dim`` / ``intermediate_dim`` and the stacked ``gate_up_proj`` /
-      ``down_proj`` tensors), which builds a fresh ``AdvancedMLP`` and *clones*
-      the per-expert weight slices.
+* ``SharedExpertAdapter`` -- computes the shared/residual expert contribution.
+  ``Qwen15SharedExpert`` applies ``sigmoid(gate(x)) * shared(x)``; passing
+  ``None`` for both submodules returns zeros (for families without a shared
+  expert, e.g. Mixtral / Qwen3).
 
-  :class:`Qwen15ExpertAdapter` implements both branches (matching ops, dims,
-  dtypes, orientation, sharing-vs-cloning). The caller casts to the model dtype
-  afterwards, so :meth:`~Qwen15ExpertAdapter.extract` does no dtype cast.
-
-* :class:`SharedExpertAdapter` -- replaces the inline shared/residual pathway of
-  :class:`common.fusion_layer.FusionLayer`, whose ``forward`` computes
-  ``shared = self.shared_expert(x)`` then
-  ``shared = F.sigmoid(self.shared_expert_gate(x)) * shared``.
-  :class:`Qwen15SharedExpert` reproduces that gated formula and additionally
-  supports families with no shared expert (Mixtral / Qwen3): when the shared
-  expert is absent it contributes nothing (``torch.zeros_like(x)``).
-
-Adapters take explicit, named parameters so a typo is caught rather than
-silently swallowed.
-
-Library code only -- this module never imports an experiment ``config``.
+Library code only -- never imports an experiment ``config``.
 """
 
 from abc import ABC, abstractmethod
@@ -46,12 +27,10 @@ from common.mlp_utils import turn_in_mlp
 
 
 def _require_float_weight(weight, what: str) -> torch.Tensor:
-    """Validate that ``weight`` is a floating-point tensor or raise a clear error.
+    """Raise TypeError if ``weight`` is not a floating-point tensor.
 
-    Quantized experts expose ``None`` or an integer/packed ``weight`` instead of
-    a float matrix; extracting them is unsupported, so fail with an explicit
-    message rather than letting a downstream ``AttributeError`` / dtype error
-    surface.
+    Quantized experts may expose None or an integer weight; this catches that
+    early with a clear message instead of a cryptic downstream error.
     """
     if not torch.is_tensor(weight) or not torch.is_floating_point(weight):
         raise TypeError(
@@ -65,11 +44,10 @@ def _require_float_weight(weight, what: str) -> torch.Tensor:
 # Expert extraction adapter.
 # --------------------------------------------------------------------------- #
 class ExpertAdapter(ABC):
-    """Extract a single MoE expert as an :class:`~common.mlp.AdvancedMLP`.
+    """Abstract base: extract MoE experts as ``AdvancedMLP`` objects.
 
-    The contract is :meth:`count` (how many experts a layer's container holds)
-    and :meth:`extract` (build the ``AdvancedMLP`` for one expert on a given
-    device, with no dtype cast -- the caller casts).
+    Subclasses implement ``count`` (number of experts in the container) and
+    ``extract`` (build an ``AdvancedMLP`` for one expert; no dtype cast).
     """
 
     @abstractmethod
@@ -84,20 +62,18 @@ class ExpertAdapter(ABC):
 
 
 class Qwen15ExpertAdapter(ExpertAdapter):
-    """Expert extraction for the Qwen1.5-MoE / Mixtral-style and combined layouts.
+    """Expert extraction for Qwen1.5-MoE, supporting two module layouts.
 
-    The layout is detected by whether ``experts`` is iterable (an
-    ``nn.ModuleList`` of per-expert modules) or a single combined container
-    (``for i, expert in enumerate(experts)`` raising ``TypeError``).
+    Auto-detects the layout: iterable (ModuleList of per-expert modules) vs.
+    a single combined container (raises TypeError on iteration).
     """
 
     @staticmethod
     def _is_module_list(experts) -> bool:
-        """True for the ModuleList layout (iterable), False for the combined one.
+        """Return True if ``experts`` is a ModuleList, False for the combined layout.
 
-        Uses a ``try/except TypeError`` on ``enumerate(experts)``:
-        ``enumerate`` calls ``iter(experts)``, so a non-iterable combined
-        container raises ``TypeError`` and selects the combined branch.
+        Detects by calling ``iter(experts)``: a non-iterable combined container
+        raises TypeError, selecting the combined branch.
         """
         try:
             iter(experts)
@@ -116,12 +92,10 @@ class Qwen15ExpertAdapter(ExpertAdapter):
         return self._extract_combined(experts, index, device)
 
     def _extract_module_list(self, experts, index: int, device) -> AdvancedMLP:
-        """ModuleList branch: delegate to ``turn_in_mlp`` (shares the projections).
+        """ModuleList branch: wrap the expert via ``turn_in_mlp`` (shares projections).
 
-        Delegates to ``turn_in_mlp(expert, device=device)``: the
-        returned ``AdvancedMLP`` reuses ``expert.gate_proj`` / ``.up_proj`` /
-        ``.down_proj`` directly (no clone). Validates the projection weights up
-        front so a quantized expert fails with a clear error.
+        The returned ``AdvancedMLP`` reuses gate/up/down projections directly
+        (no clone). Validates weights first to catch quantized experts early.
         """
         expert = experts[index]
         for proj_name in ("gate_proj", "up_proj", "down_proj"):
@@ -132,14 +106,11 @@ class Qwen15ExpertAdapter(ExpertAdapter):
         return turn_in_mlp(expert, device=device)
 
     def _extract_combined(self, experts, index: int, device) -> AdvancedMLP:
-        """Combined branch: build a fresh ``AdvancedMLP`` from sliced/cloned weights.
+        """Combined branch: build a fresh ``AdvancedMLP`` with cloned weight slices.
 
-        The ``except TypeError`` branch: a single container
-        exposes ``num_experts`` / ``hidden_dim`` / ``intermediate_dim`` and the
-        stacked ``gate_up_proj`` (``[E, 2 * intermediate, hidden]``) and
-        ``down_proj`` (``[E, hidden, intermediate]``) tensors. The gate/up halves
-        are sliced out of ``gate_up_proj`` at ``intermediate_dim`` and every slice
-        is detached and cloned (not shared).
+        The container exposes stacked ``gate_up_proj`` [E, 2*intermediate, hidden]
+        and ``down_proj`` [E, hidden, intermediate]. Gate and up weights are sliced
+        at ``intermediate_dim`` and cloned (not shared).
         """
         gate_up_proj = _require_float_weight(
             getattr(experts, "gate_up_proj", None), "experts.gate_up_proj"
@@ -168,12 +139,10 @@ class Qwen15ExpertAdapter(ExpertAdapter):
 # Shared-expert pathway adapter.
 # --------------------------------------------------------------------------- #
 class SharedExpertAdapter(ABC):
-    """The shared/residual expert pathway as a callable module.
+    """Abstract base: computes the shared/residual expert contribution.
 
-    The contract is :meth:`forward`, computing the family's shared-expert
-    contribution for a hidden-state batch. Concrete adapters are
-    ``nn.Module``-compatible callables so they move with ``.to(...)`` and slot
-    into the layer like any submodule.
+    Subclasses implement ``forward(x)`` for a hidden-state batch. Concrete
+    adapters are ``nn.Module`` subclasses so they support ``.to(...)`` etc.
     """
 
     @abstractmethod
@@ -183,15 +152,11 @@ class SharedExpertAdapter(ABC):
 
 
 class Qwen15SharedExpert(torch.nn.Module, SharedExpertAdapter):
-    """Sigmoid-gated shared expert (Qwen1.5-MoE), with an absent-shared fallback.
+    """Sigmoid-gated shared expert for Qwen1.5-MoE.
 
-    Reproduces the shared/residual pathway of
-    :class:`common.fusion_layer.FusionLayer`:
-    ``F.sigmoid(self.shared_expert_gate(x)) * self.shared_expert(x)``.
-    Families with no shared expert (Mixtral / Qwen3) pass ``None`` for both
-    submodules and the pathway contributes zeros, so the residual add in the
-    layer is a no-op. Presence/type is exposed through :attr:`has_shared` rather
-    than any "exactly two ``.pt`` files" assumption.
+    Computes ``sigmoid(gate(x)) * shared(x)``. When both submodules are
+    ``None`` (no shared expert, e.g. Mixtral / Qwen3), returns zeros instead.
+    Check ``has_shared`` to test which mode is active.
     """
 
     def __init__(

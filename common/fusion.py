@@ -1,23 +1,13 @@
-"""Expert-fusion methods as composable implementations.
+"""Expert-fusion strategies for merging a pair of MoE experts.
 
-Each strategy for merging a pair of experts into one :class:`~common.mlp.MLP`
-is a subclass of :class:`FusionMethod`. Calling an instance with
-``(mlp_a, mlp_b, train_data)`` returns the fused expert; data-dependent methods
-fall back to a plain weight average when no calibration data is available.
+Each strategy is a :class:`FusionMethod` subclass. Call an instance with
+``(mlp_a, mlp_b, train_data)`` to get the fused expert. Data-dependent
+methods fall back to a plain weight average when no calibration data is given.
 
-The implementations are kept faithful to their source papers:
-
-* ``ZipIt``        -- Stoica et al., "ZipIt! Merging Models from Different
-                      Tasks without Training", 2023.
-* ``Procrustes``   -- orthogonal Procrustes alignment (Schoenemann, 1966); for a
-                      permutation it reduces to Git Re-Basin (Ainsworth et al.,
-                      2023). For SiLU MLPs a general rotation is a linear
-                      approximation, see :class:`ProcrustesFusion`.
-* ``TIES``         -- Yadav et al., "TIES-Merging: Resolving Interference When
-                      Merging Models", NeurIPS 2023.
-* ``Fisher``       -- Matena & Raffel, "Merging Models with Fisher-Weighted
-                      Averaging", NeurIPS 2022.
-* ``LS_*``         -- least-squares output re-fit.
+Implemented methods (faithful to source papers): ZipIt (Stoica 2023),
+Procrustes alignment (Schoenemann 1966), TIES (Yadav NeurIPS 2023),
+Fisher-weighted averaging (Matena & Raffel NeurIPS 2022), and LS_* variants
+that re-fit the output layer by least squares.
 """
 
 import copy
@@ -70,9 +60,8 @@ def batch_iter(x: torch.Tensor, batch_size: int):
         yield x[start : start + batch_size]
 
 
-# ``solve_linear`` now lives in :mod:`common.numeric` so ``common.mlp`` can use
-# it (for ``refit_unmerge``) without importing this module (a circular import).
-# It is imported above and stays reachable as ``fusion.solve_linear``.
+# ``solve_linear`` lives in ``common.numeric`` to avoid a circular import with
+# ``common.mlp``; imported above so it remains reachable as ``fusion.solve_linear``.
 
 
 # --------------------------------------------------------------------------- #
@@ -97,28 +86,21 @@ class FusionMethod(ABC):
         create_new: bool = True,
         ctx: Optional[StageContext] = None,
     ) -> MLP:
-        # Concrete k == 2 contract: explicit, named parameters so typos in a
-        # subclass's own arguments are caught. The variadic public contract lives
-        # on ``__call__`` below.
+        # k=2 contract with explicit named params (catches subclass typos).
+        # The variadic public interface lives on ``__call__``.
         raise NotImplementedError()
 
     def __call__(self, *mlps, train_data=None, create_new: bool = True,
                  ctx: Optional[StageContext] = None) -> MLP:
-        """k-agnostic public fusion contract.
+        """Public fusion entry point; accepts experts as positional args.
 
-        The interface is variadic in the experts (``*mlps``) and carries
-        everything else as keyword-only state -- ``train_data`` (calibration
-        rows), ``create_new`` and the dynamic-state ``ctx``. Our implementations
-        support only ``k == 2``: a ``len(mlps) != 2`` call raises a clear error;
-        the generalization is left to other researchers.
+        Only k=2 is implemented; other counts raise ``NotImplementedError``.
+        Keyword args: ``train_data`` (calibration rows), ``create_new``,
+        ``ctx`` (optional dynamic state, e.g. for seeding).
 
-        Backward compatibility: the positional form
-        ``method(mlp_a, mlp_b, train_data)`` passes ``train_data`` as the third
-        positional argument. With ``train_data`` unset and exactly three
-        positionals, the last one is rebound as ``train_data`` -- so every
-        existing positional call site keeps working, while
-        ``method(*[a, b], train_data=data)`` is the k-agnostic form. Both
-        reach the same ``merge`` and are numerically identical.
+        Backward compat: ``method(mlp_a, mlp_b, train_data)`` still works --
+        when three positionals are given and ``train_data`` is not set, the
+        third positional is treated as ``train_data``.
         """
         if train_data is None and len(mlps) == 3:
             *mlp_list, train_data = mlps
@@ -131,8 +113,7 @@ class FusionMethod(ABC):
         if train_data is None:
             train_data = []
         mlp_a, mlp_b = mlps
-        # ``ctx`` is an additive, optional carrier of dynamic state (e.g.
-        # seeding); methods that do not consume it ignore it.
+        # Optional dynamic state (e.g. seeding); ignored by methods that don't use it.
         if self.needs_data and len(train_data) == 0:
             return AverageFusion().merge(mlp_a, mlp_b, train_data, create_new, ctx)
         return self.merge(mlp_a, mlp_b, train_data, create_new, ctx)
@@ -201,11 +182,10 @@ def orthogonal_procrustes(target: torch.Tensor, source: torch.Tensor) -> torch.T
 
 
 def _apply_hidden_rotation(model: AdvancedMLP, r: torch.Tensor) -> AdvancedMLP:
-    """Rotate a copy of ``model`` so its hidden axis becomes ``hidden @ r``.
+    """Return a copy of ``model`` with its hidden axis rotated by ``r``.
 
-    Reduces to a Git Re-Basin permutation when ``r`` is a permutation matrix
-    (function-preserving); for a general orthogonal ``r`` it is a linear
-    approximation because SiLU does not commute with rotations.
+    Exact when ``r`` is a permutation matrix (function-preserving; Git Re-Basin);
+    otherwise a linear approximation because SiLU does not commute with rotations.
     """
     new = copy.deepcopy(model)
     r = r.to(dtype=model.gate.weight.dtype, device=model.gate.weight.device)
@@ -217,9 +197,8 @@ def _apply_hidden_rotation(model: AdvancedMLP, r: torch.Tensor) -> AdvancedMLP:
 
 
 class ProcrustesFusion(FusionMethod):
-    """Align expert B's hidden units to A's by orthogonal Procrustes, then
-    average. The alignment is computed from the SiLU-gated activations on
-    ``train_data``; see :func:`orthogonal_procrustes`."""
+    """Align B's hidden units to A's via orthogonal Procrustes (computed from
+    SiLU-gated activations on ``train_data``), then average the two experts."""
 
     name = "Procrustes"
 
@@ -247,10 +226,9 @@ def _trim(weights: torch.Tensor, trim_ratio: float) -> torch.Tensor:
 class TiesFusion(FusionMethod):
     """TIES-Merging (Yadav et al., 2023): Trim -> Elect-Sign -> Disjoint-Mean.
 
-    Experts share no pretrained base, so the task vectors are the raw weights
-    (base = 0). Per parameter tensor: (1) trim each expert's smallest-magnitude
-    entries; (2) elect a sign per coordinate as ``sign(tau_a + tau_b)``;
-    (3) average only the trimmed entries whose sign matches the elected sign.
+    Experts have no shared base, so task vectors are the raw weights. For each
+    parameter: trim smallest-magnitude entries, elect a sign per coordinate as
+    ``sign(tau_a + tau_b)``, then average only the entries matching that sign.
     """
 
     name = "TIES"
@@ -294,17 +272,14 @@ def diagonal_empirical_fisher(
     batch_size: int = 256,
     generator: Optional[torch.Generator] = None,
 ) -> dict[str, torch.Tensor]:
-    """Diagonal empirical Fisher of ``model`` under a unit-variance Gaussian
-    output model (Matena & Raffel, 2022).
+    """Diagonal empirical Fisher for ``model`` (Matena & Raffel, 2022).
 
-    Estimated with a Gaussian score sampler: for ``loss = sum(out * eps)`` with
-    ``eps ~ N(0, I)``, ``E_eps[grad^2] = sum_k (d out_k / d theta)^2`` -- the
-    per-parameter Fisher diagonal. Depends only on ``model``, not on its pair.
+    Uses a Gaussian score sampler: ``loss = sum(out * eps)``, ``eps ~ N(0, I)``.
+    ``E[grad^2]`` gives the per-parameter Fisher diagonal.
 
-    ``generator`` seeds the ``eps`` draw: pass a per-pair
-    :class:`torch.Generator` (from :meth:`StageContext.generator`) to make the
-    estimate order-independent; ``None`` draws from the global RNG, which is
-    bit-identical to the legacy ``torch.randn_like`` behaviour.
+    ``generator`` seeds the eps draw. Pass a per-pair ``torch.Generator``
+    (from ``StageContext.generator``) for order-independent estimates; ``None``
+    uses the global RNG.
     """
     params = {name: p for name, p in model.named_parameters() if p.requires_grad}
     fisher = {name: torch.zeros_like(p, dtype=torch.float32) for name, p in params.items()}
@@ -364,9 +339,8 @@ class FisherFusion(FusionMethod):
 
     def merge(self, mlp_a, mlp_b, train_data, create_new=True, ctx=None):
         data = as_2d_tensor(train_data, device=model_device(mlp_a))
-        # Order-independent eps draw: one per-pair generator feeds both
-        # experts' Fisher estimates (A then B, so they still get distinct eps).
-        # ctx=None keeps the global-RNG behaviour.
+        # One per-pair generator feeds both Fisher estimates for order-independence
+        # (A and B still get distinct eps draws); ctx=None uses the global RNG.
         generator = (
             ctx.generator("fusion", method=self.name, device=model_device(mlp_a))
             if ctx is not None
@@ -387,14 +361,11 @@ class FisherFusion(FusionMethod):
 # Distillation.
 # --------------------------------------------------------------------------- #
 class DistillationFusion(FusionMethod):
-    """Train a student expert (initialized from the average) to mimic the
-    pairwise teacher ensemble on outputs and hidden activations.
+    """Knowledge-distillation merge: train a student (initialized from the
+    average) to mimic both experts' outputs and hidden activations.
 
-    All training hyperparameters are exposed as constructor arguments; the
-    defaults reproduce the original hardcoded schedule. ``epochs_large`` is used
-    when the calibration set has at least ``small_data_threshold`` samples,
-    otherwise ``epochs_small``. ``hidden_loss_weight`` balances the hidden-state
-    distillation term against the output term.
+    ``epochs_large`` applies when data >= ``small_data_threshold`` samples,
+    else ``epochs_small``. ``hidden_loss_weight`` scales the hidden-state loss.
     """
 
     name = "Distillation"
@@ -476,9 +447,8 @@ class LeastSquaresAdapter(FusionMethod):
             return fused
         all_tokens = as_tensor(train_data)
         targets = torch.cat([mlp_a.forward(all_tokens), mlp_b.forward(all_tokens)], dim=-1)
-        # Public unmerge refit instead of poking ``.down``/``.U`` directly: the
-        # fused expert owns the reconstruction. Numerically identical to a direct
-        # in-line solve (drops ``down``, then least-squares-fits ``U``).
+        # Use the public ``refit_unmerge`` instead of writing ``.down``/``.U``
+        # directly; numerically equivalent but respects encapsulation.
         fused.refit_unmerge(all_tokens, targets)
         return fused
 
@@ -497,10 +467,8 @@ BASE_FUSION_METHODS: list[FusionMethod] = [
 ]
 
 
-# Meta-wrappers turn an existing fusion method into a new one (LS_<name> refits
-# the unmerge layer by least squares). They are applied over EVERY registered base
-# method, so a newly registered base method automatically gets its wrapped
-# variants. Add a wrapper class here and it covers all methods.
+# Meta-wrappers produce derived methods (e.g. LS_<name> refits the unmerge layer).
+# Every registered base method gets a wrapped variant automatically.
 FUSION_META_WRAPPERS = [LeastSquaresAdapter]
 
 
@@ -511,10 +479,8 @@ def _is_meta(method: FusionMethod) -> bool:
 def apply_meta_wrappers(registry: Registry) -> None:
     """Register a wrapped variant of every base (non-meta) method that lacks one.
 
-    Idempotent and order-stable: the registry preserves insertion order, so the
-    wrappers are registered in the same order as their base methods. Call it once
-    after the base methods are registered; calling it again after a new base
-    method is registered gives that method its LS_ variant too.
+    Idempotent: already-wrapped methods are skipped. Order-stable: wrappers
+    appear in the same order as their base methods in the registry.
     """
     base_names = [name for name in registry if not _is_meta(registry[name])]
     for wrapper in FUSION_META_WRAPPERS:
@@ -525,12 +491,11 @@ def apply_meta_wrappers(registry: Registry) -> None:
 
 
 def _build_fusion_registry() -> Registry:
-    """The canonical fusion registry: base methods, then each ``LS_<name>``.
+    """Build the canonical registry: base methods in ``BASE_FUSION_METHODS``
+    order, then their ``LS_<name>`` wrappers in the same order.
 
-    The order is pinned -- base methods in ``BASE_FUSION_METHODS`` order, then
-    their least-squares wrappers in the same order -- because the ``Best_*``
-    fallback picks the first registered method and a golden snapshot matches this
-    exactly. Changing the order is a deliberate, flagged change, not an accident.
+    Order is intentionally pinned: ``Best_*`` uses the first registered method
+    as its fallback, and golden snapshots depend on this exact sequence.
     """
     registry = Registry("fusion")
     for method in BASE_FUSION_METHODS:
@@ -539,15 +504,14 @@ def _build_fusion_registry() -> Registry:
     return registry
 
 
-# The single source of truth the stages read from: a name -> instance Mapping,
-# extended by registering a new subclass in-tree.
+# Registry that stages read from: name -> instance. Extend by registering
+# a new FusionMethod subclass in-tree.
 FUSION_REGISTRY: Registry = _build_fusion_registry()
 
 
 def build_fusion_methods() -> dict[str, FusionMethod]:
-    """Name -> fusion instance (base + ``LS_<name>``), as an ordered dict.
+    """Snapshot of ``FUSION_REGISTRY`` as a plain ordered dict (name -> instance).
 
-    A snapshot of :data:`FUSION_REGISTRY` (same composition and order). Kept for
-    callers that want a mutable plain dict; the stages read the registry itself.
+    Kept for callers that need a mutable dict; stages read the registry directly.
     """
     return dict(FUSION_REGISTRY)

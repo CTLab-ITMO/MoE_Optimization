@@ -1,17 +1,11 @@
-"""Stage 2 -- grouping + per-group activation join.
+"""Stage 2: group experts then build per-group activation indices. CPU-only.
 
-A pure-CPU stage that needs no model: changing the grouping method only re-runs
-this stage, not the (expensive) capture in stage 1.
+Changing the grouping method only requires re-running this stage (no model needed).
 
-* **Grouping**: the registered :class:`~common.grouping.Grouping` strategy
-  partitions each layer's experts into a :class:`~common.artifacts.Partition`,
-  saved to the versioned ``groups/`` prefix. The default
-  ``activation_correlation`` reads the stage-1 co-activation matrix to pair
-  experts (group order + tuple orientation are deterministic).
-* **Join**: for each split, the per-example top-k selections (stage 1) are joined
-  with the partition into a :class:`~common.artifacts.GroupActivationIndex` --
-  for each group, the (ascending) indices of the examples that activate it. This
-  is the calibration index stage 3 gathers its per-group data from.
+Grouping: the configured strategy (default: activation_correlation) partitions
+each layer's experts into a Partition saved under groups/. Order is deterministic.
+Join: top-k expert selections are mapped to groups, producing a GroupActivationIndex
+(sorted example indices per group) that stage 3 uses for calibration.
 """
 import os
 
@@ -33,8 +27,7 @@ from experts_fusion.config import (
     device,
 )
 
-# Validate the grouping choice against the registry, then guard against config
-# drift from the stage-1 snapshot before doing any work.
+# Validate PAIRING_METHOD is registered and config matches the stage-1 snapshot.
 require_registered(PAIRING_METHOD, GROUPING_REGISTRY, field="PAIRING_METHOD")
 provenance.assert_config_matches_snapshot(DATA_DIR, config_snapshot_dict())
 layout.validate_layout_version(DATA_DIR)
@@ -42,18 +35,16 @@ layout.validate_layout_version(DATA_DIR)
 set_seed(SEED)
 
 grouping = GROUPING_REGISTRY[PAIRING_METHOD]
-# Base context: the run seed gives the stochastic strategies (random /
-# output_similarity) an order-independent per-layer generator; the default
+# Seed drives stochastic strategies (random/output_similarity); the default
 # activation_correlation is deterministic and ignores it.
 base_ctx = StageContext(seed=SEED, device=device, data_dir=DATA_DIR, n_experts=EXPERTS)
 
 
 def join_group_activations(partition, topk_list) -> list[list[int]]:
-    """For each group, the ascending example indices that activate it.
+    """Return sorted example indices that activate each group.
 
-    An expert -> group map turns each example's top-k selections into the set of
-    groups it activated. Ascending order is deterministic; the deterministic
-    fusion methods are order-invariant.
+    Builds an expert->group map, then walks each example's top-k selections
+    to collect activating examples per group. Sorted order is deterministic.
     """
     expert_to_group = [-1] * EXPERTS
     for group_idx, group in enumerate(partition.groups):

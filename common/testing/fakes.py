@@ -1,32 +1,25 @@
-"""Importable fake model zoo for CPU tests and the golden harness.
+"""Fake model zoo for CPU tests and the golden harness.
 
-A self-contained, ``config``-free copy of the fakes that used to live only in
-``tests/experiment/conftest.py``. These stand in for ``Qwen/Qwen1.5-MoE`` and
-its tokenizer/datasets so the pipeline stages can run end-to-end on CPU with no
-downloads. Kept deliberately tiny (see the size constants below) so a full
-pipeline chain runs in seconds.
+Stands in for Qwen/Qwen1.5-MoE, its tokenizer, and datasets so pipeline stages
+run end-to-end on CPU with no downloads. Kept tiny (see size constants below).
 
-This module must not import any experiment ``config`` -- it is library code
-shared by both the legacy and the new pipeline test trees.
+Do not import experiment config here -- this module is shared by both pipeline
+test trees.
 
-Determinism (S8): the fake forward path is a deterministic function of the
-input *text*. ``FakeTokenizer`` maps a string to a fixed id sequence (no RNG),
-and ``FakeCausalLM`` derives the block hidden states from a fixed embedding of
-those ids instead of drawing a fresh ``torch.randn`` per forward call. This is
-the property the 9->4 stage collapse relies on: capturing the co-activation
-matrix, the MLP-block inputs and the top-k selections in a single forward pass
-yields the *same* artifacts as the old per-stage separate passes, because the
-captured hidden no longer depends on how many forwards ran before it. (The
-``logits`` stay random -- ``evaluate_qa`` reseeds before using them, so accuracy
-is unaffected.)
+Determinism: FakeTokenizer maps text to a fixed id sequence (no RNG);
+FakeCausalLM derives hidden states from a fixed embedding of those ids rather
+than calling torch.randn. As a result, captured co-activation matrices, MLP
+inputs, and top-k selections are independent of forward-call order, so a single
+pass produces the same artifacts as the old per-stage separate passes.
+Logits stay random; evaluate_qa reseeds before consuming them.
 """
 import types
 
 import torch
 from torch import nn
 
-# Fake-model dimensions. Small on purpose: enough experts to form pairs, enough
-# layers to exercise per-layer logic, tiny hidden/intermediate widths for speed.
+# Model dimensions, kept small: enough experts for pairing, enough layers for
+# per-layer logic, tiny hidden/intermediate widths for speed.
 H = 4
 INTER = 6
 N_EXPERTS = 4
@@ -120,9 +113,8 @@ class FakeCausalLM(nn.Module):
     def __init__(self, n_layers=N_LAYERS + 1):
         super().__init__()
         self.model = _FakeInner(n_layers)
-        # Fixed embedding so the block hidden states are a deterministic function
-        # of the input ids (see module docstring). Constructed last so the expert
-        # / gate / shared weights keep the same construction-RNG draws.
+        # Fixed embedding makes hidden states a deterministic function of input ids.
+        # Constructed last so expert/gate/shared weights keep their RNG draws.
         self.embed = nn.Embedding(VOCAB, H)
         self.dtype = torch.float32
         self.device = torch.device("cpu")
@@ -134,10 +126,9 @@ class FakeCausalLM(nn.Module):
         ids = input_ids if input_ids.dim() > 1 else input_ids.unsqueeze(0)
         ids = ids.long().to(self.embed.weight.device)
         batch, seq = ids.shape[0], ids.shape[1]
-        # Deterministic block hidden states: a fixed embedding of the input ids,
-        # not a per-call torch.randn (S8). The captured mlp_inputs / co-activation
-        # therefore no longer depend on the forward-call order, so the collapsed
-        # single-pass capture matches the old per-stage passes.
+        # Fixed-embedding hidden states are call-order-independent, so a single
+        # forward pass captures the same mlp_inputs and co-activations as
+        # separate per-stage passes would.
         hidden = self.embed(ids % VOCAB)
         for layer in self.model.layers:
             hidden = layer.mlp(hidden)
@@ -158,11 +149,10 @@ _FAKE_SEQ_LEN = 4
 
 
 def _deterministic_ids(text: str, length: int = _FAKE_SEQ_LEN) -> list[int]:
-    """Map a string to a fixed-length id sequence deterministically (no RNG).
+    """Map a string to a fixed-length id sequence (no RNG).
 
-    Distinct strings give distinct ids (hence distinct embedded hidden states),
-    and the mapping is stable across runs/processes -- the property the
-    single-pass capture relies on (see module docstring).
+    Distinct strings get distinct ids; mapping is stable across runs and
+    processes, so single-pass capture produces consistent artifacts.
     """
     ids = [(ord(ch) + position) % VOCAB for position, ch in enumerate(text[:length])]
     while len(ids) < length:

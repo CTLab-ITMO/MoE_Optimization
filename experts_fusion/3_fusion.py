@@ -1,19 +1,11 @@
 """Stage 3 -- fusion.
 
-For every group of every layer it merges the group's experts with each
-registered fusion method, scores them on the group's held-out validation
-calibration data, and writes one versioned
-:class:`~common.fused_group.FusedExpert` per ``(method, layer, group)`` plus the
-per-metric ``Best_<metric>`` winners.
+Merges expert groups for every layer using all registered fusion methods,
+scores each result on validation data, and writes one versioned FusedExpert
+per (method, layer, group) plus Best_<metric> winners.
 
-Two pieces live in ``common`` so stages 3 and 4 share one definition:
-:func:`~common.mlp_utils.test_model_on_data` scores a fused expert, and
-:func:`~common.mlp_utils.select_best_fused` picks the ``Best_<metric>`` winner
-with a ``next(iter(...))`` fallback (never a hardcoded method name).
-
-Idempotency / resume: each fused artifact records its upstream hash (config hash
-+ work-item coordinates + partition hash) in the provenance slot, so a re-run
-skips a group whose every output is already fresh.
+Idempotent: each artifact stores an upstream hash; re-runs skip groups whose
+outputs are already fresh.
 """
 import os
 
@@ -46,8 +38,7 @@ from experts_fusion.config import (
     device,
 )
 
-# Validate the config filters against the registries, then guard config drift
-# from the stage-1 snapshot before doing any work.
+# Check config filters against registries and verify no config drift since stage 1.
 require_all_registered(FILTER_FUSIONS, FUSION_REGISTRY, field="FILTER_FUSIONS")
 require_all_registered(FILTER_METRICS, METRIC_REGISTRY, field="FILTER_METRICS")
 provenance.assert_config_matches_snapshot(DATA_DIR, config_snapshot_dict())
@@ -61,8 +52,7 @@ if FILTER_METRICS is not None:
     selected_best_metrics = {k: v for k, v in selected_best_metrics.items() if k in FILTER_METRICS}
 
 set_seed(SEED)
-# Base context: per-layer/per-group copies give the stochastic fusion (Fisher) an
-# order-independent generator.
+# Per-layer/per-group copies give stochastic methods (e.g. Fisher) an order-independent RNG.
 base_ctx = StageContext(seed=SEED, device=device)
 config_fingerprint = provenance.config_hash(config_snapshot_dict())
 
@@ -84,11 +74,9 @@ def _save_fused(name, layer, group, mlp, upstream_hash) -> None:
 method_names = list(fusion_methods.keys())
 best_names = [f"{BEST_PREFIX}{metric}" for metric in selected_best_metrics]
 
-# Per-scored-group reconstruction reports, collected for the best-effort
-# diagnostic plots below. ``resumed_any`` records whether any group was skipped
-# as already-fresh: on a partial resume the plots would cover only the re-scored
-# subset, so we skip plotting entirely rather than overwrite a complete plot with
-# a partial one.
+# Reconstruction reports for diagnostic plots. resumed_any tracks whether any group
+# was skipped; if so, plotting is suppressed to avoid overwriting a complete plot
+# with a partial one.
 experiment_results = []
 resumed_any = False
 
@@ -120,8 +108,7 @@ for layer in LAYERS:
                 extra=partition_fingerprint,
             )
 
-        # Resume: skip the whole group when every output is already fresh (the
-        # Best_* selection needs all methods, so freshness is all-or-nothing).
+        # Skip this group if all outputs are already fresh (Best_* needs all methods).
         if all(
             provenance.is_fresh(
                 layout.fusion_expert_path(DATA_DIR, name, layer, group_idx), upstream(name)
@@ -138,8 +125,7 @@ for layer in LAYERS:
         validation_data = _gather(validation_mlp_inputs, validation_index[group_idx])
         ctx = base_ctx.for_layer(layer).for_group(group_idx)
 
-        # k-agnostic public contract; for a pair this is the same merge as the
-        # legacy ``method(a, b, train_data)`` positional form.
+        # Call each fusion method via the k-agnostic interface (positional mlps + keyword train_data).
         fused = {
             name: method(expert_a, expert_b, train_data=train_data, ctx=ctx)
             for name, method in fusion_methods.items()
@@ -163,12 +149,10 @@ for layer in LAYERS:
 
 
 def _plot_fusion_diagnostics() -> None:
-    """Best-effort distribution plots of the per-method reconstruction metrics.
+    """Plot per-method reconstruction metric distributions (best-effort).
 
-    Every output lands under ``DATA_DIR/plots`` (never CWD-relative ``plots/``).
-    Plotted only on a full (non-resumed) run, so a partial resume never
-    overwrites a complete plot with a subset. Best-effort: the caller wraps this
-    so any failure is printed and skipped rather than breaking the fusion stage.
+    Outputs go to DATA_DIR/plots. Skipped on partial resumes to avoid
+    overwriting complete plots with a subset. Failures are caught by the caller.
     """
     if resumed_any or not experiment_results:
         return

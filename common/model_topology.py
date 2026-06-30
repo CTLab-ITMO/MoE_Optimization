@@ -1,36 +1,23 @@
 """Discover which decoder layers of a causal-LM are MoE (router + experts).
 
-It is tempting to assume *every* decoder layer is a sparse MoE block: trim the
-stack with ``for i in range(MAX_LAYERS, len(model.model.layers)):
-del model.model.layers[MAX_LAYERS]`` and then index ``model.model.layers[i].mlp.gate``
-/ ``.experts`` blindly over ``LAYERS = range(N)``. That crashes on hybrid
-dense+sparse models (DeepSeek, Qwen3-MoE, Granite-MoE) whose early layers carry a
-plain dense MLP (``gate_proj``/``up_proj``/``down_proj``, no ``experts`` and no
-router ``gate``): indexing ``.mlp.experts`` on such a layer raises ``AttributeError``.
+Some models (DeepSeek, Qwen3-MoE, Granite-MoE) mix dense and sparse layers.
+Blindly indexing ``.mlp.experts`` on a dense layer raises ``AttributeError``.
+This module replaces blind ``range(N)`` with actual discovery: a layer is MoE
+iff its ``mlp`` has both an ``experts`` collection and a router ``gate``. On
+Qwen1.5-MoE all 24 layers are MoE, so discovery is behaviour-neutral there.
 
-This module replaces the blind ``range(N)`` with a *discovery* of the MoE layers:
-a layer is MoE iff its ``mlp`` exposes both an ``experts`` collection and a router
-``gate``. For ``Qwen/Qwen1.5-MoE`` every one of the 24 decoder layers is MoE, so
-discovery returns exactly ``range(24)`` and is behaviour-neutral there (likewise on
-:class:`common.testing.fakes.FakeCausalLM`, where every layer is MoE).
-
-The accessors are deliberately defensive (``hasattr``-based, never raising on a
-malformed layer) so probing a non-MoE / bare object reports ``False`` instead of
-crashing -- the whole point is to *not* crash on a hybrid stack.
-
-Library code only -- this module never imports an experiment ``config``.
+Accessors are ``hasattr``-based and never raise on a non-MoE layer. No
+experiment config is imported.
 """
 
 from typing import Iterable, Optional
 
 
 def _decoder_layers(model):
-    """Return ``model.model.layers`` or raise a clear error if absent.
+    """Return ``model.model.layers`` or raise if absent.
 
-    Contract: a model without the standard ``model.model.layers`` decoder stack
-    (the Qwen/Llama-family layout the whole pipeline targets) is a usage error,
-    not an empty model -- so this *raises* rather than returning ``[]``, which
-    would silently turn a wrong model object into a no-op run.
+    Raises rather than returning ``[]`` so passing the wrong model object fails
+    loudly instead of silently producing a no-op run.
     """
     inner = getattr(model, "model", None)
     layers = getattr(inner, "layers", None)
@@ -44,14 +31,11 @@ def _decoder_layers(model):
 
 
 def is_moe_layer(layer) -> bool:
-    """Return ``True`` iff ``layer`` exposes a MoE block.
+    """Return ``True`` iff ``layer.mlp`` has both ``experts`` and a router ``gate``.
 
-    A MoE decoder layer has ``layer.mlp`` carrying both an ``experts`` collection
-    and a router ``gate``. A *dense* layer's ``mlp`` (e.g. ``Qwen2MoeMLP`` /
-    ``LlamaMLP``) has ``gate_proj``/``up_proj``/``down_proj`` but neither
-    ``experts`` nor a router ``gate`` -> ``False``. Defensive by design: a layer
-    (or bare object) missing ``mlp`` or the expected sub-attributes returns
-    ``False`` rather than raising.
+    Dense layers have ``gate_proj``/``up_proj``/``down_proj`` but no ``experts``
+    or router ``gate`` -> returns ``False``. Missing ``mlp`` or sub-attributes
+    also returns ``False`` rather than raising.
     """
     if not hasattr(layer, "mlp"):
         return False
@@ -62,17 +46,14 @@ def is_moe_layer(layer) -> bool:
 def discover_moe_layers(
     model, selected: Optional[Iterable[int]] = None
 ) -> list[int]:
-    """Indices of the decoder layers that are MoE, in layer order.
+    """Return indices of MoE decoder layers in layer order.
 
-    Scans ``model.model.layers`` and keeps every index whose layer satisfies
-    :func:`is_moe_layer`. When ``selected`` is given the result is the
-    intersection with it, **preserving the order of** ``selected`` (so
-    ``selected=[1, 0]`` yields ``[1, 0]``) and silently skipping any selected
-    index that is out of range or points at a non-MoE (dense) layer. When
-    ``selected`` is ``None`` every MoE index is returned in ascending layer order.
+    Scans ``model.model.layers`` via :func:`is_moe_layer`. If ``selected`` is
+    given, returns the intersection in the order of ``selected`` (out-of-range or
+    non-MoE indices are silently skipped). If ``None``, returns all MoE indices
+    in ascending order.
 
-    Raises ``AttributeError`` (via :func:`_decoder_layers`) if the model has no
-    ``model.model.layers`` decoder stack.
+    Raises ``AttributeError`` if the model has no ``model.model.layers``.
     """
     layers = _decoder_layers(model)
     moe_indices = [i for i, layer in enumerate(layers) if is_moe_layer(layer)]

@@ -9,9 +9,7 @@ from common.seeding import set_seed
 
 _DATA_CACHE: dict = {}
 
-# Default model-family QA parser. The prompt format and answer-token resolution
-# are owned by a Qwen15QAParser; the module-level default reproduces the inline
-# behaviour so callers that pass no parser get the same result.
+# Default QA parser (Qwen1.5). Used when callers don't supply their own.
 _DEFAULT_PARSER = Qwen15QAParser()
 
 
@@ -30,11 +28,8 @@ def _parser_key(parser) -> tuple:
 
 
 def _cache_key(dataset_kwargs: dict, n: int, seed: int, tokenizer=None, parser=None) -> tuple:
-    # The cache stores tokenizer-rendered prompts and encoded answer ids, so the
-    # key must include everything they depend on: the dataset, n, the ``seed``
-    # the subset is drawn with (``random.Random(seed)`` -- otherwise the first
-    # seed silently wins), and the tokenizer + parser identity (otherwise a second
-    # model in the same process would reuse the first model's prompts/token ids).
+    # Key covers dataset, n, seed, tokenizer, and parser so two models in the
+    # same process don't share cached prompts or token ids.
     return (
         tuple(sorted(dataset_kwargs.items())),
         n,
@@ -52,9 +47,7 @@ def _join_or(items: list) -> str:
     return ", ".join(items[:-1]) + f", or {items[-1]}"
 
 
-# The schema-aware field extraction lives in the declarative
-# common.dataset_schema registry; these stay as thin, behaviour-identical
-# wrappers so existing callers/tests keep working.
+# Thin wrappers delegating to common.dataset_schema for backward compatibility.
 def _extract_question(sample: dict) -> str:
     return dataset_schema.resolve_question(sample)
 
@@ -67,9 +60,7 @@ def _extract_answer(sample: dict, labels: list) -> str:
     return dataset_schema.resolve_answer(sample, labels)
 
 
-# Prompt format and answer-token resolution are owned by the model-family
-# parser; these wrappers delegate to the module default so the inline
-# behaviour is preserved for callers that do not inject their own parser.
+# Wrappers that delegate to the default parser for callers that don't inject one.
 def _format_prompt(sample: dict, tokenizer, letters: list) -> str:
     return _DEFAULT_PARSER.format_prompt(sample, tokenizer, letters)
 
@@ -113,15 +104,11 @@ def evaluate_qa(
     max_length: int = 512,
     parser=None,
 ) -> float:
-    """Evaluate accuracy (number from 0 to 1) of a model in a given question-answer dataset.
+    """Return accuracy in [0, 1] on a multiple-choice QA dataset.
 
-    ``parser`` is the injected model-family QA parser; when unset the module
-    default :data:`_DEFAULT_PARSER` (Qwen1.5) is used, reproducing the inline
-    prompt/answer-token behaviour. The tokenizer and parser identity are
-    part of the subset cache key, so evaluating a second model in the same process
-    does not reuse the first model's rendered prompts.
-
-    Result is constant with a fixed seed."""
+    Uses the injected ``parser`` (defaults to Qwen1.5) for prompt formatting.
+    Results are cached per (dataset, n, seed, tokenizer, parser) so two models
+    in the same process stay independent. Deterministic with a fixed seed."""
     set_seed(seed)
     tokenizer.padding_side = "left"
     tokenizer.truncation_side = "left"
