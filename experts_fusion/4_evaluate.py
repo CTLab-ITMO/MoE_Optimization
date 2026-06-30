@@ -328,8 +328,8 @@ def main():
 
     try:
         model.cpu()
-    except Exception:
-        pass
+    except Exception as exc:  # teardown only -- results are already written
+        print(f"[teardown] model.cpu() skipped: {exc!r}")
     del model
     gc.collect()
     if torch.cuda.is_available():

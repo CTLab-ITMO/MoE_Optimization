@@ -57,6 +57,19 @@ def _load_coactivation_matrix(path: str) -> torch.Tensor:
         return torch.load(path)
 
 
+def _load_expert(path: str, device: torch.device):
+    """Load a raw expert as an ``AdvancedMLP``: the new module writes a versioned
+    ``SavedExpert`` (safetensors), the legacy module a raw pickled module. Try the
+    versioned class first and fall back to the raw load -- a pickle never parses as
+    safetensors, so the fallback is unambiguous (mirrors :func:`_load_coactivation_matrix`)."""
+    from common.artifacts import SavedExpert
+
+    try:
+        return SavedExpert.load(path, device=device).mlp
+    except Exception:
+        return torch.load(path, map_location=device)
+
+
 def compute_activation_correlation_matrix(layer: int, data_dir: str) -> torch.Tensor:
     """Load and normalise activation matrix."""
     path = layout.activation_matrix_path(data_dir, layout.TRAIN_SPLIT, layer)
@@ -76,23 +89,23 @@ def compute_output_similarity_matrix(
 ) -> torch.Tensor:
     """Build an EXPERTS x EXPERTS expert-output similarity matrix.
 
-    Each expert is run on a shared sample of MLP inputs (step 4 outputs); its
-    per-token outputs are L2-normalized and the matrix entry ``(i, j)`` is the
-    mean cosine similarity between expert ``i`` and ``j`` outputs over the
-    sample. This is the ``output_similarity`` pairing signal -- an alternative
-    to ``activation_correlation`` (gate co-activation) for the P0 ablation.
+    Each expert is run on a shared sample of captured MLP inputs; its per-token
+    outputs are L2-normalized and the matrix entry ``(i, j)`` is the mean cosine
+    similarity between expert ``i`` and ``j`` outputs over the sample. This is the
+    ``output_similarity`` pairing signal -- an alternative to
+    ``activation_correlation`` (gate co-activation).
 
-    Requires step 3 (saved experts) and step 4 (saved MLP inputs).
+    Requires the saved experts and captured MLP inputs (both from preprocessing).
     """
     experts_dir = layout.experts_dir(data_dir, layer)
     inputs_path = layout.mlp_inputs_path(data_dir, layout.TRAIN_SPLIT, layer)
     if not os.path.isdir(experts_dir):
         raise FileNotFoundError(
-            "PAIRING_METHOD='output_similarity' requires step 3 "
+            "PAIRING_METHOD='output_similarity' requires the saved experts"
         )
     if not os.path.isfile(inputs_path):
         raise FileNotFoundError(
-            "PAIRING_METHOD='output_similarity' requires step 4 "
+            "PAIRING_METHOD='output_similarity' requires the captured MLP inputs"
         )
 
     raw_inputs = torch.load(inputs_path)
@@ -109,7 +122,7 @@ def compute_output_similarity_matrix(
 
     norm_outputs: list[torch.Tensor] = []
     for i in range(n_experts):
-        expert = torch.load(layout.expert_path(data_dir, layer, i), map_location=device)
+        expert = _load_expert(layout.expert_path(data_dir, layer, i), device)
         expert.eval()
         outs = []
         with torch.no_grad():

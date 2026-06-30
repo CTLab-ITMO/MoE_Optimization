@@ -99,6 +99,27 @@ def test_output_similarity_matrix_happy_path(tmp_path, allow_pickled_load):
     assert torch.allclose(torch.diagonal(sim), torch.ones(n_experts), atol=1e-3)
 
 
+def test_output_similarity_matrix_loads_safetensors_experts(tmp_path):
+    # The new module writes experts as SavedExpert (safetensors); the similarity
+    # signal must load them via SavedExpert, not the legacy pickle path (no
+    # allow_pickled_load fixture here).
+    from common import layout
+    from common.artifacts import SavedExpert
+
+    n_experts = 4
+    os.makedirs(layout.experts_dir(str(tmp_path), 0), exist_ok=True)
+    for i in range(n_experts):
+        torch.manual_seed(i)
+        SavedExpert(AdvancedMLP(4, 6, 4, device=CPU)).save(layout.expert_path(str(tmp_path), 0, i))
+    _save_inputs(str(tmp_path), 0, torch.randn(20, 4))
+
+    sim = pairing.compute_output_similarity_matrix(
+        0, str(tmp_path), n_experts, CPU, num_samples=10, batch_size=8
+    )
+    assert sim.shape == (n_experts, n_experts)
+    assert torch.allclose(torch.diagonal(sim), torch.ones(n_experts), atol=1e-3)
+
+
 def test_output_similarity_matrix_accepts_list_and_3d_inputs(tmp_path, allow_pickled_load):
     n_experts = 2
     _save_experts(str(tmp_path), 1, n_experts)
