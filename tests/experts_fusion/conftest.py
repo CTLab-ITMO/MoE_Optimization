@@ -66,6 +66,7 @@ def run_script(monkeypatch, tmp_path, data_dir, layers):
             "VALIDATION_SIZE": 4,
             "FILTER_FUSIONS": ["Average"],
             "FILTER_METRICS": [],
+            "INSPECT_FUSION_METHOD": "Average",
             "REPLACE_LAYERS_SEQUANTIAL": False,
             "REPLACE_BEST_LAYERS_SEQUANTIAL": False,
             "REPLACE_LAYERS_SMART_SEQUANTIAL": False,

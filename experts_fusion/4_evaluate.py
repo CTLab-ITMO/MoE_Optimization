@@ -79,6 +79,16 @@ selected_best_metrics = live_best_metrics()
 if FILTER_METRICS is not None:
     selected_best_metrics = {k: v for k, v in selected_best_metrics.items() if k in FILTER_METRICS}
 
+# Validate the inspected method against the set stage 3 actually produced (real
+# methods + the Best_<metric> pseudo-methods), so a typo fails here instead of as
+# a later FileNotFound inside the best-effort diagnostics.
+_produced_methods = set(fusion_methods) | {f"{BEST_PREFIX}{m}" for m in selected_best_metrics}
+if INSPECT_FUSION_METHOD not in _produced_methods:
+    raise ValueError(
+        f"INSPECT_FUSION_METHOD={INSPECT_FUSION_METHOD!r} is not produced by stage 3; "
+        f"choose one of {sorted(_produced_methods)}"
+    )
+
 set_seed(SEED)
 
 
