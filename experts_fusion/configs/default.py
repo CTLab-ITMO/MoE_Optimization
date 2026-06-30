@@ -12,6 +12,8 @@ and re-exports the names in ``__all__`` below.
 import torch
 
 from common.expert_adapter import Qwen15ExpertAdapter
+from common.fusion import ZipItFusion
+from common.names import PairingMethod
 from common.qa_parser import Qwen15QAParser
 from common.router import Qwen15RouterAdapter
 
@@ -47,7 +49,7 @@ MIN_PAIR_VALIDATION_SAMPLES = 10
 
 # Fusion method whose saved experts the stage-4 diagnostics (recon benchmark +
 # generation) load and inspect. Must be one of the method names produced by stage 3.
-INSPECT_FUSION_METHOD = "ZipIt"
+INSPECT_FUSION_METHOD = ZipItFusion.name
 
 SEED = 42
 
@@ -63,8 +65,8 @@ ROUTER_ADAPTER = Qwen15RouterAdapter()
 EXPERT_ADAPTER = Qwen15ExpertAdapter()
 QA_PARSER = Qwen15QAParser()
 
-# "activation_correlation", "random", "output_similarity"
-PAIRING_METHOD = "activation_correlation"
+# One of the PairingMethod members (activation_correlation / random / output_similarity).
+PAIRING_METHOD = PairingMethod.ACTIVATION_CORRELATION
 
 FILTER_FUSIONS = None
 FILTER_METRICS = None
