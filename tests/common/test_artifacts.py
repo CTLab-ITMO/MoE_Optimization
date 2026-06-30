@@ -20,9 +20,36 @@ from common.artifacts import (
     Group,
     GroupActivationIndex,
     Partition,
+    SavedExpert,
 )
+from common.mlp import AdvancedMLP
 
 CPU = torch.device("cpu")
+
+
+def test_saved_expert_round_trips_forward_identically(tmp_path):
+    torch.manual_seed(0)
+    mlp = AdvancedMLP(4, 6, 4, device=CPU)
+    path = tmp_path / "expert_0.pt"
+    SavedExpert(mlp).save(path)
+
+    loaded = SavedExpert.load(path, device=CPU).mlp
+    x = torch.randn(8, 4)
+    assert torch.allclose(loaded.forward(x), mlp.forward(x), atol=1e-6)
+
+
+def test_saved_expert_is_safetensors_not_pickle(tmp_path):
+    path = tmp_path / "expert_0.pt"
+    SavedExpert(AdvancedMLP(4, 6, 4, device=CPU)).save(path)
+    # The artifact is a versioned safetensors payload, never a pickled module.
+    assert S.peek(path).header[S.PAYLOAD_TYPE_FIELD] == S.PAYLOAD_SAVED_EXPERT
+
+
+def test_saved_expert_preserves_bf16_dtype(tmp_path):
+    mlp = AdvancedMLP(4, 6, 4, device=CPU).to(dtype=torch.bfloat16)
+    path = tmp_path / "expert_0.pt"
+    SavedExpert(mlp).save(path)
+    assert SavedExpert.load(path, device=CPU).mlp.gate.weight.dtype == torch.bfloat16
 PAIRS = [(3, 1), (0, 2), (5, 4)]  # deliberately unsorted to exercise orientation
 
 

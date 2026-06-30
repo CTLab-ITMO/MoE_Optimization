@@ -63,6 +63,8 @@ PROVENANCE_FIELD = "provenance"
 # Payload-type tags for the artifacts the v0->v1 migrator understands.
 PAYLOAD_ADVANCED_MLP = "advanced_mlp"
 PAYLOAD_PAIRS = "pairs"
+# A raw extracted expert (an AdvancedMLP) saved as a safetensors artifact.
+PAYLOAD_SAVED_EXPERT = "saved_expert"
 
 
 class SerializationError(Exception):

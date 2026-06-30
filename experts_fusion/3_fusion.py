@@ -20,7 +20,7 @@ import os
 import torch
 
 from common import layout, provenance
-from common.artifacts import GroupActivationIndex, Partition
+from common.artifacts import GroupActivationIndex, Partition, SavedExpert
 from common.context import StageContext
 from common.fused_group import FusedExpert
 from common.fusion import FUSION_REGISTRY
@@ -102,7 +102,7 @@ for layer in LAYERS:
         layout.group_activations_path(DATA_DIR, layout.VALIDATION_SPLIT, layer)
     ).to_lists()
     experts = [
-        torch.load(layout.expert_path(DATA_DIR, layer, i), weights_only=False)
+        SavedExpert.load(layout.expert_path(DATA_DIR, layer, i)).mlp
         for i in range(EXPERTS)
     ]
     train_mlp_inputs = torch.load(layout.mlp_inputs_path(DATA_DIR, layout.TRAIN_SPLIT, layer))

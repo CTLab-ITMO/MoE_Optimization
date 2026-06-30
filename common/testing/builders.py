@@ -13,7 +13,7 @@ import torch
 from torch import nn
 
 from common import layout
-from common.artifacts import CoActivationMatrix, GroupActivationIndex, Partition
+from common.artifacts import CoActivationMatrix, GroupActivationIndex, Partition, SavedExpert
 from common.fused_group import FusedExpert
 from common.mlp import AdvancedMLP
 from common.testing.fakes import H, INTER, N_EXPERTS, TOP_K, FakeFusionGate
@@ -61,11 +61,17 @@ class Builders:
             torch.save(pairs, _ensure_parent(layout.pairs_path(self.data_dir, layer)))
         return pairs
 
-    def experts(self):
+    def experts(self, saved=False):
+        # ``saved=True`` writes each expert as a versioned SavedExpert (new module);
+        # the default pickles it (legacy module). The gate / shared expert stay
+        # pickled in both.
         for layer in self.layers:
             for i in range(self.n_experts):
-                torch.save(expert_mlp(i),
-                           _ensure_parent(layout.expert_path(self.data_dir, layer, i)))
+                path = _ensure_parent(layout.expert_path(self.data_dir, layer, i))
+                if saved:
+                    SavedExpert(expert_mlp(i)).save(path)
+                else:
+                    torch.save(expert_mlp(i), path)
             torch.save(FakeFusionGate(),
                        _ensure_parent(layout.gate_path(self.data_dir, layer)))
             torch.save(nn.Linear(H, H, bias=False),

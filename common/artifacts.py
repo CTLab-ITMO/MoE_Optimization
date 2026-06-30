@@ -218,3 +218,26 @@ class CoActivationMatrix:
     @classmethod
     def load(cls, path) -> "CoActivationMatrix":
         return cls.from_artifact(serialization.load(path))
+
+
+class SavedExpert:
+    """A single extracted expert -- an :class:`~common.mlp.AdvancedMLP` -- persisted
+    as a versioned ``state_dict`` + header safetensors artifact instead of a
+    pickled module. Reads back forward-identically (dtype preserved)."""
+
+    def __init__(self, mlp):
+        self.mlp = mlp
+
+    def save(self, path, *, provenance: Optional[dict] = None) -> None:
+        artifact = serialization.mlp_to_artifact(self.mlp)
+        serialization.save(
+            path,
+            artifact.tensors,
+            artifact.header,
+            payload_type=serialization.PAYLOAD_SAVED_EXPERT,
+            provenance=provenance,
+        )
+
+    @classmethod
+    def load(cls, path, device: Optional[torch.device] = None) -> "SavedExpert":
+        return cls(serialization.artifact_to_mlp(serialization.load(path), device=device))

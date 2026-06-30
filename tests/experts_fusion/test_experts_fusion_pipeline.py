@@ -59,7 +59,7 @@ def test_stage2_grouping(run_script, builders, data_dir, layers):
 
 
 def test_stage3_fusion(run_script, builders, data_dir, layers):
-    builders.experts()
+    builders.experts(saved=True)
     builders.mlp_inputs()
     pairs = builders.partition()
     builders.group_activations(n_groups=len(pairs))
@@ -76,7 +76,7 @@ def test_stage3_fusion(run_script, builders, data_dir, layers):
 
 
 def test_stage4_evaluate_accuracy(run_script, builders, data_dir):
-    builders.experts()
+    builders.experts(saved=True)
     pairs = builders.partition()
     builders.fused_experts_v1("Average", pairs)
 
@@ -107,7 +107,7 @@ def test_run_stage_files_orders_and_filters():
 
 
 def test_stage4_all_replacement_modes(run_script, builders):
-    builders.experts()
+    builders.experts(saved=True)
     pairs = builders.partition()
     builders.fused_experts_v1("Average", pairs)
 

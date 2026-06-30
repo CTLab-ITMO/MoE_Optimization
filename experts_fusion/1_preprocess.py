@@ -25,7 +25,7 @@ import transformers
 from tqdm import tqdm
 
 from common import layout, provenance
-from common.artifacts import CoActivationMatrix
+from common.artifacts import CoActivationMatrix, SavedExpert
 from common.model_topology import discover_moe_layers
 from common.seeding import set_seed
 from experts_fusion.config import (
@@ -68,7 +68,7 @@ def extract_weights() -> None:
         os.makedirs(layout.experts_dir(DATA_DIR, n_layer), exist_ok=True)
         for i in range(EXPERT_ADAPTER.count(experts)):
             mlp = EXPERT_ADAPTER.extract(experts, i, device=cpu)
-            torch.save(mlp.to(dtype=model.dtype), layout.expert_path(DATA_DIR, n_layer, i))
+            SavedExpert(mlp.to(dtype=model.dtype)).save(layout.expert_path(DATA_DIR, n_layer, i))
         torch.save(model.model.layers[n_layer].mlp.gate.cpu(), layout.gate_path(DATA_DIR, n_layer))
         torch.save(
             model.model.layers[n_layer].mlp.shared_expert.cpu(),

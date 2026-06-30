@@ -130,12 +130,24 @@ class FusionLayer(nn.Module):
         return final_hidden_states
 
 
+def _load_expert_legacy(data_dir, layer_index, i, device):
+    """Load a raw expert from the legacy pickled ``expert_*.pt``."""
+    return torch.load(layout.expert_path(data_dir, layer_index, i), weights_only=False).to(device)
+
+
+def _load_expert_saved(data_dir, layer_index, i, device):
+    """Load a raw expert from the versioned :class:`~common.artifacts.SavedExpert`."""
+    from common.artifacts import SavedExpert
+
+    return SavedExpert.load(layout.expert_path(data_dir, layer_index, i), device=device).mlp
+
+
 def _build_fusion_layer(layer_index, data_dir, *, expert_pairs, fusion_experts, device,
-                        use_default_experts, num_experts, router_adapter, top_k):
+                        use_default_experts, num_experts, router_adapter, top_k, load_expert):
     """Shared core of the two loaders: load the experts/gate/shared pathway and
     assemble the :class:`FusionLayer`. The two public functions differ only in how
-    they load ``expert_pairs`` and ``fusion_experts`` (legacy pickle vs versioned
-    artifacts); everything else is identical and lives here.
+    they load ``expert_pairs`` / ``fusion_experts`` and the raw experts (``load_expert``
+    -- legacy pickle vs versioned artifacts); everything else is identical here.
 
     ``num_experts`` may be ``None``; then it is inferred from the number of
     ``expert_*.pt`` files saved under ``{data_dir}/experts/{layer_index}``.
@@ -145,10 +157,7 @@ def _build_fusion_layer(layer_index, data_dir, *, expert_pairs, fusion_experts, 
     if num_experts is None:
         num_experts = len(glob.glob(layout.expert_glob(data_dir, layer_index)))
     if use_default_experts:
-        experts = [
-            torch.load(layout.expert_path(data_dir, layer_index, i), weights_only=False).to(device)
-            for i in range(num_experts)
-        ]
+        experts = [load_expert(data_dir, layer_index, i, device) for i in range(num_experts)]
     else:
         experts = [None] * num_experts
     gate = torch.load(layout.gate_path(data_dir, layer_index), weights_only=False).to(device)
@@ -182,7 +191,7 @@ def get_fusion_layer_by_index(layer_index, experts_dir, data_dir, device=torch.d
     return _build_fusion_layer(
         layer_index, data_dir, expert_pairs=expert_pairs, fusion_experts=fusion_experts,
         device=device, use_default_experts=use_default_experts, num_experts=num_experts,
-        router_adapter=router_adapter, top_k=top_k,
+        router_adapter=router_adapter, top_k=top_k, load_expert=_load_expert_legacy,
     )
 
 
@@ -210,5 +219,5 @@ def get_fusion_layer_from_groups(layer_index, method, data_dir, device=torch.dev
     return _build_fusion_layer(
         layer_index, data_dir, expert_pairs=expert_pairs, fusion_experts=fusion_experts,
         device=device, use_default_experts=use_default_experts, num_experts=num_experts,
-        router_adapter=router_adapter, top_k=top_k,
+        router_adapter=router_adapter, top_k=top_k, load_expert=_load_expert_saved,
     )

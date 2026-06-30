@@ -175,19 +175,26 @@ def _load_fused(data_dir: str, method: str, layer: int, index: int, spec: Module
     )
 
 
+def _load_expert(data_dir: str, layer: int, i: int, spec: ModuleSpec):
+    """Load one raw expert as an ``AdvancedMLP``, in either artifact format."""
+    if spec.artifact_format == FORMAT_V1:
+        from common import layout
+        from common.artifacts import SavedExpert
+
+        return SavedExpert.load(layout.expert_path(data_dir, layer, i)).mlp
+    return torch.load(
+        os.path.join(data_dir, "experts", str(layer), f"expert_{i}.pt"),
+        weights_only=False,
+    )
+
+
 def _compute_reconstruction(data_dir: str, spec: ModuleSpec) -> dict:
     """Per-layer median (over pairs) reconstruction metrics for each method."""
     from common.mlp_utils import test_model_on_data
 
     out = {method: {} for method in GOLDEN_FUSIONS}
     for layer in GOLDEN_LAYERS:
-        experts = [
-            torch.load(
-                os.path.join(data_dir, "experts", str(layer), f"expert_{i}.pt"),
-                weights_only=False,
-            )
-            for i in range(N_EXPERTS)
-        ]
+        experts = [_load_expert(data_dir, layer, i, spec) for i in range(N_EXPERTS)]
         val = torch.load(os.path.join(data_dir, "mlp_inputs", f"validation_{layer}.pt"))
         pairs = _load_pairs(data_dir, layer, spec)
         for method in GOLDEN_FUSIONS:
