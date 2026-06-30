@@ -8,12 +8,18 @@
   subsample). Wide rtol; ``index_add_``/bf16 noise means these are never
   compared to the byte.
 
+Some deterministic methods are still not portable across machines: Procrustes
+(SVD) and ZipIt (correlation argmax) give different results on different
+LAPACK/BLAS builds, so ``PLATFORM_SENSITIVE_FUSIONS`` are skipped when comparing
+against the frozen snapshot and instead guarded by the cross-module equivalence
+test (legacy vs new on the same machine, where they agree exactly).
+
 S4 re-base: the golden is now captured from the **new** ``experts_fusion``
 module, whose stochastic ops draw from per-unit ``seed_for`` generators (§3.3),
 so the new module reproduces the stochastic entries deterministically. The
 legacy module still consumes the global RNG, so after the re-base it no longer
-reproduces those entries -- ``hold_stochastic=False`` lets the legacy gate skip
-them and verify only the deterministic entries (which both modules still share).
+reproduces those entries -- the legacy gate passes ``STOCHASTIC_FUSIONS`` in its
+``skip`` set and verifies only the deterministic entries both modules share.
 """
 import math
 
@@ -24,6 +30,15 @@ LOOSE_ATOL = 1e-3
 
 # Methods whose fused weights depend on RNG -> loose family.
 STOCHASTIC_FUSIONS = {"Fisher", "LS_Fisher", "Distillation", "LS_Distillation"}
+
+# Methods whose fused weights come from a platform-sensitive linear-algebra
+# primitive: Procrustes uses an SVD (sign/subspace ambiguity differs across
+# LAPACK builds) and ZipIt picks pairs by argmax over a correlation matrix
+# (near-ties break differently across BLAS builds). Their absolute reconstruction
+# values are NOT portable across OS/CPU, so the frozen snapshot cannot pin them.
+# The two modules still agree with each other on the SAME machine, so their
+# equivalence is guarded by test_golden_legacy_matches_new instead.
+PLATFORM_SENSITIVE_FUSIONS = {"ZipIt", "LS_ZipIt", "Procrustes", "LS_Procrustes"}
 
 
 def _tol_for(method: str):
@@ -62,13 +77,13 @@ def diff_registry(actual: dict, expected: dict) -> list:
     return problems
 
 
-def diff_reconstruction(actual: dict, expected: dict, *, hold_stochastic: bool = True) -> list:
+def diff_reconstruction(actual: dict, expected: dict, *, skip=frozenset()) -> list:
     problems = []
     if set(actual) != set(expected):
         problems.append(f"reconstruction methods {sorted(actual)} != {sorted(expected)}")
         return problems
     for method in expected:
-        if not hold_stochastic and method in STOCHASTIC_FUSIONS:
+        if method in skip:
             continue
         rtol, atol = _tol_for(method)
         for layer in expected[method]:
@@ -82,13 +97,13 @@ def diff_reconstruction(actual: dict, expected: dict, *, hold_stochastic: bool =
     return problems
 
 
-def diff_accuracy(actual: dict, expected: dict, *, hold_stochastic: bool = True) -> list:
+def diff_accuracy(actual: dict, expected: dict, *, skip=frozenset()) -> list:
     problems = []
     if set(actual) != set(expected):
         problems.append(f"accuracy methods {sorted(actual)} != {sorted(expected)}")
         return problems
     for method in expected:
-        if not hold_stochastic and method in STOCHASTIC_FUSIONS:
+        if method in skip:
             continue
         rtol, atol = _tol_for(method)
         exp_list = expected[method]
@@ -106,19 +121,25 @@ def diff_accuracy(actual: dict, expected: dict, *, hold_stochastic: bool = True)
     return problems
 
 
-def diff_aggregates(actual: dict, expected: dict, *, hold_stochastic: bool = True) -> list:
+def diff_aggregates(actual: dict, expected: dict, *, skip=frozenset()) -> list:
     """All non-registry aggregate diffs (partition + reconstruction + accuracy).
 
-    ``hold_stochastic=False`` skips the stochastic fusion methods, holding only
-    the deterministic entries -- used for the legacy gate after the S4 re-base
-    (the legacy module no longer reproduces the new ``seed_for`` draws).
+    ``skip`` is the set of fusion-method names excluded from the reconstruction
+    and accuracy comparison. Callers pass:
+
+    * ``PLATFORM_SENSITIVE_FUSIONS`` -- comparing against the frozen snapshot
+      (Procrustes/ZipIt values are not portable across OS/CPU);
+    * plus ``STOCHASTIC_FUSIONS`` for the legacy gate (legacy still draws from the
+      global RNG, so it no longer reproduces the new module's ``seed_for`` draws);
+    * only ``STOCHASTIC_FUSIONS`` when comparing the two modules to each other on
+      one machine (the platform-sensitive methods agree cross-module there).
+
+    Partition is always compared exactly (it is platform-stable).
     """
     problems = []
     problems += diff_partition(actual["partition"], expected["partition"])
     problems += diff_reconstruction(
-        actual["reconstruction"], expected["reconstruction"], hold_stochastic=hold_stochastic
+        actual["reconstruction"], expected["reconstruction"], skip=skip
     )
-    problems += diff_accuracy(
-        actual["accuracy"], expected["accuracy"], hold_stochastic=hold_stochastic
-    )
+    problems += diff_accuracy(actual["accuracy"], expected["accuracy"], skip=skip)
     return problems

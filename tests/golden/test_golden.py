@@ -3,11 +3,14 @@
 Originally captured on the pristine legacy module (S0); from S4 the canonical
 snapshot is captured on the **new** ``experts_fusion`` module, whose stochastic
 ops use per-unit ``seed_for`` generators (§3.3) and therefore reproduce
-deterministically. The new module is held to the whole snapshot; the legacy
-module is held only to the deterministic entries (``hold_stochastic=False``) --
-it still consumes the global RNG, so after the S4 re-base it no longer matches
-the stochastic (Fisher) entries by design. A self-consistency test proves the
-capture is deterministic (double regeneration is identical).
+deterministically. The new module is held to the snapshot except the
+platform-sensitive methods (Procrustes/ZipIt -- see tolerances); the legacy
+module is held to fewer entries still (it draws from the global RNG, so it no
+longer matches the stochastic Fisher entries). The two modules are checked
+against each other directly by ``test_golden_legacy_matches_new`` -- the real
+equivalence guarantee, which also covers the platform-sensitive methods. A
+self-consistency test proves the capture is deterministic (double regeneration
+is identical).
 
 Re-basing the golden is intentional and rare: run with ``UPDATE_GOLDEN=1`` and
 review the JSON diff in the PR. The plan sanctions exactly two re-bases (S4
@@ -51,13 +54,15 @@ def test_registry_snapshot_matches_golden():
 
 
 def test_golden_legacy_module(tmp_path, monkeypatch):
-    # Legacy is the pre-S4 oracle: it still consumes the global RNG, so after the
-    # seed_for re-base it reproduces only the deterministic entries. Hold it to
-    # those (partition + deterministic methods); skip the stochastic ones.
+    # Legacy is the pre-S4 oracle: it still draws from the global RNG, so it no
+    # longer reproduces the new module's seed_for entries -- skip the stochastic
+    # ones. Also skip the platform-sensitive methods (Procrustes/ZipIt), whose
+    # absolute values are not portable across OS/CPU.
     aggregates = harness.run_chain(harness.LEGACY, tmp_path, monkeypatch)
     golden = _load_golden()
     _require_golden(golden)
-    problems = tolerances.diff_aggregates(aggregates, golden, hold_stochastic=False)
+    skip = tolerances.STOCHASTIC_FUSIONS | tolerances.PLATFORM_SENSITIVE_FUSIONS
+    problems = tolerances.diff_aggregates(aggregates, golden, skip=skip)
     assert not problems, "legacy module drift vs golden_v1:\n" + "\n".join(problems)
 
 
@@ -72,8 +77,26 @@ def test_golden_new_module(tmp_path, monkeypatch):
 
     golden = _load_golden()
     _require_golden(golden)
-    problems = tolerances.diff_aggregates(aggregates, golden, hold_stochastic=True)
+    # The new module reproduces the stochastic entries (seed_for), so they stay
+    # in the snapshot under loose tolerance; only the platform-sensitive methods
+    # (Procrustes/ZipIt) are skipped (not portable across OS/CPU).
+    problems = tolerances.diff_aggregates(
+        aggregates, golden, skip=tolerances.PLATFORM_SENSITIVE_FUSIONS
+    )
     assert not problems, "experts_fusion copy drift vs golden_v1:\n" + "\n".join(problems)
+
+
+def test_golden_legacy_matches_new(tmp_path, monkeypatch):
+    # Equivalence is the golden's real purpose. Running both modules on the SAME
+    # machine, the platform-sensitive methods (Procrustes/ZipIt) agree exactly,
+    # so this guards them even though the frozen snapshot cannot. Only stochastic
+    # methods are skipped (legacy uses the global RNG, new uses seed_for).
+    legacy = harness.run_chain(harness.LEGACY, tmp_path / "legacy", monkeypatch)
+    new = harness.run_chain(harness.NEW, tmp_path / "new", monkeypatch)
+    problems = tolerances.diff_aggregates(
+        legacy, new, skip=tolerances.STOCHASTIC_FUSIONS
+    )
+    assert not problems, "legacy vs new module drift:\n" + "\n".join(problems)
 
 
 def test_golden_self_consistency(tmp_path, monkeypatch):
