@@ -153,10 +153,37 @@ def _save_list(values, mode, name, kind):
     torch.save(values, os.path.join(out_dir, f"{kind}_list_{mode}_{name}.pt"))
 
 
+def _free_device_memory():
+    """Release freed CUDA blocks back to the driver (no-op on CPU)."""
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
+def _swap_in(model, layer, new_mlp, originals):
+    """Put ``new_mlp`` on ``layer`` and park the displaced original on CPU.
+
+    Load-once keeps every original mlp alive in ``originals`` to restore later;
+    parking the swapped-out one on CPU keeps it off the device, so the original and
+    its fused replacement are never both resident in VRAM at once (the main
+    peak-memory win, especially for the sequential sweeps).
+    """
+    originals[layer] = originals[layer].cpu()
+    model.model.layers[layer].mlp = new_mlp
+
+
+def _restore_layer(model, layer, originals):
+    """Restore the parked original (back on the model device) and drop the displaced
+    module so its device memory is freed."""
+    displaced = model.model.layers[layer].mlp
+    model.model.layers[layer].mlp = originals[layer].to(device)
+    del displaced
+
+
 def _restore_all(model, moe_layers, originals):
     """Put the original mlp module back on every MoE layer (load-once restore)."""
     for layer in moe_layers:
-        model.model.layers[layer].mlp = originals[layer]
+        _restore_layer(model, layer, originals)
+    _free_device_memory()
 
 
 def accuracy(model, tokenizer, moe_layers, originals):
@@ -178,11 +205,11 @@ def accuracy(model, tokenizer, moe_layers, originals):
         accuracy_list = [base_train]
         size_list = [base_size]
         for layer in tqdm(moe_layers):
-            model.model.layers[layer].mlp = _build_layer(name, layer, model)
+            _swap_in(model, layer, _build_layer(name, layer, model), originals)
             accuracy_list.append(_eval_train(model, tokenizer))
             size_list.append(count_params(model))
             if not REPLACE_LAYERS_SEQUENTIAL:
-                model.model.layers[layer].mlp = originals[layer]
+                _restore_layer(model, layer, originals)
 
         mode = ReplaceMode.SEQ if REPLACE_LAYERS_SEQUENTIAL else ReplaceMode.SINGLE
         print(f"accuracy list after {name} ({mode}):", accuracy_list)
@@ -199,7 +226,7 @@ def accuracy(model, tokenizer, moe_layers, originals):
             best_accuracy = [base_test]
             best_size = [base_size]
             for layer in tqdm(best_layers):
-                model.model.layers[layer].mlp = _build_layer(name, layer, model)
+                _swap_in(model, layer, _build_layer(name, layer, model), originals)
                 best_accuracy.append(_eval_test(model, tokenizer))
                 best_size.append(count_params(model))
             print(f"accuracy list after {name} ({ReplaceMode.SEQ}):", best_accuracy)
@@ -224,13 +251,13 @@ def _smart_accuracy(model, tokenizer, moe_layers, originals, base_test, base_siz
         for _ in tqdm(moe_layers):
             best_layer, best_score = -1, -1
             for layer in remaining:
-                model.model.layers[layer].mlp = _build_layer(name, layer, model)
+                _swap_in(model, layer, _build_layer(name, layer, model), originals)
                 score = _eval_train(model, tokenizer)
                 if score > best_score:
                     best_score, best_layer = score, layer
-                model.model.layers[layer].mlp = originals[layer]
+                _restore_layer(model, layer, originals)
             remaining.remove(best_layer)
-            model.model.layers[best_layer].mlp = _build_layer(name, best_layer, model)
+            _swap_in(model, best_layer, _build_layer(name, best_layer, model), originals)
             accuracy_list.append(_eval_test(model, tokenizer))
             size_list.append(count_params(model))
         print(f"accuracy list after {name} {ReplaceMode.SMART_SEQ}:", accuracy_list)
@@ -252,7 +279,7 @@ def diagnostics(model, tokenizer, moe_layers, originals):
         print(f"[diagnostics] reconstruction benchmark skipped: {exc!r}")
     _restore_all(model, moe_layers, originals)
     try:
-        _generation(model, tokenizer, moe_layers)
+        _generation(model, tokenizer, moe_layers, originals)
     except Exception as exc:  # diagnostics only -- never blocks the measured result
         print(f"[diagnostics] generation skipped: {exc!r}")
     _restore_all(model, moe_layers, originals)
@@ -283,7 +310,7 @@ def _reconstruction_benchmark(model, moe_layers):
         print(f"[diagnostics] recon error (layer {layer}, {INSPECT_FUSION_METHOD}): {errors[0]:.4f}")
 
 
-def _generation(model, tokenizer, moe_layers):
+def _generation(model, tokenizer, moe_layers, originals):
     import datasets
 
     from experts_fusion.config import DATASET_TEXT_FIELD, VALIDATION_DATASET_NAME
@@ -304,7 +331,7 @@ def _generation(model, tokenizer, moe_layers):
         for prompt in prompts
     ]
     for layer in moe_layers:
-        model.model.layers[layer].mlp = _build_layer(INSPECT_FUSION_METHOD, layer, model)
+        _swap_in(model, layer, _build_layer(INSPECT_FUSION_METHOD, layer, model), originals)
     fused_generations = [
         tokenizer.decode(model.generate(**prompt, max_new_tokens=MAX_NEW_TOKENS)[0])
         for prompt in prompts
