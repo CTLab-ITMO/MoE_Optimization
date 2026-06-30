@@ -127,9 +127,14 @@ def _golden_overrides(data_dir: str) -> dict:
         "FILTER_FUSIONS": list(GOLDEN_FUSIONS),
         "FILTER_METRICS": [],
         "USE_DEFAULT_EXPERTS": False,
+        # Legacy spelling (the old module) + corrected spelling (the new module);
+        # monkeypatch sets both with raising=False so each module gets its own.
         "REPLACE_LAYERS_SEQUANTIAL": False,
         "REPLACE_BEST_LAYERS_SEQUANTIAL": False,
         "REPLACE_LAYERS_SMART_SEQUANTIAL": False,
+        "REPLACE_LAYERS_SEQUENTIAL": False,
+        "REPLACE_BEST_LAYERS_SEQUENTIAL": False,
+        "REPLACE_LAYERS_SMART_SEQUENTIAL": False,
     }
 
 

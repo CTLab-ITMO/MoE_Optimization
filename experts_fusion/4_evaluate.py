@@ -44,9 +44,9 @@ from experts_fusion.config import (
     MODEL_DTYPE,
     MODEL_NAME,
     QA_PARSER,
-    REPLACE_BEST_LAYERS_SEQUANTIAL,
-    REPLACE_LAYERS_SEQUANTIAL,
-    REPLACE_LAYERS_SMART_SEQUANTIAL,
+    REPLACE_BEST_LAYERS_SEQUENTIAL,
+    REPLACE_LAYERS_SEQUENTIAL,
+    REPLACE_LAYERS_SMART_SEQUENTIAL,
     ROUTER_ADAPTER,
     SEED,
     TEST_DATASET_NAME,
@@ -165,7 +165,7 @@ def accuracy(model, tokenizer, moe_layers, originals):
     # test-set eval when neither runs (each eval re-seeds, so this is neutral).
     base_test = (
         _eval_test(model, tokenizer)
-        if REPLACE_BEST_LAYERS_SEQUANTIAL or REPLACE_LAYERS_SMART_SEQUANTIAL
+        if REPLACE_BEST_LAYERS_SEQUENTIAL or REPLACE_LAYERS_SMART_SEQUENTIAL
         else None
     )
     base_size = count_params(model)
@@ -179,15 +179,15 @@ def accuracy(model, tokenizer, moe_layers, originals):
             model.model.layers[layer].mlp = _build_layer(name, layer, model)
             accuracy_list.append(_eval_train(model, tokenizer))
             size_list.append(count_params(model))
-            if not REPLACE_LAYERS_SEQUANTIAL:
+            if not REPLACE_LAYERS_SEQUENTIAL:
                 model.model.layers[layer].mlp = originals[layer]
 
-        mode = ReplaceMode.SEQ if REPLACE_LAYERS_SEQUANTIAL else ReplaceMode.SINGLE
+        mode = ReplaceMode.SEQ if REPLACE_LAYERS_SEQUENTIAL else ReplaceMode.SINGLE
         print(f"accuracy list after {name} ({mode}):", accuracy_list)
         _save_list(accuracy_list, mode, name, "accuracy")
         _save_list(size_list, mode, name, "model_size")
 
-        if REPLACE_BEST_LAYERS_SEQUANTIAL:
+        if REPLACE_BEST_LAYERS_SEQUENTIAL:
             restore_all()
             best_layers = [
                 lyr for lyr, _ in sorted(
@@ -206,7 +206,7 @@ def accuracy(model, tokenizer, moe_layers, originals):
 
     restore_all()
 
-    if REPLACE_LAYERS_SMART_SEQUANTIAL:
+    if REPLACE_LAYERS_SMART_SEQUENTIAL:
         _smart_accuracy(model, tokenizer, moe_layers, originals, base_test, base_size)
 
 

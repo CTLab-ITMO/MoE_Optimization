@@ -67,9 +67,9 @@ def run_script(monkeypatch, tmp_path, data_dir, layers):
             "FILTER_FUSIONS": ["Average"],
             "FILTER_METRICS": [],
             "INSPECT_FUSION_METHOD": "Average",
-            "REPLACE_LAYERS_SEQUANTIAL": False,
-            "REPLACE_BEST_LAYERS_SEQUANTIAL": False,
-            "REPLACE_LAYERS_SMART_SEQUANTIAL": False,
+            "REPLACE_LAYERS_SEQUENTIAL": False,
+            "REPLACE_BEST_LAYERS_SEQUENTIAL": False,
+            "REPLACE_LAYERS_SMART_SEQUENTIAL": False,
         }
         overrides.update(config_overrides or {})
         for key, value in overrides.items():

@@ -116,8 +116,8 @@ def test_stage4_all_replacement_modes(run_script, builders):
         with_model=True,
         patch_qa_eval=True,
         config_overrides={
-            "REPLACE_LAYERS_SEQUANTIAL": True,
-            "REPLACE_BEST_LAYERS_SEQUANTIAL": True,
-            "REPLACE_LAYERS_SMART_SEQUANTIAL": True,
+            "REPLACE_LAYERS_SEQUENTIAL": True,
+            "REPLACE_BEST_LAYERS_SEQUENTIAL": True,
+            "REPLACE_LAYERS_SMART_SEQUENTIAL": True,
         },
     )
