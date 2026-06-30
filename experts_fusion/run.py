@@ -13,10 +13,14 @@ process. Stages import their config with ``from experts_fusion.config import
 ...``, so the repo root must be importable as a package parent -- guaranteed
 when launched with ``-m`` from the root.
 
-Pass an explicit list of stage numbers to run a subset, e.g.::
+Pass an explicit list of stage numbers to run a subset, and ``--config`` to pick
+a config under ``experts_fusion/configs/`` (default ``default``), e.g.::
 
     python -m experts_fusion.run 1 2
+    python -m experts_fusion.run --config winogrande
 """
+import argparse
+import os
 import runpy
 import sys
 from pathlib import Path
@@ -33,8 +37,21 @@ def stage_files(only: list[str] | None = None) -> list[Path]:
 
 
 def main(argv: list[str] | None = None) -> None:
-    argv = sys.argv[1:] if argv is None else argv
-    for stage in stage_files(argv or None):
+    parser = argparse.ArgumentParser(prog="experts_fusion.run")
+    parser.add_argument(
+        "--config",
+        default=None,
+        help="config name under experts_fusion/configs/ (default: 'default')",
+    )
+    parser.add_argument("stages", nargs="*", help="stage numbers to run (default: all)")
+    args = parser.parse_args(sys.argv[1:] if argv is None else argv)
+
+    # Set before importing/running any stage so experts_fusion.config resolves to
+    # the chosen config (the stages run in this one process via runpy).
+    if args.config:
+        os.environ["EXPERTS_FUSION_CONFIG"] = args.config
+
+    for stage in stage_files(args.stages or None):
         print(f"=== {stage.name} ===", flush=True)
         runpy.run_path(str(stage), run_name="__main__")
 

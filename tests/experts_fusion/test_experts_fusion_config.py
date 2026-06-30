@@ -1,4 +1,30 @@
+import os
+
 import torch
+
+
+def test_config_reexports_the_selected_default():
+    import experts_fusion.config as config
+    from experts_fusion.configs import default
+
+    assert config._CONFIG_NAME == "default"
+    assert config.DATA_DIR == default.DATA_DIR
+    assert config.MODEL_NAME == default.MODEL_NAME
+    assert config.config_snapshot_dict()["EXPERTS"] == default.EXPERTS
+
+
+def test_run_config_flag_sets_env_and_parses_stages(monkeypatch):
+    import experts_fusion.run as run
+
+    monkeypatch.delenv("EXPERTS_FUSION_CONFIG", raising=False)
+    ran = {}
+    monkeypatch.setattr(run, "stage_files", lambda only=None: (ran.setdefault("only", only), [])[1])
+
+    run.main(["--config", "myexp", "1", "2"])
+
+    assert os.environ["EXPERTS_FUSION_CONFIG"] == "myexp"
+    assert ran["only"] == ["1", "2"]
+    monkeypatch.delenv("EXPERTS_FUSION_CONFIG", raising=False)
 
 
 def test_config_values_are_sane():
