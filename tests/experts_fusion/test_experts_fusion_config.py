@@ -48,9 +48,17 @@ def test_data_dir_is_scoped_under_data_root():
 def test_config_snapshot_covers_every_config_field():
     # Every UPPER_CASE config knob must be in the snapshot (so config drift is
     # detected) or be explicitly excluded -- a new field can't silently escape.
+    # Imported registries are tools, not config fields, so they don't count.
     import experts_fusion.config as config
+    from common.registry import Registry
 
-    fields = {name for name in dir(config) if name.isupper() and not name.startswith("_")}
+    fields = {
+        name
+        for name in dir(config)
+        if name.isupper()
+        and not name.startswith("_")
+        and not isinstance(getattr(config, name), Registry)
+    }
     covered = set(config.config_snapshot_dict()) | config._SNAPSHOT_EXCLUDED
     missing = fields - covered
     assert not missing, f"config fields missing from snapshot/excluded: {sorted(missing)}"

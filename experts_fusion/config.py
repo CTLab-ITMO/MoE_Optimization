@@ -1,6 +1,8 @@
 import torch
 
 from common.expert_adapter import Qwen15ExpertAdapter
+from common.fusion import FUSION_REGISTRY
+from common.metrics import METRIC_REGISTRY
 from common.qa_parser import Qwen15QAParser
 from common.router import Qwen15RouterAdapter
 
@@ -94,8 +96,10 @@ def config_snapshot_dict() -> dict:
         "TOP_K": TOP_K,
         "SEED": SEED,
         "PAIRING_METHOD": PAIRING_METHOD,
-        "FILTER_FUSIONS": FILTER_FUSIONS,
-        "FILTER_METRICS": FILTER_METRICS,
+        # Resolve ``None`` (= "all") to the concrete registered set, so the
+        # snapshot records exactly which methods/metrics a run used.
+        "FILTER_FUSIONS": FILTER_FUSIONS if FILTER_FUSIONS is not None else FUSION_REGISTRY.names(),
+        "FILTER_METRICS": FILTER_METRICS if FILTER_METRICS is not None else METRIC_REGISTRY.names(),
         "USE_DEFAULT_EXPERTS": USE_DEFAULT_EXPERTS,
         "MIN_PAIR_VALIDATION_SAMPLES": MIN_PAIR_VALIDATION_SAMPLES,
         "INSPECT_FUSION_METHOD": INSPECT_FUSION_METHOD,
