@@ -69,7 +69,7 @@ class Metric(ABC):
 
     # ctx carries optional shared state (labels, device, run metadata) for
     # metrics that need it; the built-in metrics ignore it. Keeping the slot on
-    # the interface lets a plugin metric opt in without changing every call site.
+    # the interface lets a new metric subclass opt in without changing call sites.
     @abstractmethod
     def __call__(self, x: torch.Tensor, y: torch.Tensor, ctx=None, **kwargs) -> float:
         raise NotImplementedError()
@@ -274,9 +274,6 @@ best_metrics: dict[str, bool] = {
 # a metric is added or renamed (the fusion step adds the pseudo-metric ``Time``).
 log_safe_metrics: set[str] = {metric.name for metric in METRICS if metric.log_scale}
 
-# Entry-point group a third-party package uses to advertise a metric plugin.
-METRIC_ENTRY_POINT_GROUP = "moe.metric"
-
 
 def _build_metric_registry() -> Registry:
     """The canonical metric registry, in ``METRICS`` order (pinned for golden)."""
@@ -295,7 +292,7 @@ def live_best_metrics() -> dict:
     """``name -> higher_is_better`` over the CURRENT registry.
 
     The module-level ``best_metrics`` is frozen at import from the built-in set;
-    this reads the live registry, so a metric added by a plugin also drives a
-    ``Best_<metric>`` selection. With no plugins it equals ``best_metrics``.
+    this reads the live registry, so a metric registered after import also drives
+    a ``Best_<metric>`` selection. With only the built-ins it equals ``best_metrics``.
     """
     return {name: METRIC_REGISTRY[name].higher_is_better for name in METRIC_REGISTRY}

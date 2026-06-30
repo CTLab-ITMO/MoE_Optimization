@@ -31,7 +31,6 @@ from common.metrics import METRIC_REGISTRY, live_best_metrics
 from common.mlp_utils import FUSION_METHODS
 from common.model_topology import discover_moe_layers
 from common.names import BEST_PREFIX, TEST_RESULT_PREFIX, ZERO_FUSION, ReplaceMode
-from common.plugins import load_plugins
 from common.qa_eval import evaluate_qa
 from common.registry import require_all_registered
 from common.seeding import set_seed
@@ -42,7 +41,6 @@ from experts_fusion.config import (
     FILTER_METRICS,
     INSPECT_FUSION_METHOD,
     LAYERS,
-    LOAD_PLUGINS,
     MODEL_DTYPE,
     MODEL_NAME,
     QA_PARSER,
@@ -69,7 +67,6 @@ BENCHMARK_NUM_BATCHES = 100
 GENERATION_EXAMPLES = 10
 MAX_NEW_TOKENS = 10
 
-load_plugins(LOAD_PLUGINS)
 require_all_registered(FILTER_FUSIONS, FUSION_REGISTRY, field="FILTER_FUSIONS")
 require_all_registered(FILTER_METRICS, METRIC_REGISTRY, field="FILTER_METRICS")
 provenance.assert_config_matches_snapshot(DATA_DIR, config_snapshot_dict())

@@ -60,11 +60,6 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 FILTER_FUSIONS = None
 FILTER_METRICS = None
 
-# Opt-in discovery of installed third-party plugins (fusion/grouping/metric/schema)
-# advertised via entry points. Off by default so the in-tree registries stay
-# pinned; set True to let an installed plugin take effect.
-LOAD_PLUGINS = False
-
 # Config fields deliberately kept OUT of the snapshot: DATA_DIR is the output
 # *location* (the knob for running several experiments on one disk), not artifact
 # content, so two runs at different DATA_DIRs are not "config drift". Everything
@@ -110,5 +105,4 @@ def config_snapshot_dict() -> dict:
         "ROUTER_ADAPTER": ROUTER_ADAPTER,
         "EXPERT_ADAPTER": EXPERT_ADAPTER,
         "QA_PARSER": QA_PARSER,
-        "LOAD_PLUGINS": LOAD_PLUGINS,
     }

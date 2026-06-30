@@ -115,53 +115,6 @@ def test_registry_rejects_non_str_key():
 
 
 # --------------------------------------------------------------------------- #
-# Entry-point discovery.
-# --------------------------------------------------------------------------- #
-class _FakeEntryPoint:
-    def __init__(self, name, obj):
-        self.name = name
-        self._obj = obj
-
-    def load(self):
-        return self._obj
-
-
-class _FakeEntryPoints:
-    def __init__(self, mapping):
-        self._mapping = mapping
-
-    def select(self, group):
-        return list(self._mapping.get(group, []))
-
-
-def _patch_entry_points(monkeypatch, mapping):
-    from importlib import metadata
-
-    monkeypatch.setattr(metadata, "entry_points", lambda: _FakeEntryPoints(mapping))
-
-
-def test_load_entry_points_appends_after_in_tree(monkeypatch):
-    sentinel = object()
-    _patch_entry_points(monkeypatch, {"moe.test": [_FakeEntryPoint("plugin", sentinel)]})
-
-    reg = Registry("t")
-    reg.register("base", object())
-    loaded = reg.load_entry_points("moe.test")
-
-    assert loaded == ["plugin"]
-    assert reg.names() == ["base", "plugin"]  # in-tree prefix preserved
-    assert reg["plugin"] is sentinel
-
-
-def test_load_entry_points_collision_raises(monkeypatch):
-    _patch_entry_points(monkeypatch, {"moe.test": [_FakeEntryPoint("base", object())]})
-    reg = Registry("t")
-    reg.register("base", object())
-    with pytest.raises(RegistryError):
-        reg.load_entry_points("moe.test")
-
-
-# --------------------------------------------------------------------------- #
 # Config validation from Registry.names().
 # --------------------------------------------------------------------------- #
 def test_require_registered_accepts_valid_and_none():

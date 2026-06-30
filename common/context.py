@@ -1,12 +1,10 @@
 """Single object of dynamic per-stage state passed to extension points.
 
-A plugin (fusion method, grouping strategy, metric) receives the *dynamic* state
-it might need through one :class:`StageContext`, rather than through a bag of
-``**kwargs`` the driver fills in blindly. Static configuration of a method stays
-in its ``__init__``; everything that varies per run / per layer / per group
-travels in the context. This is what lets the method signature stay frozen as
-``(*mlps, ctx, **kwargs)`` regardless of ``k``: all the moving parts live behind
-``ctx``.
+A strategy (fusion method, grouping strategy, metric) receives the *dynamic*
+state it might need through one :class:`StageContext`, rather than through a bag
+of ad-hoc keyword arguments the driver fills in blindly. Static configuration of
+a method stays in its ``__init__``; everything that varies per run / per layer /
+per group travels in the context, so all the moving parts live behind ``ctx``.
 
 Every field is optional and the dataclass is frozen: contexts are cheap, derived
 values (``for_layer`` / ``for_group``) return new instances, and new fields may
@@ -31,7 +29,7 @@ from common.seeding import seed_for as _seed_for
 
 @dataclass(frozen=True)
 class StageContext:
-    """Dynamic per-stage state shared with grouping / fusion / metric plugins.
+    """Dynamic per-stage state shared with grouping / fusion / metric strategies.
 
     Fields (all optional):
 
@@ -41,7 +39,7 @@ class StageContext:
     * ``layer_index`` / ``group_index`` -- coordinates of the current work item,
       folded into the derived seed automatically.
     * ``model`` / ``layer`` / ``gate`` / ``tokenizer`` -- handles onto the live
-      model the plugin may need (router adapter, expert weights, ...).
+      model the strategy may need (router adapter, expert weights, ...).
     * ``n_experts`` -- number of experts in the current layer (model-derived);
       a grouping strategy partitions this many experts.
     * ``device`` / ``dtype`` -- device + dtype policy for newly created tensors.

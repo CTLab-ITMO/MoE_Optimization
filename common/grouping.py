@@ -44,11 +44,6 @@ from common.names import PairingMethod
 from common.numeric import _default_device
 from common.registry import Registry
 
-# Entry-point group a third-party package uses to advertise a grouping plugin
-# (pulled in only on an explicit ``GROUPING_REGISTRY.load_entry_points`` call --
-# the canonical registry stays pinned in-tree; see :mod:`common.registry`).
-GROUPING_ENTRY_POINT_GROUP = "moe.grouping"
-
 # Default ``output_similarity`` knobs: exposed as explicit
 # ``OutputSimilarityAffinity.__init__`` parameters rather than pinned inside the
 # matrix computation, so a strategy variant configures them by construction.
@@ -267,7 +262,7 @@ def _build_grouping_registry() -> Registry:
     Pinned to the :class:`~common.names.PairingMethod` order so the golden
     ``pairing_methods`` snapshot is an exact match and config validation of
     ``PAIRING_METHOD`` is driven from :meth:`Registry.names`.
-    Extensible without a fork via ``register`` / ``load_entry_points``.
+    Extended by registering a new subclass in-tree via ``register``.
     """
     registry = Registry("grouping")
     registry.register(
@@ -294,5 +289,5 @@ def _build_grouping_registry() -> Registry:
 
 
 # The single source of truth the grouping stage reads from: a
-# name -> Grouping Mapping, extensible via ``register`` / ``load_entry_points``.
+# name -> Grouping Mapping, extended by registering a new subclass in-tree.
 GROUPING_REGISTRY: Registry = _build_grouping_registry()

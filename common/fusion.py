@@ -501,16 +501,11 @@ BASE_FUSION_METHODS: list[FusionMethod] = [
     DistillationFusion(),
 ]
 
-# Entry-point group a third-party package uses to advertise a fusion plugin;
-# pulled in only on an explicit ``FUSION_REGISTRY.load_entry_points`` call (the
-# canonical registry stays pinned in-tree -- see common.registry).
-FUSION_ENTRY_POINT_GROUP = "moe.fusion"
-
 
 # Meta-wrappers turn an existing fusion method into a new one (LS_<name> refits
 # the unmerge layer by least squares). They are applied over EVERY registered base
-# method -- built-in or plugin -- so a newly registered base method automatically
-# gets its wrapped variants. Add a wrapper class here and it covers all methods.
+# method, so a newly registered base method automatically gets its wrapped
+# variants. Add a wrapper class here and it covers all methods.
 FUSION_META_WRAPPERS = [LeastSquaresAdapter]
 
 
@@ -523,8 +518,8 @@ def apply_meta_wrappers(registry: Registry) -> None:
 
     Idempotent and order-stable: the registry preserves insertion order, so the
     wrappers are registered in the same order as their base methods. Call it once
-    after the base methods are registered, and again after loading entry-point
-    plugins so a plugin's base method also gets its LS_ variant.
+    after the base methods are registered; calling it again after a new base
+    method is registered gives that method its LS_ variant too.
     """
     base_names = [name for name in registry if not _is_meta(registry[name])]
     for wrapper in FUSION_META_WRAPPERS:
@@ -549,8 +544,8 @@ def _build_fusion_registry() -> Registry:
     return registry
 
 
-# The single source of truth the stages read from: a name -> instance
-# Mapping, extensible via ``register`` / ``load_entry_points`` without a fork.
+# The single source of truth the stages read from: a name -> instance Mapping,
+# extended by registering a new subclass in-tree.
 FUSION_REGISTRY: Registry = _build_fusion_registry()
 
 

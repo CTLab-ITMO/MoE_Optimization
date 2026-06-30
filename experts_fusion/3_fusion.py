@@ -31,7 +31,6 @@ from common.mlp_utils import (
     test_model_on_data,
 )
 from common.names import BEST_PREFIX, TIME_METRIC
-from common.plugins import load_plugins
 from common.registry import require_all_registered
 from common.seeding import set_seed
 from common.serialization import make_provenance
@@ -41,16 +40,14 @@ from experts_fusion.config import (
     FILTER_FUSIONS,
     FILTER_METRICS,
     LAYERS,
-    LOAD_PLUGINS,
     MIN_PAIR_VALIDATION_SAMPLES,
     SEED,
     config_snapshot_dict,
     device,
 )
 
-# Pull in installed plugins (off by default), then validate the config filters
-# against the registries and guard config drift from the stage-1 snapshot.
-load_plugins(LOAD_PLUGINS)
+# Validate the config filters against the registries, then guard config drift
+# from the stage-1 snapshot before doing any work.
 require_all_registered(FILTER_FUSIONS, FUSION_REGISTRY, field="FILTER_FUSIONS")
 require_all_registered(FILTER_METRICS, METRIC_REGISTRY, field="FILTER_METRICS")
 provenance.assert_config_matches_snapshot(DATA_DIR, config_snapshot_dict())

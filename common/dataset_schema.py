@@ -26,11 +26,6 @@ from typing import Callable
 
 from common.registry import Registry
 
-# Entry-point group a third-party package uses to advertise a dataset-schema
-# plugin (pulled in only on an explicit ``SCHEMA_REGISTRY.load_entry_points``
-# call -- the canonical registry stays pinned in-tree; see :mod:`common.registry`).
-SCHEMA_ENTRY_POINT_GROUP = "moe.dataset_schema"
-
 # Ordered question-key priority, mirroring ``qa_eval._extract_question`` exactly:
 # ``question`` (MMLU / ARC / CommonsenseQA) -> ``sentence`` (Winogrande) ->
 # ``question_stem`` (OpenBookQA).
@@ -220,7 +215,7 @@ def _build_schema_registry() -> Registry:
 
 
 # The single source of truth for named dataset schemas: a
-# name -> DatasetSchema Mapping, extensible via ``register`` / ``load_entry_points``.
+# name -> DatasetSchema Mapping, extended by registering a new schema in-tree.
 SCHEMA_REGISTRY: Registry = _build_schema_registry()
 
 

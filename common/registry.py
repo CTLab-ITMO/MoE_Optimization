@@ -1,14 +1,14 @@
-"""Generic, in-tree registry with additive out-of-tree extension.
+"""Generic in-tree registry of named strategies.
 
 Instead of reading fusion methods / metrics / grouping names from literal lists
 and ``if``-chains, the pipeline uses a single :class:`Registry` type so a new
-strategy is *registered*, not forked in:
+strategy is added by *registering a subclass* in the source, not by editing
+``if``-chains across the stages:
 
-* in-tree strategies are registered in a fixed, pinned order (the order the
-  golden ``registry`` snapshot guards);
-* a third-party package contributes a plugin by exposing a Python *entry point*
-  in one of the ``moe.fusion`` / ``moe.grouping`` / ``moe.metric`` groups and
-  calling :meth:`Registry.load_entry_points` -- no fork of ``common`` required;
+* strategies are registered in a fixed, pinned order (the order the golden
+  ``registry`` snapshot guards);
+* you add your own by writing a subclass and calling ``register(name, instance)``
+  next to the built-ins;
 * registration collisions are an explicit error (``override=False`` by default),
   never a silent shadow.
 
@@ -111,39 +111,6 @@ class Registry(Mapping):
     def names(self) -> list[str]:
         """Registered names, in registration order."""
         return list(self._items)
-
-    # -- Out-of-tree discovery (entry points) ------------------------------- #
-    def load_entry_points(self, group: str) -> list[str]:
-        """Discover and register plugins advertised under entry-point ``group``.
-
-        A third-party package registers a plugin by declaring an entry point in
-        ``group`` (e.g. ``moe.fusion``); calling this pulls each one in by the
-        fact of its installation, appended *after* the pinned in-tree entries so
-        the in-tree order/prefix stays deterministic. Collisions with existing
-        names raise (``override=False``). Returns the names that were loaded.
-
-        Kept explicit (not auto-run at import) on purpose: the canonical
-        registries are pinned in-tree, and the golden ``registry`` snapshot is an
-        exact match, so auto-loading an installed plugin would (correctly) be a
-        loud snapshot drift. Integrators opt in by calling this.
-        """
-        loaded: list[str] = []
-        for entry in _iter_entry_points(group):
-            self.register(entry.name, entry.load())
-            loaded.append(entry.name)
-        return loaded
-
-
-def _iter_entry_points(group: str):
-    """Yield entry points in ``group`` across importlib.metadata API versions."""
-    from importlib import metadata
-
-    entry_points = metadata.entry_points()
-    # Python >=3.10 selectable API; fall back to the legacy dict-grouped API.
-    select = getattr(entry_points, "select", None)
-    if select is not None:
-        return list(select(group=group))
-    return list(entry_points.get(group, []))  # pragma: no cover - legacy API
 
 
 # --------------------------------------------------------------------------- #

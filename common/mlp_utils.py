@@ -120,8 +120,8 @@ def timer(mlp: MLP, test_data, iters=3) -> float:
 def test_model_on_data(fused_mlp, mlp1, mlp2, test_data, ctx=None) -> dict[str, float]:
     """Evaluate every registered metric (plus wall-clock ``Time`` in ms) for a fused expert.
 
-    Iterates the metric registry, so a metric registered by a plugin is computed
-    too. ``ctx`` is forwarded to each metric for the ones that use it.
+    Iterates the metric registry, so a newly registered metric is computed too.
+    ``ctx`` is forwarded to each metric for the ones that use it.
     """
     all_tokens = as_tensor(test_data)
     real_res = torch.cat([mlp1.forward(all_tokens), mlp2.forward(all_tokens)], dim=-1).float()

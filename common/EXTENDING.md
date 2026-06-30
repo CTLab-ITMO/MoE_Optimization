@@ -1,34 +1,33 @@
 # Точки расширения `common/`
 
-Этот модуль спроектирован так, чтобы новые стратегии добавлялись **аддитивно** —
-новым подклассом и записью в реестре, без форка ядра. Ниже — карта расширяемых
-осей: абстрактный интерфейс, его реестр, entry-point-группа для out-of-tree
-плагинов и пример регистрации.
+Модуль спроектирован так, чтобы новые стратегии добавлялись **аддитивно правкой
+исходников**: пишешь новый подкласс рядом со встроенными и регистрируешь его в
+реестре — без переписывания `if`-цепочек по стадиям. Ниже — карта расширяемых осей:
+абстрактный интерфейс, его реестр и пример регистрации.
 
 Общая механика (см. [`registry.py`](registry.py)): на каждой оси есть generic
-`Registry` (имя → инстанс), пиннутый встроенными реализациями в фиксированном
-порядке. Стадии читают **только** из реестра. Сторонний пакет регистрирует плагин
-фактом установки через entry point; пайплайн подхватывает его, если в конфиге
-выставлен `LOAD_PLUGINS = True` (см. [`plugins.py`](plugins.py)).
+`Registry` (имя → инстанс), заполняемый встроенными реализациями в фиксированном
+порядке. Стадии читают **только** из реестра. Чтобы добавить своё — пишешь подкласс
+и вызываешь `register(name, instance)` рядом со встроенными; коллизия имени —
+явная ошибка (`override=False`).
 
-`**kwargs` живёт **только на абстрактном интерфейсе** (forward-совместимость);
-конкретный подкласс принимает явные именованные параметры (так ловятся опечатки).
-Динамическое общее состояние (модель, слой, device, seed, данные) передаётся
-единым `StageContext` ([`context.py`](context.py)), а не голыми `**kwargs`.
+Статическая конфигурация стратегии — её явные именованные параметры `__init__`
+(дефолты сохраняют поведение). Динамическое общее состояние (модель, слой, device,
+seed, данные) передаётся единым `StageContext` ([`context.py`](context.py)).
 
 ## Оси с реестром
 
-| Ось | Интерфейс (ABC) | Реестр | Entry-point группа | Встроенные реализации |
-|---|---|---|---|---|
-| Слияние | `FusionMethod` ([fusion.py](fusion.py)) | `FUSION_REGISTRY` | `moe.fusion` | ZipIt, Average, Pruning, Procrustes, Fisher, TIES, Distillation + обёртки `LS_<name>` |
-| Группировка | `Grouping` = `AffinityProvider` × `Partitioner` ([grouping.py](grouping.py)) | `GROUPING_REGISTRY` | `moe.grouping` | activation_correlation, random, output_similarity |
-| Метрика | `Metric` ([metrics.py](metrics.py)) | `METRIC_REGISTRY` | `moe.metric` | MSE, RMSE, MAE, RelMSE, Cosine, Pearson, R2, CKA, JS, KL, Top1, Top5, EntropyGap |
-| Схема датасета | `DatasetSchema` ([dataset_schema.py](dataset_schema.py)) | `SCHEMA_REGISTRY` | `moe.dataset_schema` | mmlu, winogrande, ARC, openbookqa |
-| Активация | (фабрики `nn.Module`) | `ACTIVATION_REGISTRY` ([mlp.py](mlp.py)) | — | SiLU (дефолт), ReLU, GELU |
+| Ось | Интерфейс (ABC) | Реестр | Встроенные реализации |
+|---|---|---|---|
+| Слияние | `FusionMethod` ([fusion.py](fusion.py)) | `FUSION_REGISTRY` | ZipIt, Average, Pruning, Procrustes, Fisher, TIES, Distillation + обёртки `LS_<name>` |
+| Группировка | `Grouping` = `AffinityProvider` × `Partitioner` ([grouping.py](grouping.py)) | `GROUPING_REGISTRY` | activation_correlation, random, output_similarity |
+| Метрика | `Metric` ([metrics.py](metrics.py)) | `METRIC_REGISTRY` | MSE, RMSE, MAE, RelMSE, Cosine, Pearson, R2, CKA, JS, KL, Top1, Top5, EntropyGap |
+| Схема датасета | `DatasetSchema` ([dataset_schema.py](dataset_schema.py)) | `SCHEMA_REGISTRY` | mmlu, winogrande, ARC, openbookqa |
+| Активация | (фабрики `nn.Module`) | `ACTIVATION_REGISTRY` ([mlp.py](mlp.py)) | SiLU (дефолт), ReLU, GELU |
 
 ### Зарегистрировать свою реализацию
 
-В дереве — декоратором/функцией:
+Пишешь подкласс и регистрируешь его рядом со встроенными:
 
 ```python
 from common.fusion import FUSION_REGISTRY, FusionMethod
@@ -42,16 +41,13 @@ class MyFusion(FusionMethod):
 FUSION_REGISTRY.register("MyFusion", MyFusion())
 ```
 
-Вне дерева (сторонний пакет) — entry point в `pyproject.toml`, затем `LOAD_PLUGINS = True`:
+Обёртки-трансформеры (как `LS_<name>`) применяются ко **всем** зарегистрированным
+методам (см. `apply_meta_wrappers` в [fusion.py](fusion.py)) — новый базовый метод
+автоматически получает свой `LS_<name>`.
 
-```toml
-[project.entry-points."moe.fusion"]
-MyFusion = "my_pkg.fusion:MyFusion"
-```
-
-Коллизия имени с уже зарегистрированным — ошибка (`override=False`). Обёртки-
-трансформеры (как `LS_<name>`) применяются ко **всем** зарегистрированным методам,
-включая плагины (см. `apply_meta_wrappers` в [fusion.py](fusion.py)).
+> Расширение «interface может потребовать правок»: при изменении абстрактной
+> сигнатуры обнови все её подклассы в дереве — здесь нет forward-совместимости для
+> внешних пакетов, поэтому интерфейс держится строгим и явным.
 
 ## Оси через DI в конфиге (модель-зависимые)
 
