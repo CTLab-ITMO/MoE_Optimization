@@ -25,9 +25,8 @@ Each registered strategy reuses the shared primitives
 :class:`torch.Generator` carried by :class:`~common.context.StageContext`,
 making them order-invariant.
 
-The variadic ``**kwargs`` lives only on the *abstract* signatures (so the
-contract can grow without breaking subclasses); concrete implementations take
-explicit, named parameters so a typo is caught rather than silently swallowed.
+Concrete implementations take explicit, named parameters so a typo is caught
+rather than silently swallowed.
 
 Library code only -- this module never imports an experiment ``config``.
 """
@@ -77,14 +76,13 @@ class AffinityProvider(ABC):
     """Signal axis: an ``EXPERTS x EXPERTS`` affinity matrix for a layer.
 
     The matrix entry ``(i, j)`` scores how much experts ``i`` and ``j`` should be
-    grouped together; a :class:`Partitioner` consumes it. ``**kwargs`` is the
-    forward-compatible interface slot only; concrete providers take
+    grouped together; a :class:`Partitioner` consumes it. Concrete providers take
     explicit named parameters.
     """
 
     @abstractmethod
     def affinity(
-        self, layer: int, n_experts: Optional[int], ctx: Optional[StageContext], **kwargs
+        self, layer: int, n_experts: Optional[int], ctx: Optional[StageContext]
     ) -> torch.Tensor:
         """Return the affinity matrix for ``layer`` (read via ``ctx``)."""
         raise NotImplementedError()
@@ -149,8 +147,7 @@ class Partitioner(ABC):
     """Algorithm axis: build a list of expert groups.
 
     Consumes an affinity matrix (``None`` for signal-free algorithms such as
-    random) and the expert count, and returns a list of member tuples. ``**kwargs``
-    is the forward-compatible interface slot only.
+    random) and the expert count, and returns a list of member tuples.
     """
 
     @abstractmethod
@@ -159,7 +156,6 @@ class Partitioner(ABC):
         affinity: Optional[torch.Tensor],
         n_experts: Optional[int],
         ctx: Optional[StageContext],
-        **kwargs,
     ) -> list[tuple[int, ...]]:
         """Return the list of groups (each an ordered tuple of expert indices)."""
         raise NotImplementedError()
@@ -206,14 +202,13 @@ class Grouping(ABC):
     The frozen public contract is :meth:`partition`, returning a
     :class:`~common.artifacts.Partition` of arbitrarily sized groups. A new
     grouping (clusters, overlapping groups, hierarchies) is a new subclass /
-    registry entry, never a change to this base. ``**kwargs`` is the
-    forward-compatible interface slot only.
+    registry entry.
     """
 
     name: str
 
     @abstractmethod
-    def partition(self, layer: int, ctx: Optional[StageContext], **kwargs) -> Partition:
+    def partition(self, layer: int, ctx: Optional[StageContext]) -> Partition:
         """Partition ``layer``'s experts into a :class:`Partition`."""
         raise NotImplementedError()
 

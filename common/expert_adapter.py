@@ -29,9 +29,8 @@ adapter so a new family is a new subclass rather than an edit to a stage.
   supports families with no shared expert (Mixtral / Qwen3): when the shared
   expert is absent it contributes nothing (``torch.zeros_like(x)``).
 
-The variadic ``**kwargs`` lives only on the *abstract* signatures (a
-forward-compatible contract slot); concrete adapters take explicit, named
-parameters so a typo is caught rather than silently swallowed.
+Adapters take explicit, named parameters so a typo is caught rather than
+silently swallowed.
 
 Library code only -- this module never imports an experiment ``config``.
 """
@@ -68,20 +67,18 @@ def _require_float_weight(weight, what: str) -> torch.Tensor:
 class ExpertAdapter(ABC):
     """Extract a single MoE expert as an :class:`~common.mlp.AdvancedMLP`.
 
-    The frozen contract is :meth:`count` (how many experts a layer's container
-    holds) and :meth:`extract` (build the ``AdvancedMLP`` for one expert on a
-    given device, with no dtype cast -- the caller casts). ``**kwargs`` is the
-    forward-compatible interface slot only; concrete adapters take explicit
-    named parameters.
+    The contract is :meth:`count` (how many experts a layer's container holds)
+    and :meth:`extract` (build the ``AdvancedMLP`` for one expert on a given
+    device, with no dtype cast -- the caller casts).
     """
 
     @abstractmethod
-    def count(self, experts, **kwargs) -> int:
+    def count(self, experts) -> int:
         """Return the number of experts held by ``experts``."""
         raise NotImplementedError()
 
     @abstractmethod
-    def extract(self, experts, index: int, *, device, **kwargs) -> AdvancedMLP:
+    def extract(self, experts, index: int, *, device) -> AdvancedMLP:
         """Return the expert at ``index`` wrapped as an ``AdvancedMLP`` on ``device``."""
         raise NotImplementedError()
 
@@ -173,15 +170,14 @@ class Qwen15ExpertAdapter(ExpertAdapter):
 class SharedExpertAdapter(ABC):
     """The shared/residual expert pathway as a callable module.
 
-    The frozen contract is :meth:`forward`, computing the family's shared-expert
-    contribution for a hidden-state batch. ``**kwargs`` is the
-    forward-compatible interface slot only. Concrete adapters are
+    The contract is :meth:`forward`, computing the family's shared-expert
+    contribution for a hidden-state batch. Concrete adapters are
     ``nn.Module``-compatible callables so they move with ``.to(...)`` and slot
     into the layer like any submodule.
     """
 
     @abstractmethod
-    def forward(self, x: torch.Tensor, **kwargs) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Return the shared-expert contribution for ``x``."""
         raise NotImplementedError()
 

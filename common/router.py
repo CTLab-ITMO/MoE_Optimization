@@ -41,9 +41,8 @@ Qwen1.5-MoE has ``norm_topk_prob=False``, so the top-k weights are *not*
 renormalized by default (``normalize_topk=False``); the flag is exposed for
 models/configs that do renormalize.
 
-The variadic ``**kwargs`` lives only on the *abstract* signature; concrete
-adapters take explicit, named parameters so a typo is caught rather than
-silently swallowed.
+Concrete adapters take explicit, named parameters so a typo is caught rather
+than silently swallowed.
 
 Library code only -- this module never imports an experiment ``config``.
 """
@@ -77,14 +76,13 @@ class RouterDecision:
 class RouterAdapter(ABC):
     """Abstract canonicalizer turning a gate's output into a :class:`RouterDecision`.
 
-    The frozen public contract is :meth:`route`. A new router layout (a different
-    tuple arity, a sparse gate, ...) is a new subclass, never a change to this
-    base. ``**kwargs`` is the forward-compatible interface slot only; concrete
-    adapters take explicit named parameters.
+    The public contract is :meth:`route`. A new router layout (a different tuple
+    arity, a sparse gate, ...) is a new subclass. Concrete adapters take explicit
+    named parameters.
     """
 
     @abstractmethod
-    def route(self, gate_output, *, top_k: int, **kwargs) -> RouterDecision:
+    def route(self, gate_output, *, top_k: int) -> RouterDecision:
         """Decode ``gate_output`` (tuple or bare logits) into a :class:`RouterDecision`."""
         raise NotImplementedError()
 

@@ -200,14 +200,13 @@ def test_call_legacy_three_positional_binds_train_data():
     assert torch.equal(merged.gate.weight, a.gate.weight)
 
 
-def test_call_tolerates_unknown_interface_kwargs():
-    # **kwargs on the interface is the forward-compat slot; an unknown keyword is
-    # ignored, not forwarded to the concrete merge.
+def test_call_rejects_unknown_kwarg():
+    # The interface is strict: an unknown keyword is a TypeError, not silently
+    # swallowed (extension is by editing the signature in-tree, not forward-compat).
     a, b = _pair()
     data = torch.randn(8, 4)
-    merged = AverageFusion()(a, b, train_data=data, future_option=123)
-    expected = (a.gate.weight + b.gate.weight) / 2
-    assert torch.allclose(merged.gate.weight, expected)
+    with pytest.raises(TypeError):
+        AverageFusion()(a, b, train_data=data, future_option=123)
 
 
 # --------------------------------------------------------------------------- #

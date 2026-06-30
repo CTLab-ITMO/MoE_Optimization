@@ -16,9 +16,8 @@ degree of freedom is the "leading space" subtlety -- whether the answer letter
 is encoded as ``"A"`` or ``" A"`` -- exposed as a constructor flag whose DEFAULT
 (``leading_space=False``) encodes the bare letter.
 
-The variadic ``**kwargs`` lives only on the *abstract* signatures (so the
-contract can grow without breaking subclasses); the concrete parser takes
-explicit, named parameters so a typo is caught rather than silently swallowed.
+The concrete parser takes explicit, named parameters so a typo is caught rather
+than silently swallowed.
 
 Library code only -- this module never imports an experiment ``config``.
 """
@@ -44,17 +43,16 @@ def _join_or(items: list) -> str:
 class QAParser(ABC):
     """Build the evaluation prompt and the candidate answer-token ids.
 
-    ``**kwargs`` is the forward-compatible interface slot only; concrete
-    parsers take explicit named parameters.
+    Concrete parsers take explicit named parameters.
     """
 
     @abstractmethod
-    def format_prompt(self, sample: dict, tokenizer, letters: list, **kwargs) -> str:
+    def format_prompt(self, sample: dict, tokenizer, letters: list) -> str:
         """Render the chat prompt string for ``sample``."""
         raise NotImplementedError()
 
     @abstractmethod
-    def resolve_answer_token_ids(self, tokenizer, letters: list, **kwargs) -> list:
+    def resolve_answer_token_ids(self, tokenizer, letters: list) -> list:
         """First-token id of each candidate answer ``letter``."""
         raise NotImplementedError()
 

@@ -71,7 +71,7 @@ class Metric(ABC):
     # metrics that need it; the built-in metrics ignore it. Keeping the slot on
     # the interface lets a new metric subclass opt in without changing call sites.
     @abstractmethod
-    def __call__(self, x: torch.Tensor, y: torch.Tensor, ctx=None, **kwargs) -> float:
+    def __call__(self, x: torch.Tensor, y: torch.Tensor, ctx=None) -> float:
         raise NotImplementedError()
 
 

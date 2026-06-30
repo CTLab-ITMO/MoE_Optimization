@@ -97,22 +97,20 @@ class FusionMethod(ABC):
         create_new: bool = True,
         ctx: Optional[StageContext] = None,
     ) -> MLP:
-        # Concrete k == 2 contract: explicit, named parameters (no ``**kwargs``),
-        # so typos in a subclass's own arguments are caught. The variadic,
-        # forward-compatible contract lives on ``__call__`` below.
+        # Concrete k == 2 contract: explicit, named parameters so typos in a
+        # subclass's own arguments are caught. The variadic public contract lives
+        # on ``__call__`` below.
         raise NotImplementedError()
 
     def __call__(self, *mlps, train_data=None, create_new: bool = True,
-                 ctx: Optional[StageContext] = None, **kwargs) -> MLP:
-        """Frozen, k-agnostic public fusion contract.
+                 ctx: Optional[StageContext] = None) -> MLP:
+        """k-agnostic public fusion contract.
 
         The interface is variadic in the experts (``*mlps``) and carries
         everything else as keyword-only state -- ``train_data`` (calibration
-        rows), ``create_new`` and the dynamic-state ``ctx`` -- plus a forward
-        compatible ``**kwargs`` that lets the contract grow without breaking
-        subclasses. Our implementations support only ``k == 2``: a
-        ``len(mlps) != 2`` call raises a clear error; the generalization is left
-        to other researchers.
+        rows), ``create_new`` and the dynamic-state ``ctx``. Our implementations
+        support only ``k == 2``: a ``len(mlps) != 2`` call raises a clear error;
+        the generalization is left to other researchers.
 
         Backward compatibility: the positional form
         ``method(mlp_a, mlp_b, train_data)`` passes ``train_data`` as the third
@@ -121,9 +119,6 @@ class FusionMethod(ABC):
         existing positional call site keeps working, while
         ``method(*[a, b], train_data=data)`` is the k-agnostic form. Both
         reach the same ``merge`` and are numerically identical.
-
-        ``**kwargs`` is the interface's forward-compat slot only; it is not
-        forwarded to the concrete ``merge`` (which has explicit named params).
         """
         if train_data is None and len(mlps) == 3:
             *mlp_list, train_data = mlps

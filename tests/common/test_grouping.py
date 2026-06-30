@@ -324,7 +324,7 @@ def test_output_similarity_affinity_draws_on_cpu_under_cuda_ctx(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# §3.7: concrete subclasses have explicit params (no **kwargs) -> typos caught.
+# The grouping interface is strict: explicit params, so a typo'd kwarg is caught.
 # --------------------------------------------------------------------------- #
 def test_concrete_grouping_rejects_unknown_kwarg():
     with pytest.raises(TypeError):
