@@ -313,15 +313,25 @@ def test_load_once_matches_load_per_method(monkeypatch, tmp_path):
             use_default_experts=False, num_experts=N_EXPERTS, top_k=TOP_K,
         )
 
+    def fresh_model():
+        # Seed each construction so the load-per-method models are byte-identical
+        # to the load-once model: the property under test is "swap+restore on one
+        # model" == "a fresh model per method" on the SAME base weights. Now that
+        # logits are a deterministic function of the routed path, drifting base
+        # weights would diverge here -- previously masked because logits were
+        # RNG-reseeded and every accuracy was the same constant.
+        torch.manual_seed(SEED)
+        return make_fake_transformers().AutoModelForCausalLM.from_pretrained("x")
+
     # load-per-method: a fresh model per single-layer replacement.
     per_method = []
     for layer in GOLDEN_LAYERS:
-        model = make_fake_transformers().AutoModelForCausalLM.from_pretrained("x")
+        model = fresh_model()
         model.model.layers[layer].mlp = build(model, layer)
         per_method.append(evaluate_qa(model, tokenizer, dataset, 8, seed=SEED))
 
     # load-once: one model, replace + restore per layer.
-    model = make_fake_transformers().AutoModelForCausalLM.from_pretrained("x")
+    model = fresh_model()
     originals = {l: model.model.layers[l].mlp for l in GOLDEN_LAYERS}
     once = []
     for layer in GOLDEN_LAYERS:
@@ -330,6 +340,36 @@ def test_load_once_matches_load_per_method(monkeypatch, tmp_path):
         model.model.layers[layer].mlp = originals[layer]
 
     assert once == per_method, "load-once accuracy diverged from load-per-method"
+
+
+def test_fake_model_logits_depend_on_mlp():
+    """FakeCausalLM logits are a deterministic function of the routed path.
+
+    The load-once accuracy gate above is only content-ful if swapping an mlp
+    actually moves the logits -- otherwise ``once == per_method`` would hold
+    vacuously, as it did when the fake returned RNG-reseeded logits independent
+    of the model. Pin both properties directly: (1) determinism -- the same input
+    twice gives identical logits; (2) sensitivity -- replacing one layer's mlp
+    changes the logits, so accuracy cannot be constant across fusion methods.
+    """
+    from common.testing import make_fake_transformers
+
+    torch.manual_seed(SEED)
+    model = make_fake_transformers().AutoModelForCausalLM.from_pretrained("x")
+    ids = torch.arange(1, 5).unsqueeze(0)
+
+    logits = model(input_ids=ids).logits
+    assert torch.equal(logits, model(input_ids=ids).logits), "fake logits are not deterministic"
+
+    class _Zero(torch.nn.Module):
+        def forward(self, x):
+            return torch.zeros_like(x)
+
+    model.model.layers[0].mlp = _Zero()
+    assert not torch.equal(logits, model(input_ids=ids).logits), (
+        "replacing a layer's mlp did not change the logits -- the accuracy gate "
+        "would be a tautology"
+    )
 
 
 # --------------------------------------------------------------------------- #

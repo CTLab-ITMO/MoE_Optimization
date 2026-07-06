@@ -7,11 +7,13 @@ Do not import experiment config here -- this module is shared by both pipeline
 test trees.
 
 Determinism: FakeTokenizer maps text to a fixed id sequence (no RNG);
-FakeCausalLM derives hidden states from a fixed embedding of those ids rather
-than calling torch.randn. As a result, captured co-activation matrices, MLP
-inputs, and top-k selections are independent of forward-call order, so a single
-pass produces the same artifacts as the old per-stage separate passes.
-Logits stay random; evaluate_qa reseeds before consuming them.
+FakeCausalLM derives hidden states from a fixed embedding of those ids and
+logits from a fixed linear head over the pooled per-layer routed states -- the
+whole forward is RNG-free. Captured co-activation matrices, MLP inputs, and
+top-k selections stay independent of forward-call order (a single pass produces
+the same artifacts as the old per-stage separate passes), and the logits are a
+deterministic function of the routed path, so the stage-4 accuracy gate actually
+depends on which experts are fused instead of being a constant.
 """
 import types
 
@@ -79,7 +81,16 @@ class FakeFusionGate(nn.Module):
 
 
 class FakeMoEMLP(nn.Module):
-    """Fake MoE instead of Qwen."""
+    """Fake MoE instead of Qwen.
+
+    Routes tokens through their top-k experts and adds the gated shared expert,
+    mirroring the real Qwen1.5-MoE block (and the fused ``FusionLayer`` that
+    replaces it in stage 4, which likewise returns a tensor of the input shape).
+    The forward is a deterministic, RNG-free function of its input, so swapping a
+    layer's mlp for a fused one actually moves the model output -- which is what
+    makes the stage-4 accuracy gate content-ful rather than a tautology (the old
+    forward was the identity ``return x`` and ignored the experts entirely).
+    """
 
     def __init__(self):
         super().__init__()
@@ -89,8 +100,18 @@ class FakeMoEMLP(nn.Module):
         self.shared_expert_gate = nn.Linear(H, 1, bias=False)
 
     def forward(self, x):
-        self.gate(x.reshape(-1, H))
-        return x
+        shape = x.shape
+        tokens = x.reshape(-1, H)
+        weights, selected = torch.topk(self.gate(tokens).softmax(dim=-1), TOP_K, dim=-1)
+        weights = weights / weights.sum(dim=-1, keepdim=True)
+        routed = torch.zeros_like(tokens)
+        for slot in range(TOP_K):
+            for expert_id, expert in enumerate(self.experts):
+                mask = selected[:, slot] == expert_id
+                if mask.any():
+                    routed[mask] += weights[mask, slot].unsqueeze(-1) * expert(tokens[mask])
+        shared = torch.sigmoid(self.shared_expert_gate(tokens)) * self.shared_expert(tokens)
+        return (routed + shared).reshape(shape)
 
 
 class FakeLayer(nn.Module):
@@ -113,9 +134,13 @@ class FakeCausalLM(nn.Module):
     def __init__(self, n_layers=N_LAYERS + 1):
         super().__init__()
         self.model = _FakeInner(n_layers)
-        # Fixed embedding makes hidden states a deterministic function of input ids.
-        # Constructed last so expert/gate/shared weights keep their RNG draws.
+        # Fixed embedding makes hidden states a deterministic function of input
+        # ids; the fixed head makes logits a deterministic function of the pooled
+        # routed states. Both are constructed after ``_FakeInner`` so the
+        # expert/gate/shared weights (which feed the golden partition and
+        # reconstruction) keep their original RNG draws unchanged.
         self.embed = nn.Embedding(VOCAB, H)
+        self.lm_head = nn.Linear(H, VOCAB, bias=False)
         self.dtype = torch.float32
         self.device = torch.device("cpu")
 
@@ -125,16 +150,18 @@ class FakeCausalLM(nn.Module):
     def forward(self, input_ids=None, attention_mask=None, *args, **kwargs):
         ids = input_ids if input_ids.dim() > 1 else input_ids.unsqueeze(0)
         ids = ids.long().to(self.embed.weight.device)
-        batch, seq = ids.shape[0], ids.shape[1]
-        # Fixed-embedding hidden states are call-order-independent, so a single
-        # forward pass captures the same mlp_inputs and co-activations as
-        # separate per-stage passes would.
         hidden = self.embed(ids % VOCAB)
-        for layer in self.model.layers:
-            hidden = layer.mlp(hidden)
-        # logits stay random: evaluate_qa reseeds before consuming them, so
-        # accuracy is reproducible without coupling it to the hidden path.
-        return types.SimpleNamespace(logits=torch.randn(batch, seq, VOCAB))
+        # Every layer reads the same fixed-embedding hidden (no residual
+        # chaining), so per-layer mlp inputs / co-activations stay call- and
+        # layer-order-independent and byte-identical to the old identity forward
+        # that the capture seam and golden partition/reconstruction are pinned
+        # to. Logits come from the pooled per-layer routed outputs (no raw
+        # embedding residual, which would otherwise dominate and pin the coarse
+        # answer-token argmax) through a fixed head, so accuracy depends strongly
+        # on every layer's experts: swapping in a fused layer (stage 4) moves the
+        # answer-token argmax and therefore the measured accuracy.
+        pooled = torch.stack([layer.mlp(hidden) for layer in self.model.layers]).sum(dim=0)
+        return types.SimpleNamespace(logits=self.lm_head(pooled))
 
     def __call__(self, input_ids=None, **kwargs):
         return self.forward(input_ids=input_ids, **kwargs)
@@ -207,11 +234,28 @@ def make_fake_datasets():
 
 
 class FakeQADataset:
-    """Fake dataset instead of MMLU"""
+    """Fake dataset instead of MMLU.
+
+    The answer labels are deliberately unbalanced. FakeTokenizer collapses every
+    prompt to the same ids (it only sees the shared system-prompt prefix, not the
+    question), so the model emits one constant prediction ``P`` for all samples;
+    with a balanced label set accuracy would be pinned at ``1/n_choices`` for any
+    ``P`` -- a tautology that hides whether stage 4 assembles and restores layers
+    correctly. Distinct per-label counts (A:0, B:1, C:3, D:4 over 8 samples) make
+    accuracy ``= count(label == P) / n`` a strictly monotone function of ``P``,
+    and ``P`` depends on the routed experts, so fusing (or failing to restore) a
+    layer moves the measured accuracy.
+    """
+
+    _LABELS = [1, 2, 2, 2, 3, 3, 3, 3]
 
     def __init__(self, n=8):
         self._samples = [
-            {"question": f"q{i}", "choices": ["a", "b", "c", "d"], "answer": i % 4}
+            {
+                "question": f"q{i}",
+                "choices": ["a", "b", "c", "d"],
+                "answer": self._LABELS[i % len(self._LABELS)],
+            }
             for i in range(n)
         ]
 
