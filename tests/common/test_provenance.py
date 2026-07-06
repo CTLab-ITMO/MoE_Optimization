@@ -47,6 +47,100 @@ def test_config_hash_ignores_only_device(tmp_path):
     assert provenance.config_hash(cfg) == provenance.config_hash(moved)
 
 
+def _cfg_with_eval_flags():
+    # A config carrying both fusion-relevant keys and eval-only flags (stage-4 only).
+    return {
+        "MODEL_NAME": "q",
+        "SEED": 42,
+        "LAYERS": [0, 1],
+        "USE_DEFAULT_EXPERTS": False,
+        "REPLACE_LAYERS_SEQUENTIAL": False,
+        "REPLACE_BEST_LAYERS_SEQUENTIAL": True,
+        "REPLACE_LAYERS_SMART_SEQUENTIAL": False,
+        "INSPECT_FUSION_METHOD": "ZipIt",
+    }
+
+
+def test_config_hash_exclude_drops_the_given_keys():
+    cfg = _cfg_with_eval_flags()
+    # Excluding a key yields the same hash as a config that never had it.
+    without = {k: v for k, v in cfg.items() if k != "SEED"}
+    assert provenance.config_hash(cfg, exclude=frozenset({"SEED"})) == provenance.config_hash(without)
+    assert "SEED" not in provenance.canonical_config(cfg, exclude=frozenset({"SEED"}))
+    # exclude is additive to EPHEMERAL_CONFIG_KEYS, never replaces it.
+    moved = {**cfg, "device": torch.device("cuda")}
+    assert provenance.config_hash(moved, exclude=frozenset({"SEED"})) == provenance.config_hash(
+        cfg, exclude=frozenset({"SEED"})
+    )
+
+
+def test_eval_only_config_keys_are_exactly_the_stage4_flags():
+    assert provenance.EVAL_ONLY_CONFIG_KEYS == frozenset({
+        "REPLACE_LAYERS_SEQUENTIAL",
+        "REPLACE_BEST_LAYERS_SEQUENTIAL",
+        "REPLACE_LAYERS_SMART_SEQUENTIAL",
+        "INSPECT_FUSION_METHOD",
+        "USE_DEFAULT_EXPERTS",
+    })
+
+
+def test_fusion_config_hash_ignores_eval_only_flags():
+    cfg = _cfg_with_eval_flags()
+    base = provenance.fusion_config_hash(cfg)
+    # Flipping any single eval-only flag leaves the fusion hash unchanged...
+    for key, flipped in {
+        "USE_DEFAULT_EXPERTS": True,
+        "REPLACE_LAYERS_SEQUENTIAL": True,
+        "REPLACE_BEST_LAYERS_SEQUENTIAL": False,
+        "REPLACE_LAYERS_SMART_SEQUENTIAL": True,
+        "INSPECT_FUSION_METHOD": "Average",
+    }.items():
+        drifted = {**cfg, key: flipped}
+        assert provenance.fusion_config_hash(drifted) == base, key
+        # ...but the full config hash DOES change (the flag is still real config).
+        assert provenance.config_hash(drifted) != provenance.config_hash(cfg), key
+
+
+def test_fusion_config_hash_changes_on_a_fusion_relevant_key():
+    cfg = _cfg_with_eval_flags()
+    for key, drifted_value in {"SEED": 7, "LAYERS": [0, 1, 2], "MODEL_NAME": "other"}.items():
+        drifted = {**cfg, key: drifted_value}
+        assert provenance.fusion_config_hash(drifted) != provenance.fusion_config_hash(cfg), key
+
+
+def test_canonical_config_keeps_eval_only_keys_by_default():
+    # Snapshot invariant: eval-only keys are real config and must stay in the
+    # snapshot (only fusion's idempotency hash drops them, via ``exclude``).
+    canonical = provenance.canonical_config(_cfg_with_eval_flags())
+    for key in provenance.EVAL_ONLY_CONFIG_KEYS:
+        assert key in canonical, key
+
+
+def test_flipping_an_eval_flag_does_not_invalidate_a_fused_artifact(tmp_path):
+    # End-to-end: a fused expert stored under config A stays fresh when only an
+    # eval-only flag flips (config B), but goes stale when a fusion key changes.
+    cfg_a = _cfg_with_eval_flags()
+    cfg_b_eval = {**cfg_a, "USE_DEFAULT_EXPERTS": True}   # eval-only drift
+    cfg_c_real = {**cfg_a, "SEED": 7}                     # fusion-relevant drift
+
+    def upstream(cfg):
+        return provenance.fused_upstream_hash(
+            config_hash=provenance.fusion_config_hash(cfg),
+            layer=0,
+            method="Average",
+            group=0,
+            extra="part",
+        )
+
+    path = str(tmp_path / "f.pt")
+    FusedExpert(AdvancedMLP(4, 6, 4, device=torch.device("cpu"))).save(
+        path, provenance=serialization.make_provenance(upstream_hash=upstream(cfg_a))
+    )
+    assert provenance.is_fresh(path, upstream(cfg_a))
+    assert provenance.is_fresh(path, upstream(cfg_b_eval))   # eval flag flip -> still fresh
+    assert not provenance.is_fresh(path, upstream(cfg_c_real))  # real change -> recompute
+
+
 def test_snapshot_roundtrip_and_assert(tmp_path):
     data_dir = str(tmp_path)
     cfg = _cfg()

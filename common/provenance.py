@@ -44,6 +44,22 @@ def git_commit(repo_dir: Optional[str] = None) -> Optional[str]:
 # Keys excluded from the snapshot/hash; changing these must not invalidate artifacts.
 EPHEMERAL_CONFIG_KEYS = frozenset({"device"})
 
+# Keys consumed only by stage 4 (evaluation): the REPLACE_* layer-replacement modes,
+# the diagnostic INSPECT_FUSION_METHOD, and the A/B USE_DEFAULT_EXPERTS toggle. They
+# never change what stages 1-3 produce, so they are excluded from the stage-3 fusion
+# idempotency hash (see ``fusion_config_hash``): flipping an eval flag must not
+# invalidate already-fused experts. Unlike EPHEMERAL_CONFIG_KEYS these stay in the
+# config snapshot -- they are real, recorded config that stage 4 reads.
+EVAL_ONLY_CONFIG_KEYS = frozenset(
+    {
+        "REPLACE_LAYERS_SEQUENTIAL",
+        "REPLACE_BEST_LAYERS_SEQUENTIAL",
+        "REPLACE_LAYERS_SMART_SEQUENTIAL",
+        "INSPECT_FUSION_METHOD",
+        "USE_DEFAULT_EXPERTS",
+    }
+)
+
 
 # --------------------------------------------------------------------------- #
 # Value stabilization + canonicalization (reproducible across processes).
@@ -74,18 +90,38 @@ def _canonical_json(obj: Any) -> str:
     return json.dumps(obj, sort_keys=True, default=str)
 
 
-def canonical_config(config: dict) -> dict:
-    """Return an order-stable, ephemeral-free, value-stabilized config copy."""
+def canonical_config(config: dict, *, exclude: frozenset = frozenset()) -> dict:
+    """Return an order-stable, ephemeral-free, value-stabilized config copy.
+
+    ``EPHEMERAL_CONFIG_KEYS`` are always dropped; ``exclude`` drops additional
+    keys, used to scope the hash to one stage (e.g. eval-only flags for stage 3).
+    """
+    dropped = EPHEMERAL_CONFIG_KEYS | exclude
     return {
         key: _stable(config[key])
         for key in sorted(config)
-        if key not in EPHEMERAL_CONFIG_KEYS
+        if key not in dropped
     }
 
 
-def config_hash(config: dict) -> str:
-    """Content hash of the canonical config (stable across processes)."""
-    return hashlib.sha256(_canonical_json(canonical_config(config)).encode("utf-8")).hexdigest()
+def config_hash(config: dict, *, exclude: frozenset = frozenset()) -> str:
+    """Content hash of the canonical config (stable across processes).
+
+    ``exclude`` drops extra keys before hashing (see ``canonical_config``).
+    """
+    return hashlib.sha256(
+        _canonical_json(canonical_config(config, exclude=exclude)).encode("utf-8")
+    ).hexdigest()
+
+
+def fusion_config_hash(config: dict) -> str:
+    """Stage-3 idempotency hash: ``config_hash`` with eval-only keys excluded.
+
+    Fused experts are fully determined by the fusion-relevant config, so changing
+    an evaluation flag (see ``EVAL_ONLY_CONFIG_KEYS``) leaves this hash -- and thus
+    ``fused_upstream_hash`` -- unchanged, and stage 3 skips already-fused groups.
+    """
+    return config_hash(config, exclude=EVAL_ONLY_CONFIG_KEYS)
 
 
 # --------------------------------------------------------------------------- #
@@ -210,8 +246,10 @@ def fused_upstream_hash(
     """Hash identifying one (layer, method, group) work item for skip-if-done.
 
     Combines config hash and work-item coordinates; does not read expert weights
-    (they are fully determined by the config). Stored in the artifact so
-    ``is_fresh`` can decide whether to skip recomputation.
+    (they are fully determined by the config). ``config_hash`` should be the
+    fusion-scoped ``fusion_config_hash`` so eval-only flags do not invalidate the
+    item. Stored in the artifact so ``is_fresh`` can decide whether to skip
+    recomputation.
     """
     parts = [f"cfg={config_hash}", f"layer={layer}", f"method={method}", f"group={group}"]
     if extra is not None:

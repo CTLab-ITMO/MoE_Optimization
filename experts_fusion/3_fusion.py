@@ -55,6 +55,10 @@ set_seed(SEED)
 # Per-layer/per-group copies give stochastic methods (e.g. Fisher) an order-independent RNG.
 base_ctx = StageContext(seed=SEED, device=device)
 config_fingerprint = provenance.config_hash(config_snapshot_dict())
+# Idempotency (skip-if-done) hashes over the fusion-relevant config only: eval-only
+# flags (REPLACE_*, INSPECT_FUSION_METHOD, USE_DEFAULT_EXPERTS) are consumed by stage 4
+# and must not invalidate already-fused experts.
+fusion_fingerprint = provenance.fusion_config_hash(config_snapshot_dict())
 
 
 def _gather(mlp_inputs, indices):
@@ -101,7 +105,7 @@ for layer in LAYERS:
     for group_idx, group in enumerate(partition.groups):
         def upstream(name):
             return provenance.fused_upstream_hash(
-                config_hash=config_fingerprint,
+                config_hash=fusion_fingerprint,
                 layer=layer,
                 method=name,
                 group=group_idx,
