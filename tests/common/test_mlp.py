@@ -205,3 +205,45 @@ def test_refit_unmerge_drops_down_and_installs_solved_u():
     expected_u = solve_linear(mlp.forward(x).float(), targets.float())
     assert torch.allclose(mlp.U, expected_u, atol=1e-6)
     assert mlp.forward_unzip(x).shape == (64, 8)
+
+
+# --------------------------------------------------------------------------- #
+# dtype safety (CR#2): the merge path must not silently upcast bf16 to float32.
+# --------------------------------------------------------------------------- #
+def test_unite_matrix_preserves_dtype():
+    """Block-diagonal padding inherits the operand dtype -- default-float32 zeros
+    would promote bf16 weights to float32 through ``torch.cat``."""
+    a = torch.ones(2, 3, dtype=torch.bfloat16)
+    b = torch.ones(4, 5, dtype=torch.bfloat16)
+    assert unite_matrix(a, b).dtype == torch.bfloat16
+
+
+def test_build_mu_preserves_activation_dtype():
+    """M and U inherit the activation dtype (bf16), not default float32."""
+    zipper = Zipper(4)
+    torch.manual_seed(0)
+    zipper(torch.randn(16, 4, dtype=torch.bfloat16))
+    zipper.build_MU()
+    assert zipper.M.dtype == torch.bfloat16
+    assert zipper.U.dtype == torch.bfloat16
+
+
+def test_advanced_mlp_zip_pipeline_preserves_bf16():
+    """CR#2 regression guard: merging two bf16 experts must keep every zipped
+    parameter (gate/up/down and U) in bf16. The padding, M and the identity block
+    all default to float32 unless pinned to the weight dtype, which ``torch.cat``
+    would then propagate -- doubling the artifact and running inference in fp32."""
+    torch.manual_seed(0)
+    a = AdvancedMLP(4, 6, 4, device=CPU).to(torch.bfloat16)
+    b = AdvancedMLP(4, 6, 4, device=CPU).to(torch.bfloat16)
+    x = torch.randn(32, 4, dtype=torch.bfloat16)
+
+    a.zip_with(b)
+    assert a.gate.weight.dtype == torch.bfloat16
+    a.train_with([row for row in x])
+    a.zip()
+
+    for name, param in a.named_parameters():
+        assert param.dtype == torch.bfloat16, f"{name} upcast to {param.dtype}"
+    assert a.U.dtype == torch.bfloat16
+    assert a.forward_unzip(x).dtype == torch.bfloat16

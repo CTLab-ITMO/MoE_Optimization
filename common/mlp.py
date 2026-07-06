@@ -25,8 +25,10 @@ def make_activation(name: str) -> nn.Module:
 
 def unite_matrix(mat1: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
     """Block-diagonal concatenation: [[mat1, 0], [0, mat2]]."""
-    add1 = torch.zeros((mat1.shape[0], mat2.shape[1]), device=mat1.device)
-    add2 = torch.zeros((mat2.shape[0], mat1.shape[1]), device=mat1.device)
+    # Pad in the operands' dtype: default-float32 zeros would promote bf16 weights
+    # to float32 through ``torch.cat`` (silent upcast of the merged expert).
+    add1 = torch.zeros((mat1.shape[0], mat2.shape[1]), device=mat1.device, dtype=mat1.dtype)
+    add2 = torch.zeros((mat2.shape[0], mat1.shape[1]), device=mat1.device, dtype=mat1.dtype)
     mat1 = torch.cat([mat1, add1], dim=1)
     mat2 = torch.cat([add2, mat2], dim=1)
     return torch.cat([mat1, mat2], dim=0)
@@ -88,11 +90,15 @@ class Zipper(nn.Linear):
         assert n % 2 == 0, f"build_MU is k=2 only; expected an even width, got {n}"
 
         matches = greedy_correlation_matching(corr_matrix)
-        self.M = torch.zeros(n // 2, n).to(self.activations[0].device)
+        # Build M in the activation dtype (0.5 is exact in bf16); a default-float32
+        # M would upcast the merged weights via ``M @ weight`` in ``zip()``.
+        self.M = torch.zeros(
+            n // 2, n, dtype=self.dtype, device=self.activations[0].device
+        )
         for idx, (i, j) in enumerate(matches):
             self.M[idx, i] = 0.5
             self.M[idx, j] = 0.5
-        self.U = 2 * self.M.T.to(dtype=self.activations[0].dtype)
+        self.U = 2 * self.M.T
 
         self.activations = []
         del activations
@@ -178,7 +184,11 @@ class SimpleMLP(MLP):
         self.fc1.weight = nn.Parameter(
             self.zip1.M
             @ self.fc1.weight
-            @ torch.cat(2 * [torch.eye(self.fc1.in_features, device=self.fc1.weight.device)])
+            @ torch.cat(2 * [torch.eye(
+                self.fc1.in_features,
+                device=self.fc1.weight.device,
+                dtype=self.fc1.weight.dtype,
+            )])
         )
         self.fc2.weight = nn.Parameter(self.zip2.M @ self.fc2.weight @ self.zip1.U)
 
@@ -248,12 +258,20 @@ class AdvancedMLP(MLP):
         self.gate.weight = nn.Parameter(
             self.zip1.M
             @ self.gate.weight
-            @ torch.cat(2 * [torch.eye(self.gate.in_features, device=self.gate.weight.device)])
+            @ torch.cat(2 * [torch.eye(
+                self.gate.in_features,
+                device=self.gate.weight.device,
+                dtype=self.gate.weight.dtype,
+            )])
         )
         self.up.weight = nn.Parameter(
             self.zip1.M
             @ self.up.weight
-            @ torch.cat(2 * [torch.eye(self.up.in_features, device=self.gate.weight.device)])
+            @ torch.cat(2 * [torch.eye(
+                self.up.in_features,
+                device=self.gate.weight.device,
+                dtype=self.gate.weight.dtype,
+            )])
         )
         self.down.weight = nn.Parameter(self.zip2.M @ self.down.weight @ self.zip1.U)
 
