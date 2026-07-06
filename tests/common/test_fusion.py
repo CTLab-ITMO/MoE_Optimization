@@ -280,6 +280,56 @@ def test_distillation_empty_falls_back_to_average(pair):
     assert torch.allclose(merged.gate.weight, (a.gate.weight + b.gate.weight) / 2)
 
 
+def test_distillation_bf16_trains_in_fp32_and_casts_back(monkeypatch, make_advanced_mlp):
+    """CR#6 regression guard. bf16 AdamW moments/grads underflow, so the loop must
+    run in float32 and cast the student back to the experts' dtype afterwards.
+
+    The guard is structural, not behavioral: on a toy MLP the bf16-underflow effect
+    is negligible, so any output-error comparison passes on the unfixed bf16 loop
+    too. Instead we assert the mechanism directly -- the optimizer is built on
+    float32 params (float() ran before it) -- plus the castback (returned params
+    are bf16). Reverting either half of the fix fails one of these assertions."""
+    seen_optimizer_dtypes = set()
+    real_adamw = torch.optim.AdamW
+
+    def spy_adamw(params, *args, **kwargs):
+        params = list(params)
+        seen_optimizer_dtypes.update(p.dtype for p in params)
+        return real_adamw(params, *args, **kwargs)
+
+    monkeypatch.setattr(torch.optim, "AdamW", spy_adamw)
+
+    torch.manual_seed(0)
+    a = make_advanced_mlp(4, 6, 4, seed=1).to(torch.bfloat16)
+    b = make_advanced_mlp(4, 6, 4, seed=2).to(torch.bfloat16)
+    data = torch.randn(64, 4, dtype=torch.bfloat16)
+
+    student = DistillationFusion()(a, b, data)
+
+    # Mechanism: training ran in float32 (would be bf16 without the fix).
+    assert seen_optimizer_dtypes == {torch.float32}
+    # Castback: the merged student is returned in the experts' dtype.
+    for name, param in student.named_parameters():
+        assert param.dtype == torch.bfloat16, f"{name} came back as {param.dtype}"
+
+
+def test_distillation_fp32_experts_unchanged_by_fp32_loop(make_advanced_mlp):
+    """The fp32 castback path is a no-op for float32 experts: the merge stays
+    deterministic and bit-identical to a rerun (guards the golden float32 path)."""
+    a = make_advanced_mlp(4, 6, 4, seed=1)
+    b = make_advanced_mlp(4, 6, 4, seed=2)
+    data = torch.randn(32, 4)
+
+    torch.manual_seed(0)
+    first = DistillationFusion()(a, b, data)
+    torch.manual_seed(0)
+    second = DistillationFusion()(a, b, data)
+
+    for key in first.state_dict():
+        assert first.state_dict()[key].dtype == torch.float32
+        assert torch.equal(first.state_dict()[key], second.state_dict()[key])
+
+
 # --------------------------------------------------------------------------- #
 # Least-squares adapter.
 # --------------------------------------------------------------------------- #

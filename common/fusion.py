@@ -395,10 +395,18 @@ class DistillationFusion(FusionMethod):
         student = AverageFusion().merge(mlp_a, mlp_b, train_data, create_new=create_new)
 
         with torch.no_grad():
-            teacher_out = 0.5 * (mlp_a(data) + mlp_b(data))
-            teacher_hidden = 0.5 * (
-                hidden_activations(mlp_a, data) + hidden_activations(mlp_b, data)
-            )
+            teacher_out = (0.5 * (mlp_a(data) + mlp_b(data))).float()
+            teacher_hidden = (
+                0.5 * (hidden_activations(mlp_a, data) + hidden_activations(mlp_b, data))
+            ).float()
+
+        # AdamW moments and MSE gradients underflow in bf16, collapsing the student
+        # back toward its average init. Train the whole loop in float32 and cast the
+        # student's parameters back afterwards, mirroring the fp32 Fisher pass in
+        # ``diagonal_empirical_fisher``.
+        orig_dtype = next(student.parameters()).dtype
+        student.float()
+        train_x = data.float()
 
         student.train()
         optimizer = torch.optim.AdamW(
@@ -411,7 +419,7 @@ class DistillationFusion(FusionMethod):
         with torch.enable_grad():
             for _ in range(epochs):
                 for batch_x, batch_out, batch_hidden in zip(
-                    batch_iter(data, batch_size),
+                    batch_iter(train_x, batch_size),
                     batch_iter(teacher_out, batch_size),
                     batch_iter(teacher_hidden, batch_size),
                 ):
@@ -425,6 +433,7 @@ class DistillationFusion(FusionMethod):
                     optimizer.step()
 
         student.eval()
+        student.to(dtype=orig_dtype)
         return student
 
 
