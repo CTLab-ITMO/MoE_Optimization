@@ -5,11 +5,14 @@ Each stage is run in isolation: the upstream artifacts are seeded with the
 expensive upstream stage), then the stage is executed from the repo root via the
 ``run_script`` fixture and its outputs are asserted.
 """
+import glob
 import os
 
 import pytest
+import torch
 
 from common import layout
+from common.names import ReplaceMode, TEST_RESULT_PREFIX, ZERO_FUSION
 
 
 def test_stage1_preprocess(run_script, data_dir, layers):
@@ -106,7 +109,7 @@ def test_run_stage_files_orders_and_filters():
     ]
 
 
-def test_stage4_all_replacement_modes(run_script, builders):
+def test_stage4_all_replacement_modes(run_script, builders, data_dir, layers):
     builders.experts(saved=True)
     pairs = builders.partition()
     builders.fused_experts_v1("Average", pairs)
@@ -120,4 +123,100 @@ def test_stage4_all_replacement_modes(run_script, builders):
             "REPLACE_BEST_LAYERS_SEQUENTIAL": True,
             "REPLACE_LAYERS_SMART_SEQUENTIAL": True,
         },
+    )
+
+    # A smoke run that only checks "did not crash" hides broken replacement modes
+    # (CR#13). Assert each mode's artifacts exist and each accuracy/size list has
+    # the expected length instead. With FILTER_FUSIONS=["Average"] and
+    # FILTER_METRICS=[] the evaluated names are exactly Average + the zero baseline
+    # (no Best_<metric> pseudo-methods), and every sweep records base + one entry
+    # per MoE layer.
+    result_dirs = glob.glob(os.path.join(data_dir, f"{TEST_RESULT_PREFIX}*"))
+    assert len(result_dirs) == 1, result_dirs
+    accuracy_dir = os.path.join(result_dirs[0], "accuracy")
+    model_size_dir = os.path.join(result_dirs[0], "model_size")
+    expected_len = len(layers) + 1
+
+    # SEQ comes from REPLACE_LAYERS_SEQUENTIAL / REPLACE_BEST_LAYERS_SEQUENTIAL;
+    # SMART_SEQ from REPLACE_LAYERS_SMART_SEQUENTIAL. SINGLE must NOT appear because
+    # REPLACE_LAYERS_SEQUENTIAL flips the per-layer mode off single.
+    for name in ("Average", ZERO_FUSION):
+        for mode in (ReplaceMode.SEQ, ReplaceMode.SMART_SEQ):
+            accuracy_path = os.path.join(accuracy_dir, f"accuracy_list_{mode}_{name}.pt")
+            model_size_path = os.path.join(model_size_dir, f"model_size_list_{mode}_{name}.pt")
+            assert os.path.exists(accuracy_path), f"missing {accuracy_path}"
+            assert os.path.exists(model_size_path), f"missing {model_size_path}"
+            assert len(torch.load(accuracy_path)) == expected_len
+            assert len(torch.load(model_size_path)) == expected_len
+
+    assert not glob.glob(os.path.join(accuracy_dir, f"accuracy_list_{ReplaceMode.SINGLE}_*.pt")), (
+        "single-mode artifacts must not be produced when REPLACE_LAYERS_SEQUENTIAL is on"
+    )
+
+
+def test_stage4_does_not_load_validation_mlp_inputs(run_script, builders, data_dir, monkeypatch):
+    """Regression guard for FR §5-3: the dead validation-mlp_inputs load stays removed.
+
+    Stage 4's reconstruction benchmark reads only the TRAIN split; the legacy
+    stage 7 also loaded (and never used) the validation split. Seed both splits so
+    an accidental validation load would succeed silently, then spy on torch.load
+    and assert the train inputs are read while the validation inputs never are.
+    """
+    builders.experts(saved=True)
+    pairs = builders.partition()
+    builders.fused_experts_v1("Average", pairs)
+    builders.mlp_inputs()  # writes BOTH train_ and validation_ mlp_inputs
+
+    loaded = []
+    real_load = torch.load
+
+    def spy_load(path, *args, **kwargs):
+        loaded.append(str(path))
+        return real_load(path, *args, **kwargs)
+
+    monkeypatch.setattr(torch, "load", spy_load)
+
+    run_script("4_evaluate.py", with_model=True, patch_qa_eval=True)
+
+    inputs_dir = layout.mlp_inputs_dir(data_dir).replace("\\", "/")
+    normalized = [p.replace("\\", "/") for p in loaded]
+    train_loaded = [p for p in normalized if p.startswith(inputs_dir) and "/train_" in p]
+    validation_loaded = [p for p in normalized if p.startswith(inputs_dir) and "/validation_" in p]
+    assert train_loaded, "recon benchmark should load train mlp_inputs (else the guard is vacuous)"
+    assert not validation_loaded, f"stage 4 must not load validation mlp_inputs, got {validation_loaded}"
+
+
+def test_stage4_eval_top_k_tracks_config(run_script, builders, monkeypatch):
+    """Regression guard for FR §5-4: eval builds fusion layers with config.TOP_K.
+
+    The legacy code defaulted the eval-time top-k to a literal (8) that could drift
+    from config.TOP_K. Override TOP_K to a distinctive value and assert every
+    fusion layer stage 4 builds carries it, so a re-introduced literal is caught.
+    """
+    builders.experts(saved=True)
+    pairs = builders.partition()
+    builders.fused_experts_v1("Average", pairs)
+
+    from common import fusion_layer
+
+    distinctive_top_k = 3  # not equal to any literal the eval path might hardcode
+    seen_top_k = []
+    real = fusion_layer.get_fusion_layer_from_groups
+
+    def spy(*args, **kwargs):
+        seen_top_k.append(kwargs.get("top_k"))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(fusion_layer, "get_fusion_layer_from_groups", spy)
+
+    run_script(
+        "4_evaluate.py",
+        with_model=True,
+        patch_qa_eval=True,
+        config_overrides={"TOP_K": distinctive_top_k},
+    )
+
+    assert seen_top_k, "stage 4 never built a fusion layer"
+    assert all(top_k == distinctive_top_k for top_k in seen_top_k), (
+        f"eval built layers with top_k={set(seen_top_k)}, expected config.TOP_K={distinctive_top_k}"
     )

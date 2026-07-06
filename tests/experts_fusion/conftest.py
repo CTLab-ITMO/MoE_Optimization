@@ -50,7 +50,12 @@ def builders(data_dir, layers):
 
 @pytest.fixture
 def run_script(monkeypatch, tmp_path, data_dir, layers):
-    def _run(name, *, config_overrides=None, with_model=False, patch_qa_eval=False):
+    def _run(name, *, config_overrides=None, with_model=False, patch_qa_eval=False,
+             transformers_module=None, datasets_module=None):
+        # transformers_module / datasets_module let a test inject a capturing stub
+        # (e.g. to assert the model is loaded with config.MODEL_DTYPE, or that a
+        # stage indexes the dataset by config.DATASET_TEXT_FIELD); default to the
+        # shared fakes so existing callers are unaffected.
         import experts_fusion.config as cfg
 
         overrides = {
@@ -79,8 +84,10 @@ def run_script(monkeypatch, tmp_path, data_dir, layers):
         monkeypatch.setattr(seaborn, "kdeplot", lambda *a, **k: None)
 
         if with_model:
-            monkeypatch.setitem(sys.modules, "transformers", make_fake_transformers())
-            monkeypatch.setitem(sys.modules, "datasets", make_fake_datasets())
+            monkeypatch.setitem(sys.modules, "transformers",
+                                transformers_module or make_fake_transformers())
+            monkeypatch.setitem(sys.modules, "datasets",
+                                datasets_module or make_fake_datasets())
 
         if patch_qa_eval:
             from common import qa_eval

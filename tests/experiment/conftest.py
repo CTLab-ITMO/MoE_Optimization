@@ -8,6 +8,14 @@ import pytest
 import torch
 from torch import nn
 
+# Shared, importably-stable fake gate. The builders below pickle it to gate.pt,
+# so its class must resolve to one canonical module path on torch.load. A copy
+# defined here resolves as ``conftest`` or ``tests.experiment.conftest`` depending
+# on importlib order, which makes unpickling order-dependent (CR#36 flake). The
+# ``common.testing`` copy always resolves to ``common.testing.fakes`` and shares
+# this tree's H / N_EXPERTS / TOP_K values, so the fixtures are unchanged.
+from common.testing import FakeFusionGate
+
 ROOT = Path(__file__).resolve().parents[2]
 EXPERIMENT_DIR = ROOT / "Qwen_MoE_experts_fusion_experiment"
 
@@ -54,20 +62,6 @@ class FakeRouterGate(nn.Module):
 
     def forward(self, x):
         return self.proj(x)
-
-
-class FakeFusionGate(nn.Module):
-    """Fake gate for fusion, returns a 3-tuple."""
-
-    def __init__(self):
-        super().__init__()
-        self.num_experts = N_EXPERTS
-        self.proj = nn.Linear(H, N_EXPERTS, bias=False)
-
-    def forward(self, x):
-        logits = self.proj(x)
-        weights, selected = torch.topk(logits.softmax(dim=-1), TOP_K, dim=-1)
-        return logits, weights, selected
 
 
 class FakeMoEMLP(nn.Module):
