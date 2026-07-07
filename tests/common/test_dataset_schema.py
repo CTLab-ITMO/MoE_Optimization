@@ -23,6 +23,7 @@ from common.dataset_schema import (
     DatasetSchema,
     detect_schema,
     resolve_answer,
+    resolve_answer_index,
     resolve_choices,
     resolve_question,
 )
@@ -191,6 +192,92 @@ def test_resolve_answer_answer_key_wins_over_answer():
 def test_resolve_answer_missing_raises():
     with pytest.raises(KeyError):
         resolve_answer({"foo": "bar"}, ["A", "B"])
+
+
+# --------------------------------------------------------------------------- #
+# resolve_answer_index: per-sample 0-based index, robust to heterogeneous labels.
+# --------------------------------------------------------------------------- #
+def test_resolve_answer_index_mmlu_integer():
+    sample = {"question": "q", "choices": ["w", "x", "y", "z"], "answer": 2}
+    assert resolve_answer_index(sample) == 2
+
+
+def test_resolve_answer_index_lettered_answer_key():
+    sample = {
+        "question": "q",
+        "choices": {"label": ["A", "B", "C", "D"], "text": ["a", "b", "c", "d"]},
+        "answerKey": "C",
+    }
+    assert resolve_answer_index(sample) == 2
+
+
+def test_resolve_answer_index_numeric_labels():
+    # ARC's occasional numeric alphabet: '3' is the third of ['1','2','3','4'].
+    sample = {
+        "question": "q",
+        "choices": {"label": ["1", "2", "3", "4"], "text": ["a", "b", "c", "d"]},
+        "answerKey": "3",
+    }
+    assert resolve_answer_index(sample) == 2
+
+
+def test_resolve_answer_index_five_choices():
+    sample = {
+        "question": "q",
+        "choices": {"label": ["A", "B", "C", "D", "E"],
+                    "text": ["a", "b", "c", "d", "e"]},
+        "answerKey": "E",
+    }
+    assert resolve_answer_index(sample) == 4
+
+
+def test_resolve_answer_index_three_choices():
+    sample = {
+        "question": "q",
+        "choices": {"label": ["A", "B", "C"], "text": ["a", "b", "c"]},
+        "answerKey": "A",
+    }
+    assert resolve_answer_index(sample) == 0
+
+
+def test_resolve_answer_index_marker_format_mismatch():
+    # Defensive fallback: answerKey format disagrees with the sample's labels.
+    # Numeric answerKey against lettered labels -> 1-based -> index.
+    lettered = {
+        "question": "q",
+        "choices": {"label": ["A", "B", "C", "D"], "text": ["a", "b", "c", "d"]},
+        "answerKey": "2",
+    }
+    assert resolve_answer_index(lettered) == 1
+    # Lettered answerKey against numeric labels -> A-based -> index.
+    numeric = {
+        "question": "q",
+        "choices": {"label": ["1", "2", "3", "4"], "text": ["a", "b", "c", "d"]},
+        "answerKey": "B",
+    }
+    assert resolve_answer_index(numeric) == 1
+
+
+def test_resolve_answer_index_lowercase_answer_key_normalizes_case():
+    # Defensive: a lowercase marker is upper-cased before mapping, so 'c' against
+    # A-D labels resolves to index 2 rather than raising.
+    sample = {
+        "question": "q",
+        "choices": {"label": ["A", "B", "C", "D"], "text": ["a", "b", "c", "d"]},
+        "answerKey": "c",
+    }
+    assert resolve_answer_index(sample) == 2
+
+
+def test_resolve_answer_index_out_of_range_raises():
+    # 'E' would be index 4, but the item only offers three choices.
+    sample = {
+        "question": "q",
+        "choices": {"label": ["A", "B", "C"], "text": ["a", "b", "c"]},
+        "answerKey": "E",
+    }
+    with pytest.raises(KeyError):
+        resolve_answer_index(sample)
 
 
 # --------------------------------------------------------------------------- #

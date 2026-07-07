@@ -238,14 +238,126 @@ def test_resolve_answer_token_ids():
     assert ids == [ord("A"), ord("B")]
 
 
-def test_prepare_builds_expected_structure(patch_dataset):
+def test_prepare_builds_per_sample_structure(patch_dataset):
     cache = qa_eval._prepare(
         {"path": "p", "split": "test"}, n=4, tokenizer=FakeTokenizer(), seed=42
     )
     assert len(cache["prompts"]) == 4
-    assert len(cache["ground_truths"]) == 4
-    assert cache["answer_letters"] == ["A", "B", "C", "D"]
-    assert cache["letter_to_idx"]["A"] == 0
+    assert len(cache["answer_indices"]) == 4
+    assert len(cache["answer_token_ids"]) == 4
+    # answerKey is A/B across the fixture, so every ground-truth index is 0 or 1.
+    assert all(idx in (0, 1) for idx in cache["answer_indices"])
+    # Candidate-token ids are stored per sample, not shared: each sample carries
+    # its own A-D alphabet here.
+    expected_ids = [ord(c) for c in "ABCD"]
+    assert all(ids == expected_ids for ids in cache["answer_token_ids"])
+
+
+def _make_arc_samples():
+    """Heterogeneous ARC-Challenge-shaped samples.
+
+    Mixes label alphabets (A-D vs 1-4) and choice counts (3/4/5) -- exactly the
+    shape that made the old ``subset[0]``-derived single answer set KeyError."""
+    return [
+        {"question": "q0",
+         "choices": {"label": ["A", "B", "C", "D"], "text": ["a", "b", "c", "d"]},
+         "answerKey": "C"},
+        {"question": "q1",
+         "choices": {"label": ["1", "2", "3", "4"], "text": ["a", "b", "c", "d"]},
+         "answerKey": "3"},
+        {"question": "q2",
+         "choices": {"label": ["A", "B", "C", "D", "E"],
+                     "text": ["a", "b", "c", "d", "e"]},
+         "answerKey": "E"},
+        {"question": "q3",
+         "choices": {"label": ["A", "B", "C"], "text": ["a", "b", "c"]},
+         "answerKey": "A"},
+    ]
+
+
+@pytest.fixture
+def patch_arc_dataset(monkeypatch):
+    samples = _make_arc_samples()
+
+    def fake_load_dataset(**kwargs):
+        return FakeDataset(samples)
+
+    monkeypatch.setattr(qa_eval, "load_dataset", fake_load_dataset)
+    return samples
+
+
+def test_prepare_resolves_heterogeneous_arc_per_sample(patch_arc_dataset):
+    # n == len(dataset), so the whole heterogeneous set is selected in order.
+    cache = qa_eval._prepare(
+        {"path": "p", "split": "test"}, n=4, tokenizer=FakeTokenizer(), seed=0
+    )
+    # Ground-truth index is found within EACH sample's own labels:
+    # C in A-D -> 2, "3" in 1-4 -> 2, E in A-E -> 4, A in A-C -> 0.
+    assert cache["answer_indices"] == [2, 2, 4, 0]
+    # Candidate-token ids follow each sample's own alphabet and length.
+    assert [len(ids) for ids in cache["answer_token_ids"]] == [4, 4, 5, 3]
+    assert cache["answer_token_ids"][1] == [ord(c) for c in "1234"]
+    assert cache["answer_token_ids"][2] == [ord(c) for c in "ABCDE"]
+
+
+def test_evaluate_qa_survives_heterogeneous_arc_batch(patch_arc_dataset):
+    # The old single-answer-set path raised KeyError on the 5-choice / numeric
+    # rows; per-sample resolution must run end to end and score each row by its
+    # own answer set. FakeModel always predicts letter 'A'.
+    model = FakeModel()
+    acc = qa_eval.evaluate_qa(
+        model, FakeTokenizer(), {"path": "p", "split": "test"},
+        n=4, seed=0, batch_size=4,
+    )
+    # Only the 3-choice row has answerKey 'A', so exactly one of four is correct.
+    assert acc == pytest.approx(0.25)
+
+
+def test_evaluate_qa_heterogeneous_arc_is_batch_boundary_invariant(patch_arc_dataset):
+    # Same heterogeneous set, split across two batches ([4,4] | [5,3]): the first
+    # batch needs no padding (width 4), the second does (width 5, the 3-choice row
+    # padded). Per-batch width/gather/mask must give the same score as one batch.
+    model = FakeModel()
+    acc = qa_eval.evaluate_qa(
+        model, FakeTokenizer(), {"path": "p", "split": "test"},
+        n=4, seed=0, batch_size=2,
+    )
+    assert acc == pytest.approx(0.25)
+
+
+def _make_batch_boundary_samples():
+    """Four samples whose ground-truth indices are ``[0, 0, 1, 1]``.
+
+    That pattern is NOT periodic with a batch size of 2, so a ``truth`` tensor
+    sliced from the subset start for every batch (instead of the current batch
+    window) changes the score -- unlike an alternating A/B fixture, which hides
+    such a mis-slice because its period equals the batch size."""
+    keys = ["A", "A", "B", "B"]
+    return [
+        {"question": f"q{i}",
+         "choices": {"label": ["A", "B", "C", "D"], "text": ["a", "b", "c", "d"]},
+         "answerKey": keys[i]}
+        for i in range(4)
+    ]
+
+
+@pytest.fixture
+def patch_batch_boundary_dataset(monkeypatch):
+    samples = _make_batch_boundary_samples()
+    monkeypatch.setattr(qa_eval, "load_dataset", lambda **k: FakeDataset(samples))
+    return samples
+
+
+def test_evaluate_qa_aligns_truth_per_batch(patch_batch_boundary_dataset):
+    # FakeModel always predicts index 0 ('A'); ground truth is [0, 0, 1, 1] over
+    # two batches of two. Correct per-batch alignment scores 2/4; a truth tensor
+    # taken from the subset start for every batch would wrongly score 4/4.
+    model = FakeModel()
+    acc = qa_eval.evaluate_qa(
+        model, FakeTokenizer(), {"path": "p", "split": "test"},
+        n=4, seed=0, batch_size=2,
+    )
+    assert acc == pytest.approx(0.5)
 
 
 def test_evaluate_qa_returns_fraction_and_caches(patch_dataset):
