@@ -84,7 +84,12 @@ best_names = [f"{BEST_PREFIX}{metric}" for metric in selected_best_metrics]
 experiment_results = []
 resumed_any = False
 
-for layer in LAYERS:
+# Iterate the MoE layers stage 1 produced (run manifest), not the raw config
+# LAYERS: dense layers skipped by stage 1 have no grouping/fusion inputs (CR#4).
+# Falls back to LAYERS when no manifest is present (e.g. isolated stage runs).
+produced_layers = provenance.resolve_produced_layers(DATA_DIR, LAYERS)
+
+for layer in produced_layers:
     partition = Partition.load(layout.group_path(DATA_DIR, layer))
     partition_fingerprint = provenance.header_hash(layout.group_path(DATA_DIR, layer))
     train_index = GroupActivationIndex.load(

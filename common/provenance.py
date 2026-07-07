@@ -191,6 +191,10 @@ class RunManifest:
     dataset: Optional[str] = None
     dataset_fingerprint: Optional[str] = None
     config_hash: Optional[str] = None
+    # MoE layers stage 1 actually captured (discover_moe_layers filters dense
+    # layers out of the raw config LAYERS). Stages 2/3 read this instead of
+    # LAYERS so they don't look for artifacts a skipped dense layer never wrote.
+    produced_layers: Optional[list] = None
 
     def to_dict(self) -> dict:
         return {key: value for key, value in asdict(self).items() if value is not None}
@@ -209,6 +213,25 @@ class RunManifest:
             return None
         with open(path, "r", encoding="utf-8") as handle:
             return cls(**json.load(handle))
+
+
+def resolve_produced_layers(data_dir: str, fallback) -> list:
+    """Return the MoE layers stage 1 produced (from the manifest), or ``fallback``.
+
+    Stage 1 records the layers it actually captured -- ``discover_moe_layers``
+    drops dense layers from the raw config ``LAYERS`` on mixed dense/sparse models
+    -- into ``RunManifest.produced_layers``. Stages 2 and 3 iterate that recorded
+    list rather than ``LAYERS`` so a dense layer in ``LAYERS`` does not send them
+    looking for grouping/fusion inputs that were never written (CR#4).
+
+    Falls back to ``fallback`` (the raw ``LAYERS``) when no manifest, or no
+    recorded list, is present -- e.g. a stage run in isolation against
+    builder-seeded inputs, or artifacts from before this field existed.
+    """
+    manifest = RunManifest.load(data_dir)
+    if manifest is not None and manifest.produced_layers is not None:
+        return list(manifest.produced_layers)
+    return list(fallback)
 
 
 # --------------------------------------------------------------------------- #

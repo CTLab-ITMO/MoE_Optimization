@@ -61,7 +61,12 @@ def join_group_activations(partition, topk_list) -> list[list[int]]:
 
 os.makedirs(layout.groups_dir(DATA_DIR), exist_ok=True)
 
-for layer in LAYERS:
+# Iterate the MoE layers stage 1 actually produced (from the run manifest), not
+# the raw config LAYERS: a dense layer in LAYERS is skipped by stage 1 and has no
+# artifacts here (CR#4). Falls back to LAYERS when no manifest is present.
+produced_layers = provenance.resolve_produced_layers(DATA_DIR, LAYERS)
+
+for layer in produced_layers:
     partition = grouping.partition(layer, base_ctx.for_layer(layer))
     partition.save(layout.group_path(DATA_DIR, layer))
     for split in (layout.TRAIN_SPLIT, layout.VALIDATION_SPLIT):

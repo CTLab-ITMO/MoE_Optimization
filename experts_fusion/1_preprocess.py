@@ -94,7 +94,9 @@ def _capture_split(model, tokenizer, data, moe_layers, n_experts):
             block_rows = args[0].detach()[0, :, :]
             for row in block_rows.cpu():
                 mlp_inputs[layer].append(row)
-            decision = ROUTER_ADAPTER.route(module.gate(block_rows), top_k=TOP_K)
+            # route_module owns the gate call, so this hook stays agnostic to how
+            # a family's router is invoked (default: module.gate(x) -> decode).
+            decision = ROUTER_ADAPTER.route_module(module, block_rows, top_k=TOP_K)
             for token_experts in decision.selected_experts:
                 row_experts = token_experts.flatten()
                 topk[layer].append(row_experts.detach().cpu())
@@ -120,8 +122,7 @@ def _capture_split(model, tokenizer, data, moe_layers, n_experts):
     return coactivation, mlp_inputs, topk
 
 
-def capture(model, tokenizer, n_experts):
-    moe_layers = discover_moe_layers(model, selected=LAYERS)
+def capture(model, tokenizer, n_experts, moe_layers):
     os.makedirs(layout.activations_dir(DATA_DIR), exist_ok=True)
     os.makedirs(layout.mlp_inputs_dir(DATA_DIR), exist_ok=True)
 
@@ -153,7 +154,11 @@ def main() -> None:
     )
     tokenizer = transformers.AutoTokenizer.from_pretrained(MODEL_NAME)
     model = model.to(device)
-    validation_data = capture(model, tokenizer, EXPERTS)
+    # Discover the real MoE layers once (dense layers are dropped from LAYERS on
+    # mixed models); capture uses them and the manifest records them so stages 2/3
+    # iterate exactly what stage 1 produced (CR#4).
+    moe_layers = discover_moe_layers(model, selected=LAYERS)
+    validation_data = capture(model, tokenizer, EXPERTS, moe_layers)
 
     provenance.RunManifest(
         seed=SEED,
@@ -164,6 +169,7 @@ def main() -> None:
             validation_data, n=VALIDATION_SIZE, seed=SEED
         ),
         config_hash=provenance.config_hash(config_snapshot_dict()),
+        produced_layers=moe_layers,
     ).save(DATA_DIR)
 
 

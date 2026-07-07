@@ -170,6 +170,36 @@ def test_run_manifest_roundtrip(tmp_path):
     manifest.save(data_dir)
     loaded = provenance.RunManifest.load(data_dir)
     assert loaded.seed == 42 and loaded.model_id == "q" and loaded.config_hash == "abc"
+    # produced_layers defaults to None and is dropped from the serialized dict.
+    assert loaded.produced_layers is None
+    assert "produced_layers" not in manifest.to_dict()
+
+
+def test_run_manifest_roundtrips_produced_layers(tmp_path):
+    data_dir = str(tmp_path)
+    provenance.RunManifest(seed=1, produced_layers=[0, 2, 5]).save(data_dir)
+    loaded = provenance.RunManifest.load(data_dir)
+    assert loaded.produced_layers == [0, 2, 5]
+
+
+def test_resolve_produced_layers_reads_manifest(tmp_path):
+    """Stage 2/3 helper prefers the manifest's produced_layers over the fallback."""
+    data_dir = str(tmp_path)
+    provenance.RunManifest(seed=1, produced_layers=[0, 2]).save(data_dir)
+    assert provenance.resolve_produced_layers(data_dir, [0, 1, 2, 3]) == [0, 2]
+
+
+def test_resolve_produced_layers_falls_back_without_manifest(tmp_path):
+    """No manifest (e.g. an isolated stage run) -> the raw LAYERS fallback."""
+    got = provenance.resolve_produced_layers(str(tmp_path), [0, 1, 2])
+    assert got == [0, 1, 2]
+
+
+def test_resolve_produced_layers_falls_back_when_field_absent(tmp_path):
+    """A manifest without produced_layers (older artifacts) -> the fallback."""
+    data_dir = str(tmp_path)
+    provenance.RunManifest(seed=1, model_id="q").save(data_dir)
+    assert provenance.resolve_produced_layers(data_dir, [3, 4]) == [3, 4]
 
 
 def test_dataset_fingerprint_varies_with_n_and_seed():

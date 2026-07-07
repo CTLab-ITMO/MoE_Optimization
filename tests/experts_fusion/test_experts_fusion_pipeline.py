@@ -49,6 +49,58 @@ def test_stage1_no_shared_expert_family_writes_no_shared_files(run_script, data_
         assert not os.path.exists(layout.shared_expert_gate_path(data_dir, layer))
 
 
+def test_stage1_records_produced_layers(run_script, data_dir, layers):
+    """Stage 1 records the MoE layers it captured into the run manifest (CR#4)."""
+    run_script("1_preprocess.py", with_model=True)
+    from common import provenance
+
+    manifest = provenance.RunManifest.load(data_dir)
+    assert manifest is not None
+    # On the fake zoo every configured layer is MoE, so produced == LAYERS.
+    assert manifest.produced_layers == list(layers)
+
+
+def test_stage2_iterates_manifest_produced_layers(run_script, builders, data_dir, layers):
+    """CR#4: stage 2 groups only the layers stage 1 recorded, not the raw LAYERS.
+
+    The manifest claims only the first layer was produced (as if the rest were
+    dense and skipped by discover_moe_layers); the config LAYERS still lists all.
+    Stage 2 must group the recorded layer and leave the others untouched.
+    """
+    from common import provenance
+
+    builders.coactivation_matrices()
+    builders.topk_all()
+    provenance.RunManifest(seed=1, produced_layers=[layers[0]]).save(data_dir)
+
+    run_script("2_grouping.py")
+
+    assert os.path.exists(layout.group_path(data_dir, layers[0]))
+    for skipped in layers[1:]:
+        assert not os.path.exists(layout.group_path(data_dir, skipped)), (
+            "stage 2 grouped a layer absent from the manifest's produced_layers"
+        )
+
+
+def test_stage3_iterates_manifest_produced_layers(run_script, builders, data_dir, layers):
+    """CR#4: stage 3 fuses only the layers stage 1 recorded, not the raw LAYERS."""
+    from common import provenance
+
+    builders.experts(saved=True)
+    builders.mlp_inputs()
+    pairs = builders.partition()
+    builders.group_activations(n_groups=len(pairs))
+    provenance.RunManifest(seed=1, produced_layers=[layers[0]]).save(data_dir)
+
+    run_script("3_fusion.py")
+
+    assert os.path.exists(layout.fusion_expert_path(data_dir, "Average", layers[0], 0))
+    for skipped in layers[1:]:
+        assert not os.path.exists(
+            layout.fusion_expert_path(data_dir, "Average", skipped, 0)
+        ), "stage 3 fused a layer absent from the manifest's produced_layers"
+
+
 def test_stage1_coactivation_is_versioned(run_script, data_dir, layers):
     run_script("1_preprocess.py", with_model=True)
     from common.artifacts import CoActivationMatrix
