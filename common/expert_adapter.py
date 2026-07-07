@@ -8,16 +8,20 @@ new model family only requires a new subclass.
   via ``turn_in_mlp``) and a combined container with stacked weight tensors
   (clones per-expert slices). No dtype cast -- the caller casts.
 
-* ``SharedExpertAdapter`` -- computes the shared/residual expert contribution.
-  ``Qwen15SharedExpert`` applies ``sigmoid(gate(x)) * shared(x)``; passing
-  ``None`` for both submodules returns zeros (for families without a shared
-  expert, e.g. Mixtral / Qwen3).
+* ``SharedExpertAdapter`` -- DI adapter for the shared/residual-expert pathway.
+  ``extract(mlp)`` pulls the shared-expert submodules from a live MoE ``mlp`` for
+  stage 1 to persist (or ``None`` for families without one, e.g. Mixtral);
+  ``build(extracted)`` assembles the runtime contribution module for the fusion
+  layer. ``Qwen15SharedExpertAdapter`` builds a ``Qwen15SharedExpert`` (applies
+  ``sigmoid(gate(x)) * shared(x)``); ``NoSharedExpertAdapter`` is the fallback for
+  families with no shared expert -- ``extract`` returns ``None`` and ``build``
+  yields a zeros-contributing module, so the layer's ``+ shared`` term vanishes.
 
 Library code only -- never imports an experiment ``config``.
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Optional, Tuple
 
 import torch
 from torch import nn
@@ -136,27 +140,15 @@ class Qwen15ExpertAdapter(ExpertAdapter):
 
 
 # --------------------------------------------------------------------------- #
-# Shared-expert pathway adapter.
+# Shared-expert runtime module (built by SharedExpertAdapter.build).
 # --------------------------------------------------------------------------- #
-class SharedExpertAdapter(ABC):
-    """Abstract base: computes the shared/residual expert contribution.
-
-    Subclasses implement ``forward(x)`` for a hidden-state batch. Concrete
-    adapters are ``nn.Module`` subclasses so they support ``.to(...)`` etc.
-    """
-
-    @abstractmethod
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Return the shared-expert contribution for ``x``."""
-        raise NotImplementedError()
-
-
-class Qwen15SharedExpert(torch.nn.Module, SharedExpertAdapter):
-    """Sigmoid-gated shared expert for Qwen1.5-MoE.
+class Qwen15SharedExpert(torch.nn.Module):
+    """Sigmoid-gated shared-expert runtime for Qwen1.5-MoE.
 
     Computes ``sigmoid(gate(x)) * shared(x)``. When both submodules are
     ``None`` (no shared expert, e.g. Mixtral / Qwen3), returns zeros instead.
-    Check ``has_shared`` to test which mode is active.
+    Check ``has_shared`` to test which mode is active. This is an ``nn.Module``
+    so ``.to(...)`` moves the registered submodules with the fusion layer.
     """
 
     def __init__(
@@ -177,3 +169,66 @@ class Qwen15SharedExpert(torch.nn.Module, SharedExpertAdapter):
     def has_shared(self) -> bool:
         """Whether this layer has a real shared expert (vs the zeros fallback)."""
         return self.shared_expert is not None
+
+
+# --------------------------------------------------------------------------- #
+# Shared-expert DI adapter: extraction (stage 1) + runtime build (fusion layer).
+# --------------------------------------------------------------------------- #
+class SharedExpertAdapter(ABC):
+    """Abstract base: the shared/residual-expert pathway of a model family.
+
+    Two family-specific responsibilities decouple the stages from the concrete
+    MoE layout:
+
+    * ``extract(mlp)`` -- pull ``(shared_expert, shared_expert_gate)`` from a live
+      MoE ``mlp`` module for stage 1 to persist, or ``None`` for families without
+      a shared expert (e.g. Mixtral).
+    * ``build(extracted)`` -- assemble the runtime contribution ``nn.Module`` from
+      the (loaded) submodules for the fusion layer; given ``None`` it returns a
+      zeros-contributing module so the layer's ``+ shared`` term is a no-op.
+    """
+
+    @abstractmethod
+    def extract(self, mlp) -> Optional[Tuple[nn.Module, nn.Module]]:
+        """Return ``(shared_expert, shared_expert_gate)`` from ``mlp``, or ``None``."""
+        raise NotImplementedError()
+
+    @abstractmethod
+    def build(self, extracted: Optional[Tuple[nn.Module, nn.Module]]) -> nn.Module:
+        """Build the runtime shared-expert module from ``extracted`` (or a zeros module)."""
+        raise NotImplementedError()
+
+
+class Qwen15SharedExpertAdapter(SharedExpertAdapter):
+    """Shared-expert adapter for Qwen1.5-MoE (sigmoid-gated shared expert).
+
+    Extracts the ``shared_expert`` / ``shared_expert_gate`` submodules the Qwen1.5
+    MoE block exposes and builds a :class:`Qwen15SharedExpert`. ``extract`` returns
+    ``None`` if the module has no ``shared_expert`` attribute, degrading to the
+    zeros fallback rather than raising.
+    """
+
+    def extract(self, mlp) -> Optional[Tuple[nn.Module, nn.Module]]:
+        shared_expert = getattr(mlp, "shared_expert", None)
+        if shared_expert is None:
+            return None
+        return shared_expert, getattr(mlp, "shared_expert_gate", None)
+
+    def build(self, extracted: Optional[Tuple[nn.Module, nn.Module]]) -> nn.Module:
+        if extracted is None:
+            return Qwen15SharedExpert(None, None)
+        return Qwen15SharedExpert(*extracted)
+
+
+class NoSharedExpertAdapter(SharedExpertAdapter):
+    """Shared-expert adapter for families without one (e.g. Mixtral / Qwen3-MoE).
+
+    ``extract`` always returns ``None`` (nothing to persist) and ``build`` always
+    yields a zeros-contributing module, so the fusion layer's shared term vanishes.
+    """
+
+    def extract(self, mlp) -> Optional[Tuple[nn.Module, nn.Module]]:
+        return None
+
+    def build(self, extracted: Optional[Tuple[nn.Module, nn.Module]]) -> nn.Module:
+        return Qwen15SharedExpert(None, None)

@@ -12,6 +12,7 @@ import pytest
 import torch
 
 from common import layout
+from common.expert_adapter import NoSharedExpertAdapter
 from common.names import ReplaceMode, TEST_RESULT_PREFIX, ZERO_FUSION
 
 
@@ -30,6 +31,22 @@ def test_stage1_preprocess(run_script, data_dir, layers):
     assert os.path.exists(os.path.join(data_dir, "config_snapshot.json"))
     assert os.path.exists(os.path.join(data_dir, "run_manifest.json"))
     assert layout.read_layout_version(data_dir) == layout.LAYOUT_VERSION
+
+
+def test_stage1_no_shared_expert_family_writes_no_shared_files(run_script, data_dir, layers):
+    """A family without a shared expert (NoSharedExpertAdapter) writes gate + experts
+    but no shared_expert files; stage 4's loader later falls back to a zeros term."""
+    run_script(
+        "1_preprocess.py",
+        with_model=True,
+        config_overrides={"SHARED_EXPERT_ADAPTER": NoSharedExpertAdapter()},
+    )
+    for layer in layers:
+        experts_dir = layout.experts_dir(data_dir, layer)
+        assert os.path.exists(os.path.join(experts_dir, "expert_0.pt"))
+        assert os.path.exists(os.path.join(experts_dir, "gate.pt"))
+        assert not os.path.exists(layout.shared_expert_path(data_dir, layer))
+        assert not os.path.exists(layout.shared_expert_gate_path(data_dir, layer))
 
 
 def test_stage1_coactivation_is_versioned(run_script, data_dir, layers):
@@ -92,6 +109,29 @@ def test_stage4_evaluate_accuracy(run_script, builders, data_dir):
         os.path.join(data_dir, "test_result_*", "accuracy", "accuracy_list_single_Average.pt")
     )
     assert matches, "stage 4 did not write accuracy_list_single_Average under DATA_DIR"
+
+
+def test_stage4_evaluate_without_shared_expert(run_script, builders, data_dir, layers):
+    """Stage 4 evaluates a family without a shared expert: with the shared files
+    removed the loader falls back to a zeros shared term instead of raising."""
+    builders.experts(saved=True)
+    pairs = builders.partition()
+    builders.fused_experts_v1("Average", pairs)
+    for layer in layers:
+        os.remove(layout.shared_expert_path(data_dir, layer))
+        os.remove(layout.shared_expert_gate_path(data_dir, layer))
+
+    run_script(
+        "4_evaluate.py",
+        with_model=True,
+        patch_qa_eval=True,
+        config_overrides={"SHARED_EXPERT_ADAPTER": NoSharedExpertAdapter()},
+    )
+
+    matches = glob.glob(
+        os.path.join(data_dir, "test_result_*", "accuracy", "accuracy_list_single_Average.pt")
+    )
+    assert matches, "stage 4 did not evaluate a model without a shared expert"
 
 
 def test_run_stage_files_orders_and_filters():

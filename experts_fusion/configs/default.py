@@ -8,7 +8,7 @@ on one disk without collision. The active config is selected by the
 """
 import torch
 
-from common.expert_adapter import Qwen15ExpertAdapter
+from common.expert_adapter import Qwen15ExpertAdapter, Qwen15SharedExpertAdapter
 from common.fusion import ZipItFusion
 from common.names import PairingMethod
 from common.qa_parser import Qwen15QAParser
@@ -54,9 +54,12 @@ SEED = 42
 # instances to retarget the pipeline at another model family without touching the stages.
 #   - ROUTER_ADAPTER: gate output → (selected_experts, routing_weights).
 #   - EXPERT_ADAPTER: extracts each expert as an AdvancedMLP (stage 1).
+#   - SHARED_EXPERT_ADAPTER: extracts (stage 1) and rebuilds (stage 4) the shared
+#     expert; NoSharedExpertAdapter is the fallback for families without one.
 #   - QA_PARSER: builds eval prompts and resolves answer token ids (stage 4).
 ROUTER_ADAPTER = Qwen15RouterAdapter()
 EXPERT_ADAPTER = Qwen15ExpertAdapter()
+SHARED_EXPERT_ADAPTER = Qwen15SharedExpertAdapter()
 QA_PARSER = Qwen15QAParser()
 
 # Expert-pairing strategy; one of: activation_correlation, random, output_similarity.
@@ -89,6 +92,7 @@ __all__ = [
     "SEED",
     "ROUTER_ADAPTER",
     "EXPERT_ADAPTER",
+    "SHARED_EXPERT_ADAPTER",
     "QA_PARSER",
     "PAIRING_METHOD",
     "FILTER_FUSIONS",

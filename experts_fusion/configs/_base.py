@@ -20,7 +20,7 @@ expensive ``Distillation`` method -- to keep every cell identical and save GPU h
 """
 import torch
 
-from common.expert_adapter import Qwen15ExpertAdapter
+from common.expert_adapter import Qwen15ExpertAdapter, Qwen15SharedExpertAdapter
 from common.fusion import FUSION_REGISTRY, ZipItFusion
 from common.names import PairingMethod
 from common.qa_parser import Qwen15QAParser
@@ -97,6 +97,7 @@ SEED = 42
 # parser auto-detects the sample schema), so both task axes share them.
 ROUTER_ADAPTER = Qwen15RouterAdapter()
 EXPERT_ADAPTER = Qwen15ExpertAdapter()
+SHARED_EXPERT_ADAPTER = Qwen15SharedExpertAdapter()
 QA_PARSER = Qwen15QAParser()
 
 # E1 decision #2: compare grouping strategies on the real stage-3 methods only.
@@ -130,6 +131,7 @@ __all__ = [
     "SEED",
     "ROUTER_ADAPTER",
     "EXPERT_ADAPTER",
+    "SHARED_EXPERT_ADAPTER",
     "QA_PARSER",
     "PAIRING_METHOD",
     "FILTER_FUSIONS",

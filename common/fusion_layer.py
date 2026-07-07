@@ -1,17 +1,18 @@
 import glob
+import os
 
 from torch import nn
 import torch
 
 from common import layout
-from common.expert_adapter import Qwen15SharedExpert
+from common.expert_adapter import Qwen15SharedExpertAdapter
 from common.fused_group import MLPFusedGroup
 from common.router import Qwen15RouterAdapter
 
 
 class FusionLayer(nn.Module):
     """New version of MLP layer after fusion of experts"""
-    def __init__(self, *, experts, expert_pairs, fusion_experts, gate, shared_expert, shared_expert_gate, use_default_experts, router=None, top_k=None):
+    def __init__(self, *, experts, expert_pairs, fusion_experts, gate, shared, use_default_experts, router=None, top_k=None):
         super().__init__()
         self.gate = gate
         # RouterAdapter decodes gate output the same way it was decoded during
@@ -27,9 +28,11 @@ class FusionLayer(nn.Module):
         # group.reconstruct(x, member) to recover one expert's output.
         # Groups share modules with fusion_experts, so .to() moves both.
         self.fusion_groups = [MLPFusedGroup(expert) for expert in self.fusion_experts]
-        # Qwen15SharedExpert applies sigmoid(gate(x)) * expert(x). If no shared
-        # expert exists it contributes zeros; check self.shared.has_shared.
-        self.shared = Qwen15SharedExpert(shared_expert, shared_expert_gate)
+        # ``shared`` is the runtime shared-expert module built by the family's
+        # SharedExpertAdapter: it adds the sigmoid-gated shared output, or
+        # contributes zeros for families without a shared expert (check
+        # self.shared.has_shared). Registered as a submodule so .to() moves it.
+        self.shared = shared
         self.use_default_experts = use_default_experts
 
         self.num_experts = len(experts)
@@ -128,11 +131,38 @@ def _load_expert_saved(data_dir, layer_index, i, device):
     return SavedExpert.load(layout.expert_path(data_dir, layer_index, i), device=device).mlp
 
 
+def _load_shared_module(data_dir, layer_index, device, shared_expert_adapter):
+    """Build the runtime shared-expert module for a layer via the DI adapter.
+
+    Presence of the two shared files is the per-layer signal: both present ->
+    load and ``build`` them; both absent -> ``build(None)`` (a family without a
+    shared expert, e.g. Mixtral, whose stage 1 wrote no shared files); exactly one
+    present is a corrupt artifact tree and raises rather than silently zeroing.
+    """
+    sp_path = layout.shared_expert_path(data_dir, layer_index)
+    spg_path = layout.shared_expert_gate_path(data_dir, layer_index)
+    sp_exists = os.path.isfile(sp_path)
+    spg_exists = os.path.isfile(spg_path)
+    if not sp_exists and not spg_exists:
+        return shared_expert_adapter.build(None)
+    if sp_exists != spg_exists:
+        raise FileNotFoundError(
+            f"corrupt shared-expert artifacts for layer {layer_index}: "
+            f"{layout.SHARED_EXPERT_FILENAME} present={sp_exists}, "
+            f"{layout.SHARED_EXPERT_GATE_FILENAME} present={spg_exists}"
+        )
+    shared_expert = torch.load(sp_path, weights_only=False).to(device)
+    shared_expert_gate = torch.load(spg_path, weights_only=False).to(device)
+    return shared_expert_adapter.build((shared_expert, shared_expert_gate))
+
+
 def _build_fusion_layer(layer_index, data_dir, *, expert_pairs, fusion_experts, device,
-                        use_default_experts, num_experts, router_adapter, top_k, load_expert):
+                        use_default_experts, num_experts, router_adapter, top_k, load_expert,
+                        shared_expert_adapter=None):
     """Shared loader core: reads gate, shared expert, and raw experts, then builds a FusionLayer.
     Both public loaders call this; they differ only in how expert_pairs/fusion_experts are sourced.
-    num_experts defaults to the count of expert_*.pt files; router_adapter defaults to Qwen15RouterAdapter.
+    num_experts defaults to the count of expert_*.pt files; router_adapter defaults to Qwen15RouterAdapter;
+    shared_expert_adapter defaults to Qwen15SharedExpertAdapter (extracts/builds the shared pathway).
     """
     if num_experts is None:
         num_experts = len(glob.glob(layout.expert_glob(data_dir, layer_index)))
@@ -141,18 +171,16 @@ def _build_fusion_layer(layer_index, data_dir, *, expert_pairs, fusion_experts, 
     else:
         experts = [None] * num_experts
     gate = torch.load(layout.gate_path(data_dir, layer_index), weights_only=False).to(device)
-    shared_expert = torch.load(layout.shared_expert_path(data_dir, layer_index), weights_only=False).to(device)
-    shared_expert_gate = torch.load(
-        layout.shared_expert_gate_path(data_dir, layer_index), weights_only=False
-    ).to(device)
+    if shared_expert_adapter is None:
+        shared_expert_adapter = Qwen15SharedExpertAdapter()
+    shared = _load_shared_module(data_dir, layer_index, device, shared_expert_adapter)
 
     return FusionLayer(
         experts=experts,
         expert_pairs=expert_pairs,
         fusion_experts=fusion_experts,
         gate=gate,
-        shared_expert=shared_expert,
-        shared_expert_gate=shared_expert_gate,
+        shared=shared,
         use_default_experts=use_default_experts,
         router=router_adapter,
         top_k=top_k,
@@ -161,7 +189,7 @@ def _build_fusion_layer(layer_index, data_dir, *, expert_pairs, fusion_experts, 
 
 def get_fusion_layer_by_index(layer_index, experts_dir, data_dir, device=torch.device("cpu"),
                               use_default_experts=True, num_experts=None,
-                              router_adapter=None, top_k=None):
+                              router_adapter=None, top_k=None, shared_expert_adapter=None):
     """Load a fused layer from the legacy pickled ``pairs/`` + ``AdvancedMLP`` artifacts."""
     expert_pairs = torch.load(layout.pairs_path(data_dir, layer_index))
     fusion_experts = [
@@ -172,12 +200,13 @@ def get_fusion_layer_by_index(layer_index, experts_dir, data_dir, device=torch.d
         layer_index, data_dir, expert_pairs=expert_pairs, fusion_experts=fusion_experts,
         device=device, use_default_experts=use_default_experts, num_experts=num_experts,
         router_adapter=router_adapter, top_k=top_k, load_expert=_load_expert_legacy,
+        shared_expert_adapter=shared_expert_adapter,
     )
 
 
 def get_fusion_layer_from_groups(layer_index, method, data_dir, device=torch.device("cpu"),
                                  use_default_experts=False, num_experts=None,
-                                 router_adapter=None, top_k=None):
+                                 router_adapter=None, top_k=None, shared_expert_adapter=None):
     """Build a FusionLayer from versioned artifacts (Partition grouping + FusedExpert safetensors).
     Use this for new pipelines; get_fusion_layer_by_index is the legacy pickled equivalent.
     """
@@ -196,4 +225,5 @@ def get_fusion_layer_from_groups(layer_index, method, data_dir, device=torch.dev
         layer_index, data_dir, expert_pairs=expert_pairs, fusion_experts=fusion_experts,
         device=device, use_default_experts=use_default_experts, num_experts=num_experts,
         router_adapter=router_adapter, top_k=top_k, load_expert=_load_expert_saved,
+        shared_expert_adapter=shared_expert_adapter,
     )

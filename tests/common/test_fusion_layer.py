@@ -4,6 +4,7 @@ import pytest
 import torch
 from torch import nn
 
+from common.expert_adapter import NoSharedExpertAdapter, Qwen15SharedExpert
 from common.fused_group import MLPFusedGroup
 from common.fusion_layer import FusionLayer, get_fusion_layer_by_index
 from common.mlp import AdvancedMLP
@@ -33,15 +34,15 @@ def _build_fusion_layer(use_default_experts):
     gate = FakeGate()
     experts = [nn.Linear(HIDDEN, HIDDEN, bias=False) for _ in range(NUM_EXPERTS)]
     fusion_experts = [AdvancedMLP(HIDDEN, 6, HIDDEN, device=CPU) for _ in PAIRS]
-    shared_expert = nn.Linear(HIDDEN, HIDDEN, bias=False)
-    shared_expert_gate = nn.Linear(HIDDEN, 1, bias=False)
+    shared = Qwen15SharedExpert(
+        nn.Linear(HIDDEN, HIDDEN, bias=False), nn.Linear(HIDDEN, 1, bias=False)
+    )
     return FusionLayer(
         experts=experts,
         expert_pairs=PAIRS,
         fusion_experts=fusion_experts,
         gate=gate,
-        shared_expert=shared_expert,
-        shared_expert_gate=shared_expert_gate,
+        shared=shared,
         use_default_experts=use_default_experts,
     )
 
@@ -124,3 +125,39 @@ def test_get_fusion_layer_by_index_production_mode(data_dir):
     assert not hasattr(layer, "experts")
     out = layer.forward(torch.randn(1, 2, HIDDEN))
     assert out.shape == (1, 2, HIDDEN)
+
+
+def _shared_paths(data_dir, index=0):
+    base = os.path.join(data_dir, "experts", str(index))
+    return os.path.join(base, "shared_expert.pt"), os.path.join(base, "shared_expert_gate.pt")
+
+
+def test_loader_shared_absent_falls_back_to_zeros(data_dir):
+    """No shared files (a Mixtral-like family) -> the layer's shared term is zeros."""
+    _populate_data_dir(data_dir, index=0)
+    for path in _shared_paths(data_dir):
+        os.remove(path)
+    layer = get_fusion_layer_by_index(0, "fusion_experts/ZipIt", data_dir, device=CPU,
+                                      use_default_experts=False, num_experts=NUM_EXPERTS)
+    assert layer.shared.has_shared is False
+    out = layer.forward(torch.randn(1, 2, HIDDEN))
+    assert out.shape == (1, 2, HIDDEN)
+
+
+def test_loader_shared_partial_is_corrupt(data_dir):
+    """Exactly one shared file present is a corrupt tree -> explicit error, not silent zeros."""
+    _populate_data_dir(data_dir, index=0)
+    _, gate_path = _shared_paths(data_dir)
+    os.remove(gate_path)
+    with pytest.raises(FileNotFoundError, match="corrupt shared-expert"):
+        get_fusion_layer_by_index(0, "fusion_experts/ZipIt", data_dir, device=CPU,
+                                  use_default_experts=False, num_experts=NUM_EXPERTS)
+
+
+def test_loader_threads_shared_adapter(data_dir):
+    """The shared_expert_adapter override is honored: NoShared yields zeros even with files present."""
+    _populate_data_dir(data_dir, index=0)
+    layer = get_fusion_layer_by_index(0, "fusion_experts/ZipIt", data_dir, device=CPU,
+                                      use_default_experts=False, num_experts=NUM_EXPERTS,
+                                      shared_expert_adapter=NoSharedExpertAdapter())
+    assert layer.shared.has_shared is False

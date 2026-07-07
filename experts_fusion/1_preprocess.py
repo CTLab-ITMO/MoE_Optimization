@@ -30,6 +30,7 @@ from experts_fusion.config import (
     MODEL_NAME,
     ROUTER_ADAPTER,
     SEED,
+    SHARED_EXPERT_ADAPTER,
     TOP_K,
     TRAIN_DATASET_NAME,
     TRAIN_SIZE,
@@ -63,14 +64,14 @@ def extract_weights() -> None:
             mlp = EXPERT_ADAPTER.extract(experts, i, device=cpu)
             SavedExpert(mlp.to(dtype=model.dtype)).save(layout.expert_path(DATA_DIR, n_layer, i))
         torch.save(model.model.layers[n_layer].mlp.gate.cpu(), layout.gate_path(DATA_DIR, n_layer))
-        torch.save(
-            model.model.layers[n_layer].mlp.shared_expert.cpu(),
-            layout.shared_expert_path(DATA_DIR, n_layer),
-        )
-        torch.save(
-            model.model.layers[n_layer].mlp.shared_expert_gate.cpu(),
-            layout.shared_expert_gate_path(DATA_DIR, n_layer),
-        )
+        # SharedExpertAdapter.extract returns the (shared_expert, shared_expert_gate)
+        # submodules, or None for families without a shared expert (e.g. Mixtral) --
+        # in which case nothing is written and stage 4's loader falls back to zeros.
+        extracted = SHARED_EXPERT_ADAPTER.extract(model.model.layers[n_layer].mlp)
+        if extracted is not None:
+            shared_expert, shared_expert_gate = extracted
+            torch.save(shared_expert.cpu(), layout.shared_expert_path(DATA_DIR, n_layer))
+            torch.save(shared_expert_gate.cpu(), layout.shared_expert_gate_path(DATA_DIR, n_layer))
 
 
 # --------------------------------------------------------------------------- #

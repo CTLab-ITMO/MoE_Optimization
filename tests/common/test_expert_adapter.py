@@ -20,8 +20,10 @@ from torch import nn
 
 from common.expert_adapter import (
     ExpertAdapter,
+    NoSharedExpertAdapter,
     Qwen15ExpertAdapter,
     Qwen15SharedExpert,
+    Qwen15SharedExpertAdapter,
     SharedExpertAdapter,
 )
 from common.mlp import AdvancedMLP
@@ -140,18 +142,17 @@ def test_quantized_combined_int_weight_raises():
 
 
 # --------------------------------------------------------------------------- #
-# Shared-expert pathway.
+# Shared-expert runtime module (Qwen15SharedExpert).
 # --------------------------------------------------------------------------- #
 def test_shared_expert_matches_inline_formula():
     torch.manual_seed(0)
     moe = FakeMoEMLP()
-    adapter = Qwen15SharedExpert(moe.shared_expert, moe.shared_expert_gate)
-    assert isinstance(adapter, SharedExpertAdapter)
-    assert isinstance(adapter, torch.nn.Module)
-    assert adapter.has_shared is True
+    runtime = Qwen15SharedExpert(moe.shared_expert, moe.shared_expert_gate)
+    assert isinstance(runtime, torch.nn.Module)
+    assert runtime.has_shared is True
 
     x = torch.randn(7, H)
-    got = adapter(x)  # exercise the nn.Module __call__ path
+    got = runtime(x)  # exercise the nn.Module __call__ path
     # Inline FusionLayer pathway: F.sigmoid(gate(x)) * shared(x).
     ref = F.sigmoid(moe.shared_expert_gate(x)) * moe.shared_expert(x)
     assert torch.equal(got, ref)
@@ -159,17 +160,73 @@ def test_shared_expert_matches_inline_formula():
 
 def test_shared_expert_submodules_registered():
     moe = FakeMoEMLP()
-    adapter = Qwen15SharedExpert(moe.shared_expert, moe.shared_expert_gate)
-    children = dict(adapter.named_children())
+    runtime = Qwen15SharedExpert(moe.shared_expert, moe.shared_expert_gate)
+    children = dict(runtime.named_children())
     assert children["shared_expert"] is moe.shared_expert
     assert children["shared_expert_gate"] is moe.shared_expert_gate
 
 
 def test_shared_expert_none_returns_zeros():
-    adapter = Qwen15SharedExpert(None, None)
-    assert adapter.has_shared is False
+    runtime = Qwen15SharedExpert(None, None)
+    assert runtime.has_shared is False
     x = torch.randn(7, H)
-    out = adapter(x)
+    out = runtime(x)
+    assert torch.equal(out, torch.zeros_like(x))
+    assert out.shape == x.shape
+
+
+# --------------------------------------------------------------------------- #
+# Shared-expert DI adapter (extract + build).
+# --------------------------------------------------------------------------- #
+def test_qwen15_shared_adapter_extract_returns_submodules():
+    moe = FakeMoEMLP()
+    adapter = Qwen15SharedExpertAdapter()
+    assert isinstance(adapter, SharedExpertAdapter)
+    extracted = adapter.extract(moe)
+    assert extracted == (moe.shared_expert, moe.shared_expert_gate)
+
+
+def test_qwen15_shared_adapter_extract_none_when_no_shared():
+    """A module without a ``shared_expert`` attribute degrades to None, not an error."""
+    bare = types.SimpleNamespace()  # no shared_expert / shared_expert_gate
+    assert Qwen15SharedExpertAdapter().extract(bare) is None
+
+
+def test_qwen15_shared_adapter_build_roundtrips_formula():
+    torch.manual_seed(0)
+    moe = FakeMoEMLP()
+    adapter = Qwen15SharedExpertAdapter()
+    runtime = adapter.build(adapter.extract(moe))
+    assert isinstance(runtime, Qwen15SharedExpert)
+    assert runtime.has_shared is True
+
+    x = torch.randn(5, H)
+    ref = F.sigmoid(moe.shared_expert_gate(x)) * moe.shared_expert(x)
+    assert torch.equal(runtime(x), ref)
+
+
+def test_qwen15_shared_adapter_build_none_is_zeros():
+    runtime = Qwen15SharedExpertAdapter().build(None)
+    assert runtime.has_shared is False
+    x = torch.randn(5, H)
+    assert torch.equal(runtime(x), torch.zeros_like(x))
+
+
+# --------------------------------------------------------------------------- #
+# No-shared-expert fallback adapter (families like Mixtral).
+# --------------------------------------------------------------------------- #
+def test_no_shared_adapter_extract_is_always_none():
+    """Even a module that HAS a shared expert yields None: the family declares none."""
+    adapter = NoSharedExpertAdapter()
+    assert isinstance(adapter, SharedExpertAdapter)
+    assert adapter.extract(FakeMoEMLP()) is None
+
+
+def test_no_shared_adapter_build_is_zeros():
+    runtime = NoSharedExpertAdapter().build(None)
+    assert runtime.has_shared is False
+    x = torch.randn(5, H)
+    out = runtime(x)
     assert torch.equal(out, torch.zeros_like(x))
     assert out.shape == x.shape
 

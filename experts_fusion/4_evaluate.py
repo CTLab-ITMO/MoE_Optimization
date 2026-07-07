@@ -41,6 +41,7 @@ from experts_fusion.config import (
     REPLACE_LAYERS_SMART_SEQUENTIAL,
     ROUTER_ADAPTER,
     SEED,
+    SHARED_EXPERT_ADAPTER,
     TEST_DATASET_NAME,
     TEST_SIZE,
     TOP_K,
@@ -115,6 +116,7 @@ def _build_layer(name, layer, model):
         num_experts=EXPERTS,
         router_adapter=ROUTER_ADAPTER,
         top_k=TOP_K,
+        shared_expert_adapter=SHARED_EXPERT_ADAPTER,
     ).to(model.device, dtype=model.dtype)
     for expert in new_layer.fusion_experts:
         if expert.U is not None:
@@ -280,6 +282,7 @@ def _reconstruction_benchmark(model, moe_layers):
         num_experts=EXPERTS,
         router_adapter=ROUTER_ADAPTER,
         top_k=TOP_K,
+        shared_expert_adapter=SHARED_EXPERT_ADAPTER,
     )
     total = min(BENCHMARK_NUM_BATCHES, len(train_data) // BENCHMARK_BATCH_SIZE)
     errors = []

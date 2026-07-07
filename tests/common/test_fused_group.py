@@ -17,6 +17,7 @@ import torch
 from torch import nn
 
 from common.artifacts import Partition
+from common.expert_adapter import Qwen15SharedExpert
 from common.fused_group import (
     FusedExpert,
     FusedGroup,
@@ -168,8 +169,7 @@ def _build_layer(expert_pairs, fusion_experts, gate, shared_expert, shared_exper
         expert_pairs=expert_pairs,
         fusion_experts=fusion_experts,
         gate=gate,
-        shared_expert=shared_expert,
-        shared_expert_gate=shared_expert_gate,
+        shared=Qwen15SharedExpert(shared_expert, shared_expert_gate),
         use_default_experts=False,
     )
 
