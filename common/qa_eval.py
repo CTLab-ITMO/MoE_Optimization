@@ -76,18 +76,23 @@ def _prepare(dataset_kwargs: dict, n: int, tokenizer, seed: int, parser=None) ->
     indices = sorted(random.Random(seed).sample(range(len(full)), n))
     subset = full.select(indices)
 
-    answer_letters, _ = dataset_schema.resolve_choices(subset[0])
-    letter_to_idx = {letter: i for i, letter in enumerate(answer_letters)}
-
-    prompts = [parser.format_prompt(s, tokenizer, answer_letters) for s in subset]
-    ground_truths = [dataset_schema.resolve_answer(s, answer_letters) for s in subset]
-    answer_token_ids = parser.resolve_answer_token_ids(tokenizer, answer_letters)
+    # Everything is resolved per sample: the answer set is NOT assumed uniform
+    # across the subset. Homogeneous datasets (MMLU, CommonsenseQA) collapse to
+    # the previous behaviour, while ARC-Challenge -- which varies both the choice
+    # count (3/4/5) and the label alphabet (A-D vs 1-4) between samples -- no
+    # longer aliases every row onto ``subset[0]``'s letters.
+    prompts = []
+    answer_indices = []
+    answer_token_ids = []
+    for s in subset:
+        letters, _ = dataset_schema.resolve_choices(s)
+        prompts.append(parser.format_prompt(s, tokenizer, letters))
+        answer_indices.append(dataset_schema.resolve_answer_index(s))
+        answer_token_ids.append(parser.resolve_answer_token_ids(tokenizer, letters))
 
     return {
         "prompts": prompts,
-        "ground_truths": ground_truths,
-        "answer_letters": answer_letters,
-        "letter_to_idx": letter_to_idx,
+        "answer_indices": answer_indices,
         "answer_token_ids": answer_token_ids,
     }
 
@@ -124,17 +129,15 @@ def evaluate_qa(
             _DATA_CACHE[key] = cache
 
         prompts = cache["prompts"]
-        ground_truths = cache["ground_truths"]
-        letter_to_idx = cache["letter_to_idx"]
-        answer_token_tensor = torch.tensor(
-            cache["answer_token_ids"], device=model.device
-        )
+        answer_indices = cache["answer_indices"]
+        answer_token_ids = cache["answer_token_ids"]
 
         correct = 0
         total = 0
         for i in range(0, len(prompts), batch_size):
             batch_prompts = prompts[i : i + batch_size]
-            batch_truths = ground_truths[i : i + batch_size]
+            batch_choice_ids = answer_token_ids[i : i + batch_size]
+            batch_truth = answer_indices[i : i + batch_size]
 
             inputs = tokenizer(
                 batch_prompts,
@@ -153,17 +156,31 @@ def evaluate_qa(
             )
             last_logits = outputs.logits[:, -1, :]
 
-            idx = answer_token_tensor.unsqueeze(0).expand(last_logits.size(0), -1)
-            answer_logits = torch.gather(last_logits, 1, idx)
-            predicted = torch.argmax(answer_logits, dim=1)
-            truth = torch.tensor(
-                [letter_to_idx[t] for t in batch_truths], device=model.device
+            # Per-sample answer sets vary in length (ARC's 3/4/5 choices), so pad
+            # each row's candidate-token ids to the batch max and mask the padding
+            # to -inf before the argmax. A homogeneous batch has no padding, so the
+            # gather/argmax match the previous single-tensor path exactly.
+            width = max(len(ids) for ids in batch_choice_ids)
+            gather_idx = torch.zeros(
+                (len(batch_choice_ids), width), dtype=torch.long, device=model.device
             )
+            valid = torch.zeros(
+                (len(batch_choice_ids), width), dtype=torch.bool, device=model.device
+            )
+            for row, ids in enumerate(batch_choice_ids):
+                gather_idx[row, : len(ids)] = torch.tensor(ids, device=model.device)
+                valid[row, : len(ids)] = True
+
+            answer_logits = torch.gather(last_logits, 1, gather_idx)
+            answer_logits = answer_logits.masked_fill(~valid, float("-inf"))
+            predicted = torch.argmax(answer_logits, dim=1)
+            truth = torch.tensor(batch_truth, device=model.device)
 
             correct += (predicted == truth).sum().item()
             total += len(batch_prompts)
 
-            del inputs, outputs, last_logits, idx, answer_logits, predicted, truth
+            del inputs, outputs, last_logits, gather_idx, valid
+            del answer_logits, predicted, truth
             torch.cuda.empty_cache()
 
         return correct / total

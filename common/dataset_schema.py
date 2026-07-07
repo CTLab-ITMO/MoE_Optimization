@@ -5,8 +5,9 @@ via ordered, presence-keyed rule tables instead of if/elif chains.
 Each field (question, choices, answer) has its own rules; the first matching
 rule wins, so hybrids work without guessing the whole-sample schema.
 
-Public API: ``resolve_question``, ``resolve_choices``, ``resolve_answer``.
-Named per-family schemas live in ``SCHEMA_REGISTRY``; ``detect_schema`` picks one.
+Public API: ``resolve_question``, ``resolve_choices``, ``resolve_answer``,
+``resolve_answer_index``. Named per-family schemas live in ``SCHEMA_REGISTRY``;
+``detect_schema`` picks one.
 
 Library code only -- never imports an experiment config.
 """
@@ -108,6 +109,46 @@ def resolve_answer(sample: dict, labels: list) -> str:
             return rule.resolve(sample, labels)
     # Raise KeyError when neither "answerKey" nor "answer" is present.
     raise KeyError("answer")
+
+
+def _marker_to_index(marker, labels: list) -> int:
+    """Map a ground-truth answer ``marker`` to a 0-based index within ``labels``.
+
+    Robust to heterogeneous label sets -- ARC-Challenge mixes ``A``-``D`` letters
+    with ``1``-``4`` numbers and 3/4/5-choice items across samples:
+
+    * ``marker`` already in ``labels`` -> its position. This covers both letters
+      and numeric labels, since ARC keeps ``answerKey`` in each sample's own
+      label format;
+    * a bare digit -> 1-based index (``"1"`` -> 0), for the rare item whose
+      ``answerKey`` disagrees with its ``choices.label`` format;
+    * a single letter -> ``A``-based index (``"C"`` -> 2), likewise.
+    """
+    if marker in labels:
+        return labels.index(marker)
+    token = str(marker).strip()
+    if token.isdigit():
+        idx = int(token) - 1
+    elif len(token) == 1 and token.isalpha():
+        idx = ord(token.upper()) - ord("A")
+    else:
+        raise KeyError(f"answer {marker!r} not resolvable against labels {labels}")
+    if not 0 <= idx < len(labels):
+        raise KeyError(f"answer {marker!r} out of range for labels {labels}")
+    return idx
+
+
+def resolve_answer_index(sample: dict) -> int:
+    """Return the 0-based index of the correct choice within the sample's own labels.
+
+    Resolves the answer *per sample*: reads this sample's own labels and its
+    stored answer marker, then locates that marker among those labels. Nothing is
+    assumed from a global/first-sample label set, so heterogeneous datasets --
+    ARC-Challenge, whose items vary in choice count and label alphabet -- resolve
+    correctly. Prefer this over ``resolve_answer`` at eval time."""
+    labels, _ = resolve_choices(sample)
+    marker = resolve_answer(sample, labels)
+    return _marker_to_index(marker, labels)
 
 
 # --------------------------------------------------------------------------- #
