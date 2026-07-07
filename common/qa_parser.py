@@ -8,6 +8,8 @@ writing a subclass, not editing the eval loop:
 
 :class:`Qwen15QAParser` implements the Qwen1.5 chat format. The ``leading_space``
 flag controls whether a letter is encoded as ``"A"`` (default) or ``" A"``.
+:class:`MixtralQAParser` is the reference second family: a single ``user`` turn
+(no ``system`` role, which the Mistral template lacks) and ``leading_space=True``.
 
 Library only -- never imports an experiment ``config``.
 """
@@ -88,3 +90,43 @@ class Qwen15QAParser(QAParser):
             toks = tokenizer.encode(token, add_special_tokens=False)
             ids.append(toks[0])
         return ids
+
+
+class MixtralQAParser(Qwen15QAParser):
+    """QA parser for Mixtral / Mistral-family chat models.
+
+    Two differences from :class:`Qwen15QAParser`:
+
+    * the Mistral ``[INST] ... [/INST]`` template historically carries no
+      ``system`` role, so the answer-format instruction is folded into a single
+      ``user`` turn instead of being sent as a separate system message (a system
+      message would raise on tokenizers whose template rejects that role);
+    * ``leading_space`` defaults to ``True`` because the Mistral tokenizer encodes
+      an answer letter as a space-prefixed token (``" A"``), so the first-token id
+      is resolved from that form.
+
+    ``resolve_answer_token_ids`` is inherited unchanged (it already honours
+    ``leading_space``).
+    """
+
+    def __init__(self, leading_space: bool = True):
+        super().__init__(leading_space=leading_space)
+
+    def format_prompt(self, sample: dict, tokenizer, letters: list) -> str:
+        labels, texts = dataset_schema.resolve_choices(sample)
+        options_text = ""
+        for label, text in zip(labels, texts):
+            options_text += f"{label}. {text}\n"
+
+        user_message = (
+            "You are a precise evaluation system. "
+            "You will be given a question and multiple-choice options. "
+            f"Answer with ONLY the letter corresponding to the correct option ({_join_or(letters)}). "
+            "Do not write the full answer, do not write explanations. Output only one character.\n\n"
+            f"Question: {dataset_schema.resolve_question(sample)}\n"
+            f"Options:\n{options_text}\nAnswer:"
+        )
+        messages = [{"role": "user", "content": user_message}]
+        return tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )

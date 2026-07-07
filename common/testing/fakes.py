@@ -54,6 +54,24 @@ class FakeExpert(nn.Module):
         return self.down_proj(torch.nn.functional.silu(self.gate_proj(x)) * self.up_proj(x))
 
 
+class FakeMixtralExpert(nn.Module):
+    """Fake Mixtral-family expert (``MixtralBlockSparseTop2MLP`` layout).
+
+    Same SiLU gate/up/down math as :class:`FakeExpert`, but with Mixtral's
+    projection names -- ``w1`` (gate), ``w3`` (up), ``w2`` (down) -- so the
+    ``MixtralExpertAdapter`` contract can be exercised without a real Mixtral.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.w1 = nn.Linear(H, INTER, bias=False)  # gate
+        self.w2 = nn.Linear(INTER, H, bias=False)  # down
+        self.w3 = nn.Linear(H, INTER, bias=False)  # up
+
+    def forward(self, x):
+        return self.w2(torch.nn.functional.silu(self.w1(x)) * self.w3(x))
+
+
 class FakeRouterGate(nn.Module):
     """Fake router gate."""
 

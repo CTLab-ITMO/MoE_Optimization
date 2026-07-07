@@ -19,8 +19,13 @@ Covers the S7 gate for the router adapter:
 import pytest
 import torch
 
-from common.router import Qwen15RouterAdapter, RouterAdapter, RouterDecision
-from common.testing.fakes import H, TOP_K, FakeFusionGate, FakeRouterGate
+from common.router import (
+    MixtralRouterAdapter,
+    Qwen15RouterAdapter,
+    RouterAdapter,
+    RouterDecision,
+)
+from common.testing.fakes import H, TOP_K, FakeFusionGate, FakeMoEMLP, FakeRouterGate
 
 SEED = 1234
 T = 16
@@ -151,6 +156,78 @@ def test_route_on_fake_fusion_gate_tuple_output():
     assert torch.equal(decision.selected_experts, out[-1])
     assert torch.equal(decision.routing_weights, out[1])
     assert torch.equal(decision.logits, out[0])
+
+
+# --------------------------------------------------------------------------- #
+# route_module: the capture-time seam owns the gate call (gate-capture revision).
+# --------------------------------------------------------------------------- #
+def test_route_module_matches_route_of_gate_output():
+    """route_module(module, x) == route(module.gate(x)): default calls the gate."""
+    torch.manual_seed(SEED)
+    mlp = FakeMoEMLP()  # has a .gate submodule (bare-logits FakeRouterGate)
+    x = torch.randn(T, H)
+    adapter = Qwen15RouterAdapter()
+
+    via_module = adapter.route_module(mlp, x, top_k=TOP_K)
+    via_output = adapter.route(mlp.gate(x), top_k=TOP_K)
+    assert torch.equal(via_module.selected_experts, via_output.selected_experts)
+    assert torch.equal(via_module.routing_weights, via_output.routing_weights)
+    assert torch.equal(via_module.logits, via_output.logits)
+
+
+def test_route_module_override_bypasses_gate_call():
+    """A family whose routing is not module.gate(x) can override route_module."""
+
+    class CustomRouter(Qwen15RouterAdapter):
+        def route_module(self, mlp_module, hidden_states, *, top_k):
+            # Route through a differently named submodule instead of `.gate`.
+            return self.route(mlp_module.router(hidden_states), top_k=top_k)
+
+    torch.manual_seed(SEED)
+    mlp = FakeMoEMLP()
+    mlp.router = mlp.gate  # stand-in for a non-`gate` router attribute
+    x = torch.randn(T, H)
+    decision = CustomRouter().route_module(mlp, x, top_k=TOP_K)
+    expected = Qwen15RouterAdapter().route(mlp.gate(x), top_k=TOP_K)
+    assert torch.equal(decision.selected_experts, expected.selected_experts)
+
+
+# --------------------------------------------------------------------------- #
+# MixtralRouterAdapter: reference second family (norm_topk_prob=True default).
+# --------------------------------------------------------------------------- #
+def test_mixtral_router_is_qwen_subclass_and_router_adapter():
+    adapter = MixtralRouterAdapter()
+    assert isinstance(adapter, RouterAdapter)
+    assert isinstance(adapter, Qwen15RouterAdapter)
+
+
+def test_mixtral_router_defaults_to_normalized_topk():
+    """Mixtral sets norm_topk_prob=True, so top-k weights sum to 1 by default."""
+    logits = _logits()
+    decision = MixtralRouterAdapter().route(logits, top_k=TOP_K)
+    sums = decision.routing_weights.sum(dim=-1)
+    assert torch.allclose(sums, torch.ones_like(sums), atol=1e-6)
+
+
+def test_mixtral_router_matches_mixtral_inline():
+    """Parity with Mixtral's inline softmax -> topk -> renormalize routing."""
+    logits = _logits()
+    # Mixtral inline (MixtralSparseMoeBlock.forward).
+    routing = logits.softmax(dim=1, dtype=torch.float)
+    mixtral_weights, mixtral_selected = torch.topk(routing, TOP_K, dim=-1)
+    mixtral_weights = mixtral_weights / mixtral_weights.sum(dim=-1, keepdim=True)
+
+    decision = MixtralRouterAdapter().route(logits, top_k=TOP_K)
+    assert torch.equal(decision.selected_experts, mixtral_selected)
+    assert torch.allclose(decision.routing_weights, mixtral_weights, atol=1e-6)
+
+
+def test_mixtral_router_selects_same_experts_as_qwen():
+    """Renormalization must not change which experts win vs the Qwen decode."""
+    logits = _logits()
+    qwen = Qwen15RouterAdapter().route(logits, top_k=TOP_K)
+    mixtral = MixtralRouterAdapter().route(logits, top_k=TOP_K)
+    assert torch.equal(qwen.selected_experts, mixtral.selected_experts)
 
 
 # --------------------------------------------------------------------------- #

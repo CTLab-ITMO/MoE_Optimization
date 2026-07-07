@@ -58,11 +58,17 @@ FUSION_REGISTRY.register("MyFusion", MyFusion())
 |---|---|---|---|
 | Канонизация роутера | `RouterAdapter` ([router.py](router.py)) | `Qwen15RouterAdapter` | `ROUTER_ADAPTER` |
 | Раскладка эксперта | `ExpertAdapter` ([expert_adapter.py](expert_adapter.py)) | `Qwen15ExpertAdapter` | `EXPERT_ADAPTER` |
-| Shared-эксперт | `SharedExpertAdapter` ([expert_adapter.py](expert_adapter.py)) | `Qwen15SharedExpert` | — |
+| Shared-эксперт | `SharedExpertAdapter` ([expert_adapter.py](expert_adapter.py)) | `Qwen15SharedExpertAdapter` | `SHARED_EXPERT_ADAPTER` |
 | Формат QA-промпта | `QAParser` ([qa_parser.py](qa_parser.py)) | `Qwen15QAParser` | `QA_PARSER` |
 
 Чтобы поддержать другое семейство моделей — новый подкласс каждого адаптера и
-подстановка инстансов в конфиге; ядро менять не нужно.
+подстановка инстансов в конфиге; ядро менять не нужно. Референсное второе
+семейство уже в дереве — **Mixtral**: `MixtralExpertAdapter` (ModuleList с
+именами `w1`/`w3`/`w2`), `MixtralRouterAdapter` (`norm_topk_prob=True`),
+`NoSharedExpertAdapter` (у Mixtral нет shared-эксперта) и `MixtralQAParser`
+(один `user`-тёрн формата Mistral, `leading_space=True`). Захват роутера в
+стадии 1 идёт через `RouterAdapter.route_module(mlp, x, top_k=...)` — семейство,
+чей роутер зовётся не как `mlp.gate(x)`, переопределяет только этот метод.
 
 ## Рантайм-контракт реконструкции
 

@@ -20,6 +20,7 @@ from torch import nn
 
 from common.expert_adapter import (
     ExpertAdapter,
+    MixtralExpertAdapter,
     NoSharedExpertAdapter,
     Qwen15ExpertAdapter,
     Qwen15SharedExpert,
@@ -28,7 +29,14 @@ from common.expert_adapter import (
 )
 from common.mlp import AdvancedMLP
 from common.mlp_utils import turn_in_mlp
-from common.testing.fakes import H, INTER, N_EXPERTS, FakeExpert, FakeMoEMLP
+from common.testing.fakes import (
+    H,
+    INTER,
+    N_EXPERTS,
+    FakeExpert,
+    FakeMixtralExpert,
+    FakeMoEMLP,
+)
 
 CPU = torch.device("cpu")
 
@@ -116,6 +124,50 @@ def test_extract_combined_clones_weights():
     with torch.no_grad():
         experts.gate_up_proj.zero_()
     assert torch.equal(got.gate.weight, before)
+
+
+# --------------------------------------------------------------------------- #
+# MixtralExpertAdapter: reference second family (w1/w3/w2 ModuleList).
+# --------------------------------------------------------------------------- #
+def test_mixtral_count_module_list():
+    experts = nn.ModuleList([FakeMixtralExpert() for _ in range(N_EXPERTS)])
+    assert MixtralExpertAdapter().count(experts) == N_EXPERTS
+
+
+def test_mixtral_extract_shares_w1_w3_w2_as_gate_up_down():
+    """Mixtral extract wraps w1->gate, w3->up, w2->down, sharing the Linears."""
+    torch.manual_seed(0)
+    experts = nn.ModuleList([FakeMixtralExpert() for _ in range(3)])
+    adapter = MixtralExpertAdapter()
+    for i in range(len(experts)):
+        got = adapter.extract(experts, i, device=CPU)
+        assert isinstance(got, AdvancedMLP)
+        # ModuleList branch SHARES the projection modules (no clone).
+        assert got.gate is experts[i].w1
+        assert got.up is experts[i].w3
+        assert got.down is experts[i].w2
+
+
+def test_mixtral_extract_forward_matches_expert_forward():
+    """The wrapped AdvancedMLP reproduces the Mixtral expert's own forward."""
+    torch.manual_seed(0)
+    experts = nn.ModuleList([FakeMixtralExpert() for _ in range(3)])
+    adapter = MixtralExpertAdapter()
+    x = torch.randn(5, H)
+    for i in range(len(experts)):
+        got = adapter.extract(experts, i, device=CPU)
+        assert torch.equal(got.forward(x), experts[i].forward(x))
+
+
+def test_mixtral_is_expert_adapter_subclass():
+    assert isinstance(MixtralExpertAdapter(), ExpertAdapter)
+
+
+def test_mixtral_quantized_none_weight_raises():
+    experts = nn.ModuleList([FakeMixtralExpert()])
+    experts[0].w1.weight = None  # simulate a quantized projection
+    with pytest.raises(TypeError, match="quantized experts are not supported"):
+        MixtralExpertAdapter().extract(experts, 0, device=CPU)
 
 
 # --------------------------------------------------------------------------- #

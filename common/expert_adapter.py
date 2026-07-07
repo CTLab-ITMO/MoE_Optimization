@@ -4,9 +4,12 @@ Isolates two places that know the concrete MoE module layout, so supporting a
 new model family only requires a new subclass.
 
 * ``ExpertAdapter`` -- wraps each routed expert as an ``AdvancedMLP``.
-  Handles two layouts: a ModuleList of per-expert modules (shares projections
-  via ``turn_in_mlp``) and a combined container with stacked weight tensors
-  (clones per-expert slices). No dtype cast -- the caller casts.
+  ``Qwen15ExpertAdapter`` handles two Qwen layouts: a ModuleList of per-expert
+  modules (shares ``gate_proj``/``up_proj``/``down_proj`` via ``turn_in_mlp``)
+  and a combined container with stacked weight tensors (clones per-expert
+  slices). ``MixtralExpertAdapter`` is the reference second family: a ModuleList
+  whose experts name their projections ``w1``/``w3``/``w2``. No dtype cast --
+  the caller casts.
 
 * ``SharedExpertAdapter`` -- DI adapter for the shared/residual-expert pathway.
   ``extract(mlp)`` pulls the shared-expert submodules from a live MoE ``mlp`` for
@@ -137,6 +140,45 @@ class Qwen15ExpertAdapter(ExpertAdapter):
         )
         new_mlp.down.weight = nn.Parameter(down_proj[index].detach().clone())
         return new_mlp
+
+
+class MixtralExpertAdapter(ExpertAdapter):
+    """Expert extraction for Mixtral-family MoE (the ModuleList layout).
+
+    Mixtral stores each routed expert as a ``MixtralBlockSparseTop2MLP`` in a
+    ModuleList, naming its projections ``w1`` (gate), ``w3`` (up), ``w2`` (down)
+    -- ``w2(act(w1(x)) * w3(x))`` -- rather than Qwen's ``gate_proj`` /
+    ``up_proj`` / ``down_proj``. Extraction wraps one expert as an
+    :class:`AdvancedMLP` that reuses those three Linears directly (shared, no
+    clone, no dtype cast), mirroring
+    :meth:`Qwen15ExpertAdapter._extract_module_list`; only the attribute names
+    differ, so ``turn_in_mlp`` (which reads Qwen names) cannot be reused.
+    """
+
+    def count(self, experts) -> int:
+        return len(experts)
+
+    def extract(self, experts, index: int, *, device) -> AdvancedMLP:
+        expert = experts[index]
+        for proj_name in ("w1", "w2", "w3"):
+            proj = getattr(expert, proj_name, None)
+            _require_float_weight(
+                getattr(proj, "weight", None), f"expert {index} {proj_name}.weight"
+            )
+        # AdvancedMLP is gate/up/down; map w1->gate, w3->up, w2->down. The
+        # constructor's fresh Linears are immediately replaced by the shared
+        # source modules (as turn_in_mlp does), so ``device`` only sizes the
+        # discarded scaffolding -- the returned MLP stays on the experts' device.
+        mlp = AdvancedMLP(
+            expert.w1.in_features,
+            expert.w1.out_features,
+            expert.w2.out_features,
+            device=device,
+        )
+        mlp.gate = expert.w1
+        mlp.up = expert.w3
+        mlp.down = expert.w2
+        return mlp
 
 
 # --------------------------------------------------------------------------- #

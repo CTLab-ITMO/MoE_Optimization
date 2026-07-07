@@ -17,7 +17,7 @@ Covers the S7 gate for the parser adapter:
 import pytest
 
 from common import qa_eval
-from common.qa_parser import QAParser, Qwen15QAParser, _join_or
+from common.qa_parser import MixtralQAParser, QAParser, Qwen15QAParser, _join_or
 from common.testing.fakes import FakeTokenizer
 
 
@@ -120,6 +120,61 @@ def test_leading_space_true_encodes_with_space_prefix():
 def test_join_or(items, expected):
     assert _join_or(items) == expected
     assert _join_or(items) == qa_eval._join_or(items)
+
+
+# --------------------------------------------------------------------------- #
+# MixtralQAParser: reference second family (single user turn, leading space).
+# --------------------------------------------------------------------------- #
+class _RecordingTokenizer(FakeTokenizer):
+    """FakeTokenizer that records the messages passed to apply_chat_template."""
+
+    def __init__(self):
+        self.seen_messages = None
+
+    def apply_chat_template(self, messages, tokenize=False, **kwargs):
+        self.seen_messages = messages
+        return super().apply_chat_template(messages, tokenize=tokenize, **kwargs)
+
+
+def test_mixtral_parser_is_qaparser_subclass():
+    assert isinstance(MixtralQAParser(), QAParser)
+
+
+def test_mixtral_default_leading_space_is_true():
+    """Mistral tokenizers encode ' A', so the answer-token form is space-prefixed."""
+    parser = MixtralQAParser()
+    assert parser.leading_space is True
+    ids = parser.resolve_answer_token_ids(FakeTokenizer(), ["A", "B"])
+    assert ids == [ord(" "), ord(" ")]  # FakeTokenizer.encode -> [ord(text[0])]
+
+
+def test_mixtral_format_prompt_uses_single_user_turn_no_system_role():
+    """The instruction is folded into one user message (no system role)."""
+    sample = SAMPLES["mmlu_int"]
+    tok = _RecordingTokenizer()
+    MixtralQAParser().format_prompt(sample, tok, _letters(sample))
+    assert tok.seen_messages is not None
+    assert len(tok.seen_messages) == 1
+    assert tok.seen_messages[0]["role"] == "user"
+    assert all(m["role"] != "system" for m in tok.seen_messages)
+
+
+def test_mixtral_format_prompt_includes_question_options_and_letters():
+    sample = SAMPLES["mmlu_int"]
+    prompt = MixtralQAParser().format_prompt(sample, FakeTokenizer(), _letters(sample))
+    assert "Q1?" in prompt
+    assert "A. a" in prompt
+    assert "A, B, C, or D" in prompt  # _join_or over the four letters
+    assert "Answer:" in prompt
+
+
+def test_mixtral_prompt_differs_from_qwen_two_message_form():
+    """Mixtral (one user turn) and Qwen (system + user) produce different prompts."""
+    sample = SAMPLES["mmlu_int"]
+    letters = _letters(sample)
+    mixtral = MixtralQAParser().format_prompt(sample, FakeTokenizer(), letters)
+    qwen = Qwen15QAParser().format_prompt(sample, FakeTokenizer(), letters)
+    assert mixtral != qwen
 
 
 # --------------------------------------------------------------------------- #
