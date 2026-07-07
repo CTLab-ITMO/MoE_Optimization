@@ -29,7 +29,7 @@ jobs:
         run: pip install -r tests/requirements.txt
 
       # The suite runs on CPU with mocked models (tests/conftest.py forces CPU
-      # and tests/experiment/conftest.py fakes transformers/datasets), so no GPU
-      # or network model download is required.
+      # and common/testing fakes transformers/datasets), so no GPU or network
+      # model download is required.
       - name: Run tests
         run: pytest tests/

@@ -14,6 +14,11 @@ the raw-artifact level, plus the new stage properties:
 * **idempotency / resume** -- a re-run of stage 3 skips fresh artifacts and only
   recomputes a deleted one;
 * **config snapshot** -- a later stage fails fast on config drift (§3.6).
+
+Decision #6 / STEPS 6.1: the legacy module was taken off CI (kept on disk, not
+deleted), so the capture/join seam tests that re-run the legacy stages to
+compare raw artifacts (``*_matches_legacy*``) are skipped via ``LEGACY_OFF_CI``.
+The remaining seam tests run only the new module and still gate it.
 """
 import os
 import runpy
@@ -36,6 +41,16 @@ from common.testing.fakes import N_LAYERS
 ROOT = Path(__file__).resolve().parents[2]
 NEW_DIR = ROOT / "experts_fusion"
 LEGACY_DIR = ROOT / "Qwen_MoE_experts_fusion_experiment"
+
+# Decision #6 / STEPS 6.1: the legacy module was removed from CI (kept on disk,
+# NOT deleted). The seam tests below that re-run the legacy stages to compare
+# raw artifacts new-vs-legacy are skipped; every other seam test here runs only
+# the new module and still gates it. Drop this marker to re-run the seam parity
+# checks against legacy locally.
+LEGACY_OFF_CI = pytest.mark.skip(
+    reason="legacy module removed from CI (decision #6 / STEPS 6.1); kept on "
+    "disk, new-module seam tests unaffected"
+)
 
 SEED = 1234
 GOLDEN_LAYERS = list(range(N_LAYERS))
@@ -111,6 +126,7 @@ def _run_legacy_capture_and_group(run, data_dir, workdir):
 # --------------------------------------------------------------------------- #
 # Capture seam: stage-1 hooks == old stages 1 / 4 / 5.
 # --------------------------------------------------------------------------- #
+@LEGACY_OFF_CI
 def test_capture_coactivation_matches_legacy(monkeypatch, tmp_path):
     from common.artifacts import CoActivationMatrix
 
@@ -132,6 +148,7 @@ def test_capture_coactivation_matches_legacy(monkeypatch, tmp_path):
             )
 
 
+@LEGACY_OFF_CI
 def test_capture_mlp_inputs_match_legacy(monkeypatch, tmp_path):
     run = _make_runner(monkeypatch)
     data_new, data_legacy = tmp_path / "new", tmp_path / "legacy"
@@ -151,6 +168,7 @@ def test_capture_mlp_inputs_match_legacy(monkeypatch, tmp_path):
             )
 
 
+@LEGACY_OFF_CI
 def test_capture_topk_matches_legacy_stage5(monkeypatch, tmp_path):
     run = _make_runner(monkeypatch)
     data_new, data_legacy = tmp_path / "new", tmp_path / "legacy"
@@ -169,6 +187,7 @@ def test_capture_topk_matches_legacy_stage5(monkeypatch, tmp_path):
 # --------------------------------------------------------------------------- #
 # Join seam: GroupActivationIndex == old pairs_activations (as sets).
 # --------------------------------------------------------------------------- #
+@LEGACY_OFF_CI
 def test_join_matches_legacy_pairs_activations(monkeypatch, tmp_path):
     from common.artifacts import GroupActivationIndex
 

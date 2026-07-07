@@ -16,6 +16,13 @@ Re-basing the golden is intentional and rare: run with ``UPDATE_GOLDEN=1`` and
 review the JSON diff in the PR. The plan sanctions exactly two re-bases (S4
 local seeds, S5 ``Best_*`` fallback); any other change to values / orientation /
 order is a red gate.
+
+Decision #6 / STEPS 6.1: the legacy module was taken off CI (kept on disk, not
+deleted), so the two tests that run the legacy chain
+(``test_golden_legacy_module``, ``test_golden_legacy_matches_new``) are skipped
+via ``LEGACY_OFF_CI``. What still gates the new module is unchanged:
+``test_golden_new_module`` holds it to ``golden_v1.json`` and
+``test_golden_self_consistency`` proves the capture is deterministic.
 """
 import json
 import os
@@ -28,6 +35,16 @@ import tolerances
 
 GOLDEN_PATH = Path(__file__).resolve().parent / "golden_v1.json"
 UPDATE = bool(os.environ.get("UPDATE_GOLDEN"))
+
+# Decision #6 / STEPS 6.1: the legacy ``Qwen_MoE_experts_fusion_experiment``
+# module was removed from CI (kept on disk, NOT deleted). Every test that runs
+# the legacy chain is skipped; the new module's golden oracle
+# (``test_golden_new_module`` against ``golden_v1.json``) is unaffected. Drop
+# this marker to re-run the legacy equivalence gate locally.
+LEGACY_OFF_CI = pytest.mark.skip(
+    reason="legacy module removed from CI (decision #6 / STEPS 6.1); kept on "
+    "disk, new-module golden oracle unaffected"
+)
 
 
 def _load_golden():
@@ -53,6 +70,7 @@ def test_registry_snapshot_matches_golden():
     assert not problems, "registry snapshot drift:\n" + "\n".join(problems)
 
 
+@LEGACY_OFF_CI
 def test_golden_legacy_module(tmp_path, monkeypatch):
     # Legacy is the pre-S4 oracle: it still draws from the global RNG, so it no
     # longer reproduces the new module's seed_for entries -- skip the stochastic
@@ -86,6 +104,7 @@ def test_golden_new_module(tmp_path, monkeypatch):
     assert not problems, "experts_fusion copy drift vs golden_v1:\n" + "\n".join(problems)
 
 
+@LEGACY_OFF_CI
 def test_golden_legacy_matches_new(tmp_path, monkeypatch):
     # Equivalence is the golden's real purpose. Running both modules on the SAME
     # machine, the platform-sensitive methods (Procrustes/ZipIt) agree exactly,

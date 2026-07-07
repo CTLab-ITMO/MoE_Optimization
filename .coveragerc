@@ -1,7 +1,6 @@
 [run]
 source =
     common
-    Qwen_MoE_experts_fusion_experiment
     experts_fusion
 omit =
     tests/*
