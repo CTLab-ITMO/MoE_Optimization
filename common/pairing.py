@@ -166,7 +166,7 @@ def get_pairs(
 
     if method not in ONE_LAYER_CLUSTERING_METHOD:
         if method == "activation_correlation":
-            sim = compute_activation_correlation_matrix(layer, data_dir)
+            sim = compute_activation_correlation_matrix(layer, data_dir) #default
         elif method == "output_similarity":
             if device is None:
                 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
