@@ -73,7 +73,7 @@ EXPERTS = 60
 DATASET_TEXT_FIELD = "question"
 
 TRAIN_SIZE = 1_024       # train set for reconstruction and layer-order selection
-VALIDATION_SIZE = 1_024  # held-out set for reconstruction validation
+VALIDATION_SIZE = 4_096  # held-out reconstruction-validation set; raised from 1_024 per E4 decision #5 (caps at the split size)
 LAYERS = list(range(24))
 TOP_K = 4
 

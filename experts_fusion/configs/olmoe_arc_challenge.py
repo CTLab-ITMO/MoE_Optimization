@@ -72,7 +72,7 @@ TEST_DATASET_NAME = ARC_CHALLENGE_DATASETS["test"]
 DATASET_TEXT_FIELD = "question"
 
 TRAIN_SIZE = 1_024       # train set for reconstruction and layer-order selection
-VALIDATION_SIZE = 1_024  # held-out set for reconstruction validation
+VALIDATION_SIZE = 4_096  # held-out reconstruction-validation set; raised from 1_024 per E4 decision #5 (caps at the split size)
 TEST_SIZE = ARC_CHALLENGE_DATASETS["test_size"]
 LAYERS = list(range(16))  # all 16 OLMoE decoder layers are MoE (no dense/first-k-dense)
 TOP_K = 8                 # num_experts_per_tok
