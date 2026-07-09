@@ -52,12 +52,8 @@ if FILTER_METRICS is not None:
     selected_best_metrics = {k: v for k, v in selected_best_metrics.items() if k in FILTER_METRICS}
 
 set_seed(SEED)
-# Per-layer/per-group copies give stochastic methods (e.g. Fisher) an order-independent RNG.
 base_ctx = StageContext(seed=SEED, device=device)
 config_fingerprint = provenance.config_hash(config_snapshot_dict())
-# Idempotency (skip-if-done) hashes over the fusion-relevant config only: eval-only
-# flags (REPLACE_*, INSPECT_FUSION_METHOD, USE_DEFAULT_EXPERTS) are consumed by stage 4
-# and must not invalidate already-fused experts.
 fusion_fingerprint = provenance.fusion_config_hash(config_snapshot_dict())
 
 

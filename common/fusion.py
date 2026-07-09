@@ -400,10 +400,6 @@ class DistillationFusion(FusionMethod):
                 0.5 * (hidden_activations(mlp_a, data) + hidden_activations(mlp_b, data))
             ).float()
 
-        # AdamW moments and MSE gradients underflow in bf16, collapsing the student
-        # back toward its average init. Train the whole loop in float32 and cast the
-        # student's parameters back afterwards, mirroring the fp32 Fisher pass in
-        # ``diagonal_empirical_fisher``.
         orig_dtype = next(student.parameters()).dtype
         student.float()
         train_x = data.float()

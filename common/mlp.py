@@ -25,8 +25,6 @@ def make_activation(name: str) -> nn.Module:
 
 def unite_matrix(mat1: torch.Tensor, mat2: torch.Tensor) -> torch.Tensor:
     """Block-diagonal concatenation: [[mat1, 0], [0, mat2]]."""
-    # Pad in the operands' dtype: default-float32 zeros would promote bf16 weights
-    # to float32 through ``torch.cat`` (silent upcast of the merged expert).
     add1 = torch.zeros((mat1.shape[0], mat2.shape[1]), device=mat1.device, dtype=mat1.dtype)
     add2 = torch.zeros((mat2.shape[0], mat1.shape[1]), device=mat1.device, dtype=mat1.dtype)
     mat1 = torch.cat([mat1, add1], dim=1)
@@ -85,13 +83,9 @@ class Zipper(nn.Linear):
         activations = torch.cat(self.activations, dim=0)
         corr_matrix = torch.corrcoef(activations.T)
         n = corr_matrix.shape[0]
-        # Strictly k=2: n is the hidden size of two concatenated experts,
-        # halved to n//2 with weight 0.5 and U = 2*M.T. Width must be even.
         assert n % 2 == 0, f"build_MU is k=2 only; expected an even width, got {n}"
 
         matches = greedy_correlation_matching(corr_matrix)
-        # Build M in the activation dtype (0.5 is exact in bf16); a default-float32
-        # M would upcast the merged weights via ``M @ weight`` in ``zip()``.
         self.M = torch.zeros(
             n // 2, n, dtype=self.dtype, device=self.activations[0].device
         )
