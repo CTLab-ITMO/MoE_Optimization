@@ -135,6 +135,72 @@ def test_pruning_keeps_a_even_on_empty_data(pair):
 
 
 # --------------------------------------------------------------------------- #
+# K-agnostic arity: Average / Pruning generalized to k >= 1.
+# --------------------------------------------------------------------------- #
+def test_average_k1_is_identity_copy(pair, data):
+    a, _ = pair
+    merged = AverageFusion()(a, train_data=data)
+    assert merged is not a
+    for key, value in merged.state_dict().items():
+        assert torch.equal(value, a.state_dict()[key])
+
+
+def test_average_k1_create_new_false_returns_same_object(pair):
+    a, _ = pair
+    assert AverageFusion()(a, create_new=False) is a
+
+
+def test_average_k3_is_exact_mean(pair, data, make_advanced_mlp):
+    a, b = pair
+    c = make_advanced_mlp(4, 6, 4, seed=3)
+    merged = AverageFusion()(a, b, c, train_data=data)
+    expected = (a.gate.weight + b.gate.weight + c.gate.weight) / 3
+    assert torch.allclose(merged.gate.weight, expected)
+
+
+def test_average_k2_group_path_matches_legacy_pair_merge(pair, data):
+    # The generalized accumulate-then-divide path must stay bit-identical to
+    # the historical (a + b) / 2 pair merge (golden guards the same invariant).
+    a, b = pair
+    legacy = {key: (a.state_dict()[key] + b.state_dict()[key]) / 2 for key in a.state_dict()}
+    merged = AverageFusion()(a, b, train_data=data)
+    for key, value in merged.state_dict().items():
+        assert torch.equal(value, legacy[key])
+
+
+def test_pruning_k1_and_k3_keep_first(pair, make_advanced_mlp):
+    a, b = pair
+    c = make_advanced_mlp(4, 6, 4, seed=3)
+    single = PruningFusion()(a)
+    assert torch.equal(single.gate.weight, a.gate.weight)
+    assert single is not a
+    triple = PruningFusion()(a, b, c)
+    assert torch.equal(triple.gate.weight, a.gate.weight)
+
+
+class _NeedyKAgnosticFusion(FusionMethod):
+    name = "NeedyKAgnostic"
+    needs_data = True
+    supported_arity = None
+
+    def merge(self, mlp_a, mlp_b, train_data, create_new=True, ctx=None):
+        raise AssertionError("empty-data fallback must bypass merge")
+
+    def merge_group(self, mlps, train_data, create_new=True, ctx=None):
+        raise AssertionError("empty-data fallback must bypass merge_group")
+
+
+def test_empty_data_fallback_generalizes_to_k3(pair, make_advanced_mlp):
+    # The needs_data fallback inside __call__ is k-agnostic too: with no
+    # calibration data a k=3 call falls back to the 3-way average.
+    a, b = pair
+    c = make_advanced_mlp(4, 6, 4, seed=3)
+    merged = _NeedyKAgnosticFusion()(a, b, c)
+    expected = (a.gate.weight + b.gate.weight + c.gate.weight) / 3
+    assert torch.allclose(merged.gate.weight, expected)
+
+
+# --------------------------------------------------------------------------- #
 # ZipIt.
 # --------------------------------------------------------------------------- #
 def test_zipit_unmerge_is_pseudo_inverse_of_merge():
@@ -375,3 +441,19 @@ def test_apply_meta_wrappers_covers_plugin_methods_and_is_idempotent():
     before = list(reg)
     fusion.apply_meta_wrappers(reg)
     assert list(reg) == before
+
+
+class _UnwrappableFusion(AverageFusion):
+    name = "Unwrappable"
+    wrappable = False
+
+
+def test_apply_meta_wrappers_skips_unwrappable_methods():
+    from common.registry import Registry
+
+    reg = Registry("fusion")
+    reg.register("Average", AverageFusion())
+    reg.register("Unwrappable", _UnwrappableFusion())
+    fusion.apply_meta_wrappers(reg)
+    assert "LS_Average" in reg
+    assert "LS_Unwrappable" not in reg

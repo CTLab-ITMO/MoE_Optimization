@@ -10,7 +10,9 @@ Covers the S5 gate:
   composition *and order* the golden ``registry`` snapshot guards;
 * the frozen k-agnostic fusion signature: the legacy positional
   ``method(a, b, data)`` and the variadic ``method(*[a, b], train_data=data)``
-  produce a numerically identical merge for every method; ``k > 2`` raises;
+  produce a numerically identical merge for every method; the per-class arity
+  contract (``supported_arity``): pairwise methods reject ``k != 2``,
+  k-agnostic methods (Average / Pruning) accept any ``k >= 1``;
 * the least-squares adapter's public ``refit_unmerge`` reproduces the old
   in-line ``.down``/``.U`` solve bit-for-bit.
 """
@@ -25,6 +27,7 @@ from common.fusion import (
     BASE_FUSION_METHODS,
     LeastSquaresAdapter,
     PruningFusion,
+    ZipItFusion,
     build_fusion_methods,
 )
 from common.metrics import METRIC_REGISTRY, METRICS
@@ -180,15 +183,64 @@ def test_legacy_positional_equals_k_agnostic_keyword(name):
     assert _states_equal(legacy, k_agnostic)
 
 
-def test_call_rejects_more_than_two_experts():
+PAIRWISE_METHODS = [
+    name for name in EXPECTED_FUSION_ORDER
+    if FUSION_REGISTRY[name].supported_arity == 2
+]
+K_AGNOSTIC_METHODS = [
+    name for name in EXPECTED_FUSION_ORDER
+    if FUSION_REGISTRY[name].supported_arity is None
+]
+
+
+def test_arity_split_is_pinned():
+    # Average / Pruning (and nothing else) are k-agnostic; every LS_* wrapper
+    # stays strictly pairwise even when it wraps a k-agnostic base method.
+    assert K_AGNOSTIC_METHODS == ["Average", "Pruning"]
+    assert set(PAIRWISE_METHODS) | set(K_AGNOSTIC_METHODS) == set(EXPECTED_FUSION_ORDER)
+
+
+@pytest.mark.parametrize("name", PAIRWISE_METHODS)
+def test_pairwise_methods_reject_non_pair_arity(name):
+    method = FUSION_REGISTRY[name]
     a, b = _pair()
     c, _ = _pair(seed_a=3)
     data = torch.randn(8, 4)
     with pytest.raises(NotImplementedError) as excinfo:
-        AverageFusion()(a, b, c, train_data=data)
+        method(a, b, c, train_data=data)
     assert "k=2" in str(excinfo.value)
     with pytest.raises(NotImplementedError):
-        AverageFusion()(*[a, b, c], train_data=data)
+        method(a, train_data=data)
+
+
+@pytest.mark.parametrize("name", K_AGNOSTIC_METHODS)
+def test_k_agnostic_methods_accept_k1_and_k3(name):
+    method = FUSION_REGISTRY[name]
+    a, b = _pair()
+    c, _ = _pair(seed_a=3)
+    data = torch.randn(8, 4)
+    single = method(a, train_data=data)
+    assert torch.equal(single.gate.weight, a.gate.weight)
+    triple = method(a, b, c, train_data=data)
+    assert triple.gate.weight.shape == a.gate.weight.shape
+
+
+def test_call_rejects_zero_experts():
+    with pytest.raises(ValueError):
+        AverageFusion()(train_data=torch.randn(8, 4))
+
+
+def test_call_third_positional_module_is_third_expert():
+    # Parse rule for the legacy shim: a third positional nn.Module is a third
+    # expert (train_data for k >= 3 is keyword-only), not train_data.
+    a, b = _pair()
+    c, _ = _pair(seed_a=3)
+    merged = AverageFusion()(a, b, c)
+    expected = (a.gate.weight + b.gate.weight + c.gate.weight) / 3
+    assert torch.allclose(merged.gate.weight, expected)
+    # For a pairwise method the same call is an arity error, not a silent bind.
+    with pytest.raises(NotImplementedError):
+        ZipItFusion()(a, b, c)
 
 
 def test_call_legacy_three_positional_binds_train_data():
@@ -235,4 +287,9 @@ def test_ls_refit_unmerge_matches_manual_solve():
 def test_base_fusion_methods_all_in_registry():
     for method in BASE_FUSION_METHODS:
         assert FUSION_REGISTRY[method.name] is method
-        assert FUSION_REGISTRY[f"LS_{method.name}"].name == f"LS_{method.name}"
+        # Only wrappable base methods get an LS_<name> variant; a wrappable=False
+        # method would be intentionally left bare.
+        if method.wrappable:
+            assert FUSION_REGISTRY[f"LS_{method.name}"].name == f"LS_{method.name}"
+        else:
+            assert f"LS_{method.name}" not in FUSION_REGISTRY

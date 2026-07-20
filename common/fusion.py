@@ -1,8 +1,11 @@
-"""Expert-fusion strategies for merging a pair of MoE experts.
+"""Expert-fusion strategies for merging a group of MoE experts.
 
-Each strategy is a :class:`FusionMethod` subclass. Call an instance with
-``(mlp_a, mlp_b, train_data)`` to get the fused expert. Data-dependent
-methods fall back to a plain weight average when no calibration data is given.
+Each strategy is a :class:`FusionMethod` subclass. Call an instance with the
+experts as positional args (``method(mlp_a, mlp_b, train_data=data)``) to get
+the fused expert. ``supported_arity`` is the per-class arity contract: most
+methods are strictly pairwise (k=2); ``Average`` and ``Pruning`` are
+k-agnostic (any k >= 1). Data-dependent methods fall back to a plain weight
+average when no calibration data is given.
 
 Implemented methods (faithful to source papers): ZipIt (Stoica 2023),
 Procrustes alignment (Schoenemann 1966), TIES (Yadav NeurIPS 2023),
@@ -19,6 +22,7 @@ import torch.nn.functional as F
 from torch import nn
 
 from common.context import StageContext
+from common.fused_group import ZIP_UNMERGE_RECONSTRUCTION
 from common.mlp import MLP, AdvancedMLP
 from common.numeric import EPS, solve_linear
 from common.registry import Registry
@@ -68,14 +72,32 @@ def batch_iter(x: torch.Tensor, batch_size: int):
 # Base class.
 # --------------------------------------------------------------------------- #
 class FusionMethod(ABC):
-    """Merge two experts into one.
+    """Merge a group of experts into one.
 
     ``needs_data`` marks methods that require calibration data; when called with
     an empty ``train_data`` those fall back to :class:`AverageFusion`.
+
+    ``supported_arity`` is the per-class arity contract: ``2`` (default) for
+    strictly pairwise methods, ``None`` for k-agnostic methods accepting any
+    ``k >= 1``. Pairwise methods implement :meth:`merge`; k-agnostic methods
+    override :meth:`merge_group` instead.
+
+    ``wrappable=False`` opts a method out of meta-wrappers
+    (:func:`apply_meta_wrappers`), e.g. when the pairwise ``LS_<name>`` variant
+    would be meaningless for a k-agnostic method.
+
+    ``reconstruction`` names the runtime reconstruction contract this method's
+    result declares (a key in ``RECONSTRUCTION_REGISTRY``); it defaults to
+    ``zip_unmerge`` (the pairwise unmerge path). ``FusedExpert.from_result``
+    reads it and falls back to the size default when the declared kind is
+    incompatible with the group size (e.g. a singleton).
     """
 
     name: str
     needs_data: bool = True
+    supported_arity: Optional[int] = 2
+    wrappable: bool = True
+    reconstruction: str = ZIP_UNMERGE_RECONSTRUCTION
 
     @abstractmethod
     def merge(
@@ -90,62 +112,108 @@ class FusionMethod(ABC):
         # The variadic public interface lives on ``__call__``.
         raise NotImplementedError()
 
+    def merge_group(
+        self,
+        mlps,
+        train_data,
+        create_new: bool = True,
+        ctx: Optional[StageContext] = None,
+    ) -> MLP:
+        """Merge a sequence of experts; the k-agnostic seam behind ``__call__``.
+
+        The default delegates a pair to :meth:`merge`; k-agnostic subclasses
+        override this method. ``__call__`` validates arity first, so the
+        guard here only protects direct ``merge_group`` callers.
+        """
+        if len(mlps) != 2:
+            raise NotImplementedError(
+                f"fusion method {self.name!r} supports only k=2 "
+                f"(got {len(mlps)} experts)"
+            )
+        return self.merge(mlps[0], mlps[1], train_data, create_new, ctx)
+
+    def _check_arity(self, count: int) -> None:
+        if count < 1:
+            raise ValueError(
+                f"fusion method {self.name!r} needs at least one expert, got {count}"
+            )
+        if self.supported_arity is not None and count != self.supported_arity:
+            raise NotImplementedError(
+                f"fusion method {self.name!r} supports only "
+                f"k={self.supported_arity} (got {count} experts)"
+            )
+
     def __call__(self, *mlps, train_data=None, create_new: bool = True,
                  ctx: Optional[StageContext] = None) -> MLP:
         """Public fusion entry point; accepts experts as positional args.
 
-        Only k=2 is implemented; other counts raise ``NotImplementedError``.
-        Keyword args: ``train_data`` (calibration rows), ``create_new``,
-        ``ctx`` (optional dynamic state, e.g. for seeding).
+        Arity is validated against ``supported_arity``: pairwise methods raise
+        ``NotImplementedError`` on ``k != 2``, k-agnostic methods accept any
+        ``k >= 1``. Keyword args: ``train_data`` (calibration rows),
+        ``create_new``, ``ctx`` (optional dynamic state, e.g. for seeding).
 
         Backward compat: ``method(mlp_a, mlp_b, train_data)`` still works --
-        when three positionals are given and ``train_data`` is not set, the
-        third positional is treated as ``train_data``.
+        with exactly three positionals, ``train_data`` unset and a
+        non-``nn.Module`` last positional, that last positional is treated as
+        ``train_data``. A third positional ``nn.Module`` is a third expert;
+        for ``k >= 3`` pass ``train_data`` as a keyword only.
         """
-        if train_data is None and len(mlps) == 3:
+        if (
+            train_data is None
+            and len(mlps) == 3
+            and not isinstance(mlps[-1], nn.Module)
+        ):
             *mlp_list, train_data = mlps
             mlps = tuple(mlp_list)
-        if len(mlps) != 2:
-            raise NotImplementedError(
-                f"fusion method {self.name!r} supports only k=2 "
-                f"(got {len(mlps)} experts); k>2 is left to other researchers"
-            )
+        self._check_arity(len(mlps))
         if train_data is None:
             train_data = []
-        mlp_a, mlp_b = mlps
-        # Optional dynamic state (e.g. seeding); ignored by methods that don't use it.
         if self.needs_data and len(train_data) == 0:
-            return AverageFusion().merge(mlp_a, mlp_b, train_data, create_new, ctx)
-        return self.merge(mlp_a, mlp_b, train_data, create_new, ctx)
+            return AverageFusion().merge_group(mlps, train_data, create_new, ctx)
+        return self.merge_group(mlps, train_data, create_new, ctx)
 
 
 # --------------------------------------------------------------------------- #
 # Data-free methods.
 # --------------------------------------------------------------------------- #
 class AverageFusion(FusionMethod):
-    """Element-wise average of the two experts' parameters."""
+    """Element-wise average of the group's parameters (k-agnostic; k=1 is identity)."""
 
     name = "Average"
     needs_data = False
+    supported_arity = None
 
     def merge(self, mlp_a, mlp_b, train_data, create_new=True, ctx=None):
+        return self.merge_group((mlp_a, mlp_b), train_data, create_new, ctx)
+
+    def merge_group(self, mlps, train_data, create_new=True, ctx=None):
         with torch.no_grad():
-            new_mlp = copy.deepcopy(mlp_a) if create_new else mlp_a
-            dict_a = mlp_a.state_dict()
-            dict_b = mlp_b.state_dict()
-            new_dict = {key: (dict_a[key] + dict_b[key]) / 2 for key in dict_a}
+            new_mlp = copy.deepcopy(mlps[0]) if create_new else mlps[0]
+            if len(mlps) == 1:
+                return new_mlp
+            states = [mlp.state_dict() for mlp in mlps]
+            new_dict = {}
+            for key in states[0]:
+                total = states[0][key]
+                for state in states[1:]:
+                    total = total + state[key]
+                new_dict[key] = total / len(mlps)
             new_mlp.load_state_dict(new_dict)
         return new_mlp
 
 
 class PruningFusion(FusionMethod):
-    """One-shot pruning baseline: keep expert A, drop expert B."""
+    """One-shot pruning baseline: keep the first expert, drop the rest (k-agnostic)."""
 
     name = "Pruning"
     needs_data = False
+    supported_arity = None
 
     def merge(self, mlp_a, mlp_b, train_data, create_new=True, ctx=None):
-        return copy.deepcopy(mlp_a) if create_new else mlp_a
+        return self.merge_group((mlp_a, mlp_b), train_data, create_new, ctx)
+
+    def merge_group(self, mlps, train_data, create_new=True, ctx=None):
+        return copy.deepcopy(mlps[0]) if create_new else mlps[0]
 
 
 # --------------------------------------------------------------------------- #
@@ -484,10 +552,15 @@ def _is_meta(method: FusionMethod) -> bool:
 def apply_meta_wrappers(registry: Registry) -> None:
     """Register a wrapped variant of every base (non-meta) method that lacks one.
 
-    Idempotent: already-wrapped methods are skipped. Order-stable: wrappers
-    appear in the same order as their base methods in the registry.
+    Methods with ``wrappable=False`` are skipped (the pairwise ``LS_<name>``
+    wrapper is meaningless for them). Idempotent: already-wrapped methods are
+    skipped. Order-stable: wrappers appear in the same order as their base
+    methods in the registry.
     """
-    base_names = [name for name in registry if not _is_meta(registry[name])]
+    base_names = [
+        name for name in registry
+        if not _is_meta(registry[name]) and registry[name].wrappable
+    ]
     for wrapper in FUSION_META_WRAPPERS:
         for name in base_names:
             wrapped = wrapper(registry[name])

@@ -41,9 +41,16 @@ class MyFusion(FusionMethod):
 FUSION_REGISTRY.register("MyFusion", MyFusion())
 ```
 
+Арность — класс-атрибут `supported_arity`: `2` (дефолт) — строго парный метод,
+реализующий `merge`; `None` — k-агностичный метод (любой k ≥ 1), переопределяющий
+`merge_group(mlps, train_data, create_new=True, ctx=None)` (так сделаны `Average`
+и `Pruning`).
+
 Обёртки-трансформеры (как `LS_<name>`) применяются ко **всем** зарегистрированным
 методам (см. `apply_meta_wrappers` в [fusion.py](fusion.py)) — новый базовый метод
-автоматически получает свой `LS_<name>`.
+автоматически получает свой `LS_<name>`. Отказаться от обёртки (например, для
+k-агностичного метода, которому парный LS-рефит не имеет смысла) — класс-атрибут
+`wrappable = False`.
 
 > Расширение «interface может потребовать правок»: при изменении абстрактной
 > сигнатуры обнови все её подклассы в дереве — здесь нет forward-совместимости для
@@ -73,7 +80,11 @@ FUSION_REGISTRY.register("MyFusion", MyFusion())
 ## Рантайм-контракт реконструкции
 
 `FusedGroup.reconstruct(x, member) -> Tensor` ([fused_group.py](fused_group.py)) —
-от него зависит `FusionLayer`, а не от конкретной реализации unmerge. `MLPFusedGroup`
-(поверх `AdvancedMLP.forward_unzip`) — одна из реализаций; `FusedExpert` сериализует
-именно этот контракт, так что новый способ реконструкции добавляется новой
-реализацией без правки слоя.
+от него зависит `FusionLayer`, а не от конкретной реализации unmerge. Реализации
+собраны в `RECONSTRUCTION_REGISTRY` (тег → `ReconstructionSpec`: допустимый
+`group_size` + сборка runtime-группы): `zip_unmerge` — парный `MLPFusedGroup`
+(поверх `AdvancedMLP.forward_unzip`), `identity` — k-агностичный
+`IdentityFusedGroup` (fused-выход как есть для любого member; k ≥ 1).
+`FusedExpert` сериализует именно этот контракт (тег + `group_size` в заголовке),
+так что новый способ реконструкции добавляется регистрацией новой спеки —
+без правки слоя и артефакта.
