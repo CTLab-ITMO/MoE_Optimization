@@ -5,6 +5,10 @@ Covers the S3 silent-break gate:
 * ``MLPFusedGroup.reconstruct(x, member)`` is *exactly* ``forward_unzip(x,
   out=member)`` -- the contract is one implementation of the legacy path;
 * member bounds / ``group_size`` of the pairwise group;
+* the ``RECONSTRUCTION_REGISTRY`` contract: ``zip_unmerge`` stays strictly
+  pairwise, ``identity`` (fused output as-is for every member) accepts any
+  ``group_size >= 1``, and ``FusedExpert`` validates / rebuilds through the
+  registry;
 * ``FusedExpert`` round-trips through the S2 serializer forward-identically and
   carries the reconstruction-contract metadata;
 * ``FusionLayer`` output is bit-identical whether its pairs come from a raw
@@ -19,10 +23,13 @@ from torch import nn
 from common.artifacts import Partition
 from common.expert_adapter import Qwen15SharedExpert
 from common.fused_group import (
+    IDENTITY_RECONSTRUCTION,
+    RECONSTRUCTION_REGISTRY,
+    ZIP_UNMERGE_RECONSTRUCTION,
     FusedExpert,
     FusedGroup,
+    IdentityFusedGroup,
     MLPFusedGroup,
-    ZIP_UNMERGE_RECONSTRUCTION,
 )
 from common.fusion import build_fusion_methods
 from common.fusion_layer import FusionLayer
@@ -44,6 +51,12 @@ def _fused_with_u(seed_a=1, seed_b=2, method="ZipIt"):
     torch.manual_seed(seed_b)
     b = AdvancedMLP(HIDDEN, INTER, HIDDEN, device=CPU)
     return build_fusion_methods()[method](a, b, torch.randn(40, HIDDEN))
+
+
+def _plain_mlp(seed=5):
+    """A plain AdvancedMLP with no zip/unmerge state (``U is None``)."""
+    torch.manual_seed(seed)
+    return AdvancedMLP(HIDDEN, INTER, HIDDEN, device=CPU)
 
 
 # --------------------------------------------------------------------------- #
@@ -98,6 +111,48 @@ def test_mlp_fused_group_rejects_non_mlp():
 
 
 # --------------------------------------------------------------------------- #
+# Identity reconstruction (k-agnostic) and the reconstruction registry.
+# --------------------------------------------------------------------------- #
+def test_reconstruction_registry_composition_is_pinned():
+    assert RECONSTRUCTION_REGISTRY.names() == [
+        ZIP_UNMERGE_RECONSTRUCTION,
+        IDENTITY_RECONSTRUCTION,
+    ]
+
+
+@pytest.mark.parametrize("group_size", [1, 3])
+def test_identity_reconstructs_fused_forward_for_every_member(group_size):
+    fused = _plain_mlp()
+    group = IdentityFusedGroup(fused, group_size)
+    assert group.group_size == group_size
+    x = torch.randn(7, HIDDEN)
+    with torch.no_grad():
+        for member in range(group_size):
+            assert torch.equal(group.reconstruct(x, member), fused.forward(x))
+
+
+def test_identity_group_rejects_out_of_range_member():
+    group = IdentityFusedGroup(_plain_mlp(), 3)
+    x = torch.randn(3, HIDDEN)
+    with pytest.raises(IndexError):
+        group.reconstruct(x, 3)
+    with pytest.raises(IndexError):
+        group.reconstruct(x, -1)
+
+
+def test_identity_group_rejects_bad_group_size():
+    with pytest.raises(ValueError):
+        IdentityFusedGroup(_plain_mlp(), 0)
+    with pytest.raises(ValueError):
+        IdentityFusedGroup(_plain_mlp(), True)  # bool is not a valid size
+
+
+def test_identity_group_rejects_non_mlp():
+    with pytest.raises(TypeError):
+        IdentityFusedGroup(nn.Linear(HIDDEN, HIDDEN), 1)
+
+
+# --------------------------------------------------------------------------- #
 # FusedExpert serialization (S2 backbone, S3 contract metadata).
 # --------------------------------------------------------------------------- #
 @pytest.mark.parametrize("method", ["ZipIt", "Average", "Pruning", "LS_ZipIt"])
@@ -135,9 +190,11 @@ def test_fused_expert_rejects_unknown_reconstruction():
         FusedExpert(_fused_with_u(), reconstruction="not_a_real_kind")
 
 
-def test_fused_expert_rejects_non_pairwise_group_size():
+def test_fused_expert_zip_unmerge_rejects_non_pairwise_group_size():
     with pytest.raises(SerializationError):
         FusedExpert(_fused_with_u(), group_size=3)
+    with pytest.raises(SerializationError):
+        FusedExpert(_fused_with_u(), group_size=1)
 
 
 def test_from_artifact_rejects_unknown_reconstruction():
@@ -146,6 +203,43 @@ def test_from_artifact_rejects_unknown_reconstruction():
     artifact.header["reconstruction"] = "future_kind"
     with pytest.raises(SerializationError):
         FusedExpert.from_artifact(artifact, device=CPU)
+
+
+@pytest.mark.parametrize("group_size", [1, 3])
+def test_identity_fused_expert_roundtrips_forward_identical(tmp_path, group_size):
+    fused = _plain_mlp()
+    expert = FusedExpert(
+        fused, group_size=group_size, reconstruction=IDENTITY_RECONSTRUCTION
+    )
+    path = tmp_path / "fused.safetensors"
+    expert.save(path)
+
+    loaded = FusedExpert.load(path, device=CPU)
+    assert loaded.group_size == group_size
+    assert loaded.reconstruction == IDENTITY_RECONSTRUCTION
+
+    group = loaded.to_group()
+    assert isinstance(group, IdentityFusedGroup)
+    x = torch.randn(7, HIDDEN)
+    with torch.no_grad():
+        for member in range(group_size):
+            assert torch.allclose(
+                group.reconstruct(x, member), fused.forward(x), atol=1e-6
+            )
+
+
+def test_identity_fused_expert_from_group_carries_contract():
+    group = IdentityFusedGroup(_plain_mlp(), 3)
+    expert = FusedExpert.from_group(group)
+    assert expert.group_size == 3
+    assert expert.reconstruction == IDENTITY_RECONSTRUCTION
+
+
+def test_identity_fused_expert_rejects_zero_group_size():
+    with pytest.raises(SerializationError):
+        FusedExpert(
+            _plain_mlp(), group_size=0, reconstruction=IDENTITY_RECONSTRUCTION
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -166,7 +260,7 @@ class _FakeGate(nn.Module):
 def _build_layer(expert_pairs, fusion_experts, gate, shared_expert, shared_expert_gate):
     return FusionLayer(
         experts=[None] * NUM_EXPERTS,
-        expert_pairs=expert_pairs,
+        expert_groups=expert_pairs,
         fusion_experts=fusion_experts,
         gate=gate,
         shared=Qwen15SharedExpert(shared_expert, shared_expert_gate),

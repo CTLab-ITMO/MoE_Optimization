@@ -103,6 +103,18 @@ def test_partition_is_metadata_only_artifact(path):
     assert info.tensors == {}
 
 
+def test_partition_with_singleton_and_triple_roundtrips(path):
+    """Groups of size 1 and 3 survive the save/load round-trip unchanged."""
+    partition = Partition(
+        groups=(Group(members=(0,)), Group(members=(1, 2, 3))), method="activation_correlation"
+    )
+    partition.save(path)
+    loaded = Partition.load(path)
+    assert loaded == partition
+    assert [group.members for group in loaded.groups] == [(0,), (1, 2, 3)]
+    assert [group.size for group in loaded.groups] == [1, 3]
+
+
 def test_legacy_pairs_pickle_migrates_to_partition(tmp_path):
     legacy = tmp_path / "legacy_pairs.pt"
     torch.save(PAIRS, legacy)  # the old pipeline pickled the raw tuple list

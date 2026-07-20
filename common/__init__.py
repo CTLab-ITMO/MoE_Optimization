@@ -15,7 +15,7 @@ from common.grouping import (
 from common.metrics import METRIC_REGISTRY, Metric
 from common.dataset_schema import SCHEMA_REGISTRY, DatasetSchema
 from common.mlp import ACTIVATION_REGISTRY, MLP, AdvancedMLP
-from common.fused_group import FusedExpert, FusedGroup
+from common.fused_group import RECONSTRUCTION_REGISTRY, FusedExpert, FusedGroup
 from common.router import RouterAdapter
 from common.expert_adapter import ExpertAdapter, SharedExpertAdapter
 from common.qa_parser import QAParser
@@ -40,6 +40,7 @@ __all__ = [
     "DatasetSchema",
     "SCHEMA_REGISTRY",
     "ACTIVATION_REGISTRY",
+    "RECONSTRUCTION_REGISTRY",
     # model-family adapters (DI)
     "RouterAdapter",
     "ExpertAdapter",
