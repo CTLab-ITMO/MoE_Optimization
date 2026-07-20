@@ -51,8 +51,11 @@ selected_best_metrics = live_best_metrics()
 if FILTER_METRICS is not None:
     selected_best_metrics = {k: v for k, v in selected_best_metrics.items() if k in FILTER_METRICS}
 
+# data_dir lets ctx-aware fusion methods read their calibration signals
+# (selection-count diagonal, group membership) from the artifact store;
+# ctx-free methods ignore it, so this is behavior-preserving.
 set_seed(SEED)
-base_ctx = StageContext(seed=SEED, device=device)
+base_ctx = StageContext(seed=SEED, device=device, data_dir=DATA_DIR)
 config_fingerprint = provenance.config_hash(config_snapshot_dict())
 fusion_fingerprint = provenance.fusion_config_hash(config_snapshot_dict())
 
@@ -61,9 +64,13 @@ def _gather(mlp_inputs, indices):
     return [mlp_inputs[i].to(device) for i in indices]
 
 
-def _save_fused(name, layer, group, mlp, upstream_hash) -> None:
+def _save_fused(name, layer, group, mlp, upstream_hash, group_size) -> None:
+    # The fusion method declares its reconstruction kind; from_result falls back
+    # to the size default when the method is a Best_* pseudo-method (not in
+    # fusion_methods -> None) or its declared kind is incompatible with the size.
+    method = fusion_methods.get(name)
     os.makedirs(layout.fusion_experts_dir(DATA_DIR, name, layer), exist_ok=True)
-    FusedExpert(mlp).save(
+    FusedExpert.from_result(mlp, method, group_size).save(
         layout.fusion_expert_path(DATA_DIR, name, layer, group),
         provenance=make_provenance(
             seed=SEED, config_hash=config_fingerprint, upstream_hash=upstream_hash
@@ -123,22 +130,20 @@ for layer in produced_layers:
             resumed_any = True
             continue
 
-        member_a, member_b = group.members  # k == 2 (our implementations)
-        expert_a = experts[member_a].to(device)
-        expert_b = experts[member_b].to(device)
+        member_experts = [experts[member].to(device) for member in group.members]
         train_data = _gather(train_mlp_inputs, train_index[group_idx])
         validation_data = _gather(validation_mlp_inputs, validation_index[group_idx])
         ctx = base_ctx.for_layer(layer).for_group(group_idx)
 
         # Call each fusion method via the k-agnostic interface (positional mlps + keyword train_data).
         fused = {
-            name: method(expert_a, expert_b, train_data=train_data, ctx=ctx)
+            name: method(*member_experts, train_data=train_data, ctx=ctx)
             for name, method in fusion_methods.items()
         }
         results = None
         if len(validation_data) > MIN_PAIR_VALIDATION_SAMPLES:
             results = {
-                name: test_model_on_data(fused[name], expert_a, expert_b, validation_data)
+                name: test_model_on_data(fused[name], *member_experts, validation_data)
                 for name in method_names
             }
         chosen = select_best_fused(
@@ -148,7 +153,7 @@ for layer in produced_layers:
             experiment_results.append(results)
 
         for name, mlp in list(fused.items()) + list(chosen.items()):
-            _save_fused(name, layer, group_idx, mlp, upstream(name))
+            _save_fused(name, layer, group_idx, mlp, upstream(name), group.size)
 
     print(f"layer {layer}: fused {partition.num_groups} groups")
 

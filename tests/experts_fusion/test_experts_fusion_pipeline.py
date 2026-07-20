@@ -147,6 +147,58 @@ def test_stage3_fusion(run_script, builders, data_dir, layers):
         assert FusedExpert.load(path).group_size == 2
 
 
+def test_stage3_and_loader_handle_singleton_and_triple_groups(
+    run_script, builders, data_dir, layers
+):
+    """A partition with a singleton and a triple flows through stage 3 (k-agnostic
+    methods) into identity-contract artifacts, and the stage-4 loader serves them
+    through a forward-capable FusionLayer."""
+    from common.artifacts import Group, Partition
+    from common.fused_group import (
+        IDENTITY_RECONSTRUCTION,
+        FusedExpert,
+        IdentityFusedGroup,
+    )
+    from common.fusion_layer import get_fusion_layer_from_groups
+    from common.router import Qwen15RouterAdapter
+    from common.testing import N_EXPERTS, TOP_K
+    from common.testing.fakes import H
+
+    builders.experts(saved=True)
+    builders.mlp_inputs()
+    groups = [(0,), (1, 2, 3)]
+    for layer in layers:
+        path = layout.group_path(data_dir, layer)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        Partition(
+            groups=tuple(Group(members=g) for g in groups),
+            method="activation_correlation",
+        ).save(path)
+    builders.group_activations(n_groups=len(groups))
+
+    run_script("3_fusion.py", config_overrides={"FILTER_FUSIONS": ["Average", "Pruning"]})
+
+    for method in ("Average", "Pruning"):
+        for i, members in enumerate(groups):
+            fused = FusedExpert.load(
+                layout.fusion_expert_path(data_dir, method, layers[0], i)
+            )
+            assert fused.group_size == len(members)
+            assert fused.reconstruction == IDENTITY_RECONSTRUCTION
+
+    fusion = get_fusion_layer_from_groups(
+        layers[0], "Average", data_dir, device=torch.device("cpu"),
+        use_default_experts=False, num_experts=N_EXPERTS,
+        router_adapter=Qwen15RouterAdapter(), top_k=TOP_K,
+    )
+    assert [group.group_size for group in fusion.fusion_groups] == [1, 3]
+    assert all(isinstance(group, IdentityFusedGroup) for group in fusion.fusion_groups)
+    torch.manual_seed(0)
+    out = fusion.forward(torch.randn(1, 5, H))
+    assert out.shape == (1, 5, H)
+    assert torch.isfinite(out).all()
+
+
 def test_stage4_evaluate_accuracy(run_script, builders, data_dir):
     builders.experts(saved=True)
     pairs = builders.partition()
