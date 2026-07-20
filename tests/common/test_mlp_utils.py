@@ -129,6 +129,35 @@ def test_test_model_on_data_warns_and_nans_on_nonfinite(pair, data):
     assert math.isfinite(report["Time"])
 
 
+def test_test_model_on_data_singleton_pruning_is_exact(make_advanced_mlp, data):
+    """k=1: Pruning keeps the single member, so the reconstruction is exact."""
+    a = make_advanced_mlp(4, 6, 4, seed=1)
+    fused = mlp_utils.FUSION_METHODS["Pruning"](a, train_data=data)
+    report = mlp_utils.test_model_on_data(fused, a, data)
+    assert report["MSE"] == pytest.approx(0.0, abs=1e-12)
+    assert report["Cosine"] == pytest.approx(1.0, abs=1e-6)
+
+
+def test_test_model_on_data_triple_uses_identity_reconstruction(make_advanced_mlp, data):
+    """k=3: the fused output is tiled once per member; MSE must equal the
+    closed form computed against the concatenated member outputs."""
+    members = [make_advanced_mlp(4, 6, 4, seed=s) for s in (1, 2, 3)]
+    fused = mlp_utils.FUSION_METHODS["Average"](*members, train_data=data)
+    report = mlp_utils.test_model_on_data(fused, *members, data)
+
+    with torch.no_grad():
+        real = torch.cat([m.forward(data) for m in members], dim=-1).float()
+        tiled = fused.forward(data).repeat(1, 3).float()
+        expected_mse = torch.mean((real - tiled) ** 2).item()
+    assert report["MSE"] == pytest.approx(expected_mse, rel=1e-6)
+
+
+def test_test_model_on_data_requires_member_and_data(pair):
+    a, _ = pair
+    with pytest.raises(TypeError, match="at least"):
+        mlp_utils.test_model_on_data(a)
+
+
 def test_test_model_on_data_picks_up_registered_metric(pair, data, monkeypatch):
     """A metric added to the registry is computed (the report is registry-driven)."""
     from common.metrics import MSE
