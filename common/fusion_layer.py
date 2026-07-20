@@ -12,7 +12,8 @@ from common.router import Qwen15RouterAdapter
 
 class FusionLayer(nn.Module):
     """New version of MLP layer after fusion of experts"""
-    def __init__(self, *, experts, expert_pairs, fusion_experts, gate, shared, use_default_experts, router=None, top_k=None):
+    def __init__(self, *, experts, expert_groups, fusion_experts, gate, shared,
+                 use_default_experts, router=None, top_k=None, fusion_groups=None):
         super().__init__()
         self.gate = gate
         # RouterAdapter decodes gate output the same way it was decoded during
@@ -22,12 +23,40 @@ class FusionLayer(nn.Module):
         self.top_k = top_k
         if use_default_experts:
             self.experts = nn.ModuleList(experts)
-        self.expert_pairs = expert_pairs
+        self.expert_groups = [tuple(int(m) for m in group) for group in expert_groups]
         self.fusion_experts = nn.ModuleList(fusion_experts)
-        # Each fused expert is wrapped in a MLPFusedGroup. Inference calls
+        if len(self.expert_groups) != len(self.fusion_experts):
+            raise ValueError(
+                f"expert_groups ({len(self.expert_groups)}) and fusion_experts "
+                f"({len(self.fusion_experts)}) must have one entry per group"
+            )
+        # Each fused expert is served through a FusedGroup. Inference calls
         # group.reconstruct(x, member) to recover one expert's output.
         # Groups share modules with fusion_experts, so .to() moves both.
-        self.fusion_groups = [MLPFusedGroup(expert) for expert in self.fusion_experts]
+        # When no runtime groups are given (the legacy pickled path), every
+        # group must be a pair and gets the zip_unmerge implementation.
+        if fusion_groups is None:
+            for i, members in enumerate(self.expert_groups):
+                if len(members) != 2:
+                    raise ValueError(
+                        f"group {i} has size {len(members)}; without explicit "
+                        f"fusion_groups every group must be a pair"
+                    )
+            fusion_groups = [MLPFusedGroup(expert) for expert in self.fusion_experts]
+        elif len(fusion_groups) != len(self.expert_groups):
+            raise ValueError(
+                f"fusion_groups ({len(fusion_groups)}) and expert_groups "
+                f"({len(self.expert_groups)}) must have one entry per group"
+            )
+        else:
+            for i, (group, members) in enumerate(zip(fusion_groups, self.expert_groups)):
+                if group.group_size != len(members):
+                    raise ValueError(
+                        f"group {i}: fused artifact declares group_size "
+                        f"{group.group_size} but the partition group has "
+                        f"{len(members)} members"
+                    )
+        self.fusion_groups = list(fusion_groups)
         # ``shared`` is the runtime shared-expert module built by the family's
         # SharedExpertAdapter: it adds the sigmoid-gated shared output, or
         # contributes zeros for families without a shared expert (check
@@ -36,10 +65,10 @@ class FusionLayer(nn.Module):
         self.use_default_experts = use_default_experts
 
         self.num_experts = len(experts)
-        self.pair_idx = [None] * len(experts)
-        for i, (x, y) in enumerate(expert_pairs):
-            self.pair_idx[x] = i
-            self.pair_idx[y] = i
+        self.group_idx = [None] * len(experts)
+        for i, members in enumerate(self.expert_groups):
+            for member in members:
+                self.group_idx[member] = i
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         batch_size, sequence_length, hidden_dim = hidden_states.shape
@@ -71,11 +100,11 @@ class FusionLayer(nn.Module):
                 continue
             top_k_pos, token_idx = torch.where(expert_mask[expert_idx])
             current_state = hidden_states[token_idx]
-            pair_idx = self.pair_idx[expert_idx]
-            pair = self.expert_pairs[pair_idx]
-            # member 0 = pair[0], member 1 = pair[1].
-            member = 0 if expert_idx == pair[0] else 1
-            current_hidden_states = self.fusion_groups[pair_idx].reconstruct(current_state, member)
+            group_idx = self.group_idx[expert_idx]
+            members = self.expert_groups[group_idx]
+            # Member order within the group is the reconstruction orientation.
+            member = members.index(int(expert_idx))
+            current_hidden_states = self.fusion_groups[group_idx].reconstruct(current_state, member)
             current_hidden_states = current_hidden_states * top_k_weights[token_idx, top_k_pos, None]
             final_hidden_states.index_add_(0, token_idx, current_hidden_states.to(final_hidden_states.dtype))
 
@@ -156,11 +185,11 @@ def _load_shared_module(data_dir, layer_index, device, shared_expert_adapter):
     return shared_expert_adapter.build((shared_expert, shared_expert_gate))
 
 
-def _build_fusion_layer(layer_index, data_dir, *, expert_pairs, fusion_experts, device,
+def _build_fusion_layer(layer_index, data_dir, *, expert_groups, fusion_experts, device,
                         use_default_experts, num_experts, router_adapter, top_k, load_expert,
-                        shared_expert_adapter=None):
+                        shared_expert_adapter=None, fusion_groups=None):
     """Shared loader core: reads gate, shared expert, and raw experts, then builds a FusionLayer.
-    Both public loaders call this; they differ only in how expert_pairs/fusion_experts are sourced.
+    Both public loaders call this; they differ only in how expert_groups/fusion_experts are sourced.
     num_experts defaults to the count of expert_*.pt files; router_adapter defaults to Qwen15RouterAdapter;
     shared_expert_adapter defaults to Qwen15SharedExpertAdapter (extracts/builds the shared pathway).
     """
@@ -177,13 +206,14 @@ def _build_fusion_layer(layer_index, data_dir, *, expert_pairs, fusion_experts, 
 
     return FusionLayer(
         experts=experts,
-        expert_pairs=expert_pairs,
+        expert_groups=expert_groups,
         fusion_experts=fusion_experts,
         gate=gate,
         shared=shared,
         use_default_experts=use_default_experts,
         router=router_adapter,
         top_k=top_k,
+        fusion_groups=fusion_groups,
     )
 
 
@@ -197,7 +227,7 @@ def get_fusion_layer_by_index(layer_index, experts_dir, data_dir, device=torch.d
         for i in range(len(expert_pairs))
     ]
     return _build_fusion_layer(
-        layer_index, data_dir, expert_pairs=expert_pairs, fusion_experts=fusion_experts,
+        layer_index, data_dir, expert_groups=expert_pairs, fusion_experts=fusion_experts,
         device=device, use_default_experts=use_default_experts, num_experts=num_experts,
         router_adapter=router_adapter, top_k=top_k, load_expert=_load_expert_legacy,
         shared_expert_adapter=shared_expert_adapter,
@@ -209,21 +239,25 @@ def get_fusion_layer_from_groups(layer_index, method, data_dir, device=torch.dev
                                  router_adapter=None, top_k=None, shared_expert_adapter=None):
     """Build a FusionLayer from versioned artifacts (Partition grouping + FusedExpert safetensors).
     Use this for new pipelines; get_fusion_layer_by_index is the legacy pickled equivalent.
+    Groups may have any size: each FusedExpert artifact carries its reconstruction
+    contract, materialized here via ``to_group()``.
     """
     from common.artifacts import Partition
     from common.fused_group import FusedExpert
 
     partition = Partition.load(layout.group_path(data_dir, layer_index))
-    expert_pairs = partition.to_pairs()
-    fusion_experts = [
+    expert_groups = [group.members for group in partition.groups]
+    fused = [
         FusedExpert.load(
             layout.fusion_expert_path(data_dir, method, layer_index, i), device=device
-        ).mlp
-        for i in range(len(expert_pairs))
+        )
+        for i in range(len(expert_groups))
     ]
     return _build_fusion_layer(
-        layer_index, data_dir, expert_pairs=expert_pairs, fusion_experts=fusion_experts,
+        layer_index, data_dir, expert_groups=expert_groups,
+        fusion_experts=[expert.mlp for expert in fused],
         device=device, use_default_experts=use_default_experts, num_experts=num_experts,
         router_adapter=router_adapter, top_k=top_k, load_expert=_load_expert_saved,
         shared_expert_adapter=shared_expert_adapter,
+        fusion_groups=[expert.to_group() for expert in fused],
     )

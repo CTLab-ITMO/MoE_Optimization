@@ -5,8 +5,11 @@ import torch
 from torch import nn
 
 from common.expert_adapter import NoSharedExpertAdapter, Qwen15SharedExpert
-from common.fused_group import MLPFusedGroup
-from common.fusion_layer import FusionLayer, get_fusion_layer_by_index
+from common.fused_group import IdentityFusedGroup, MLPFusedGroup
+from common.fusion_layer import (
+    FusionLayer,
+    get_fusion_layer_by_index,
+)
 from common.mlp import AdvancedMLP
 
 CPU = torch.device("cpu")
@@ -39,7 +42,7 @@ def _build_fusion_layer(use_default_experts):
     )
     return FusionLayer(
         experts=experts,
-        expert_pairs=PAIRS,
+        expert_groups=PAIRS,
         fusion_experts=fusion_experts,
         gate=gate,
         shared=shared,
@@ -47,10 +50,10 @@ def _build_fusion_layer(use_default_experts):
     )
 
 
-def test_pair_maps():
+def test_group_maps():
     layer = _build_fusion_layer(use_default_experts=True)
     assert layer.num_experts == NUM_EXPERTS
-    assert layer.pair_idx[0] == 0 and layer.pair_idx[3] == 1
+    assert layer.group_idx[0] == 0 and layer.group_idx[3] == 1
 
 
 def test_layer_wraps_fused_experts_in_fused_groups():
@@ -77,6 +80,113 @@ def test_forward_default_keeps_shape():
     out = layer.forward_default(hidden_states)
     assert out.shape == hidden_states.shape
     assert torch.isfinite(out).all()
+
+
+# --------------------------------------------------------------------------- #
+# Groups of size != 2 (identity reconstruction) and constructor validation.
+# --------------------------------------------------------------------------- #
+MIXED_GROUPS = [(0,), (1, 2, 3)]
+
+
+def _build_mixed_layer():
+    torch.manual_seed(0)
+    gate = FakeGate()
+    fusion_experts = [AdvancedMLP(HIDDEN, 6, HIDDEN, device=CPU) for _ in MIXED_GROUPS]
+    fusion_groups = [
+        IdentityFusedGroup(mlp, len(members))
+        for mlp, members in zip(fusion_experts, MIXED_GROUPS)
+    ]
+    shared = Qwen15SharedExpert(
+        nn.Linear(HIDDEN, HIDDEN, bias=False), nn.Linear(HIDDEN, 1, bias=False)
+    )
+    layer = FusionLayer(
+        experts=[None] * NUM_EXPERTS,
+        expert_groups=MIXED_GROUPS,
+        fusion_experts=fusion_experts,
+        gate=gate,
+        shared=shared,
+        use_default_experts=False,
+        fusion_groups=fusion_groups,
+    )
+    return layer, gate, fusion_experts, shared
+
+
+def test_group_maps_for_singleton_and_triple():
+    layer, *_ = _build_mixed_layer()
+    assert layer.group_idx == [0, 1, 1, 1]
+    assert layer.expert_groups == [(0,), (1, 2, 3)]
+
+
+def test_forward_singleton_and_triple_matches_manual_routing():
+    """Every member of an identity group must be served by the group's fused
+    output weighted by that member's own routing weight."""
+    layer, gate, fusion_experts, shared = _build_mixed_layer()
+    group_of = {0: 0, 1: 1, 2: 1, 3: 1}
+
+    hidden_states = torch.randn(2, 3, HIDDEN)
+    flat = hidden_states.view(-1, HIDDEN)
+    with torch.no_grad():
+        _, weights, selected = gate(flat)
+        expected = shared(flat).clone()
+        for t in range(flat.shape[0]):
+            for j in range(TOP_K):
+                expert = int(selected[t, j])
+                fused = fusion_experts[group_of[expert]]
+                expected[t] += weights[t, j] * fused(flat[t : t + 1])[0]
+        out = layer.forward(hidden_states)
+    assert torch.allclose(out, expected.view_as(hidden_states), atol=1e-6)
+
+
+def test_constructor_rejects_group_size_mismatch():
+    torch.manual_seed(0)
+    fusion_experts = [AdvancedMLP(HIDDEN, 6, HIDDEN, device=CPU) for _ in MIXED_GROUPS]
+    fusion_groups = [
+        IdentityFusedGroup(fusion_experts[0], 1),
+        IdentityFusedGroup(fusion_experts[1], 2),  # partition group has 3 members
+    ]
+    with pytest.raises(ValueError, match="group_size"):
+        FusionLayer(
+            experts=[None] * NUM_EXPERTS,
+            expert_groups=MIXED_GROUPS,
+            fusion_experts=fusion_experts,
+            gate=FakeGate(),
+            shared=Qwen15SharedExpert(
+                nn.Linear(HIDDEN, HIDDEN, bias=False), nn.Linear(HIDDEN, 1, bias=False)
+            ),
+            use_default_experts=False,
+            fusion_groups=fusion_groups,
+        )
+
+
+def test_constructor_without_fusion_groups_rejects_non_pairs():
+    torch.manual_seed(0)
+    fusion_experts = [AdvancedMLP(HIDDEN, 6, HIDDEN, device=CPU) for _ in MIXED_GROUPS]
+    with pytest.raises(ValueError, match="must be a pair"):
+        FusionLayer(
+            experts=[None] * NUM_EXPERTS,
+            expert_groups=MIXED_GROUPS,
+            fusion_experts=fusion_experts,
+            gate=FakeGate(),
+            shared=Qwen15SharedExpert(
+                nn.Linear(HIDDEN, HIDDEN, bias=False), nn.Linear(HIDDEN, 1, bias=False)
+            ),
+            use_default_experts=False,
+        )
+
+
+def test_constructor_rejects_groups_experts_length_mismatch():
+    torch.manual_seed(0)
+    with pytest.raises(ValueError, match="one entry per group"):
+        FusionLayer(
+            experts=[None] * NUM_EXPERTS,
+            expert_groups=MIXED_GROUPS,
+            fusion_experts=[AdvancedMLP(HIDDEN, 6, HIDDEN, device=CPU)],
+            gate=FakeGate(),
+            shared=Qwen15SharedExpert(
+                nn.Linear(HIDDEN, HIDDEN, bias=False), nn.Linear(HIDDEN, 1, bias=False)
+            ),
+            use_default_experts=False,
+        )
 
 
 def _populate_data_dir(root, index, experts_subdir="fusion_experts/ZipIt"):

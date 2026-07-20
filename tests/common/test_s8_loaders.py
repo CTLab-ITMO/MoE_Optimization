@@ -63,7 +63,7 @@ def test_groups_loader_matches_legacy_loader(tmp_path):
         0, "v1", data_dir, device=CPU,
         use_default_experts=False, num_experts=N_EXPERTS, router_adapter=router, top_k=TOP_K,
     )
-    assert new_layer.expert_pairs == legacy_layer.expert_pairs
+    assert new_layer.expert_groups == legacy_layer.expert_groups
 
     torch.manual_seed(0)
     x = torch.randn(1, 5, H)
