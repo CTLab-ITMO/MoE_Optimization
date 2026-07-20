@@ -5,7 +5,7 @@ Implementations live in submodules; see ``common/EXTENDING.md`` to add a strateg
 """
 from common.context import StageContext
 from common.registry import Registry, require_all_registered, require_registered
-from common.fusion import FUSION_REGISTRY, FusionMethod
+from common.fusion import FUSION_REGISTRY, FusionMethod, apply_meta_wrappers
 from common.grouping import (
     GROUPING_REGISTRY,
     AffinityProvider,
@@ -21,6 +21,9 @@ from common.expert_adapter import ExpertAdapter, SharedExpertAdapter
 from common.qa_parser import QAParser
 from common.artifacts import CoActivationMatrix, GroupActivationIndex, Partition
 from common.fusion_layer import FusionLayer
+
+import common.baselines  # noqa: E402,F401  registers REAP / HC-SMoE strategies
+apply_meta_wrappers(FUSION_REGISTRY)  # LS_<name> wrappers, after all base methods incl. baselines
 
 __all__ = [
     # dynamic state + registry machinery

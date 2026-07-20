@@ -21,6 +21,8 @@ class PairingMethod(StrEnum):
     ACTIVATION_CORRELATION = "activation_correlation"
     RANDOM = "random"
     OUTPUT_SIMILARITY = "output_similarity"
+    REAP_SALIENCY = "reap_saliency"
+    HCSMOE_CLUSTERING = "hcsmoe_clustering"
 
 
 class ReplaceMode(StrEnum):

@@ -51,9 +51,9 @@ selected_best_metrics = live_best_metrics()
 if FILTER_METRICS is not None:
     selected_best_metrics = {k: v for k, v in selected_best_metrics.items() if k in FILTER_METRICS}
 
-# data_dir lets ctx-aware fusion methods read their calibration signals
-# (selection-count diagonal, group membership) from the artifact store;
-# ctx-free methods ignore it, so this is behavior-preserving.
+# data_dir lets ctx-aware fusion methods (FrequencyWeightedAverage) read their
+# calibration signals (selection-count diagonal, group membership) from the
+# artifact store; ctx-free methods ignore it, so this is behavior-preserving.
 set_seed(SEED)
 base_ctx = StageContext(seed=SEED, device=device, data_dir=DATA_DIR)
 config_fingerprint = provenance.config_hash(config_snapshot_dict())

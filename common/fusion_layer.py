@@ -241,6 +241,12 @@ def get_fusion_layer_from_groups(layer_index, method, data_dir, device=torch.dev
     Use this for new pipelines; get_fusion_layer_by_index is the legacy pickled equivalent.
     Groups may have any size: each FusedExpert artifact carries its reconstruction
     contract, materialized here via ``to_group()``.
+
+    On incomplete coverage (a REAP-style partition that leaves some experts in no
+    group), the loader automatically wraps ``router_adapter`` in a
+    ``MaskedRouterAdapter`` (via ``from_uncovered``) that masks the uncovered
+    experts out of the router. Full coverage leaves ``router_adapter`` unchanged,
+    so routing stays byte-identical for every existing method.
     """
     from common.artifacts import Partition
     from common.fused_group import FusedExpert
@@ -253,6 +259,14 @@ def get_fusion_layer_from_groups(layer_index, method, data_dir, device=torch.dev
         )
         for i in range(len(expert_groups))
     ]
+    if num_experts is None:
+        num_experts = len(glob.glob(layout.expert_glob(data_dir, layer_index)))
+    covered = {int(m) for members in expert_groups for m in members}
+    uncovered = [e for e in range(num_experts) if e not in covered]
+    if uncovered:
+        from common.baselines.reap import MaskedRouterAdapter
+        base = router_adapter if router_adapter is not None else Qwen15RouterAdapter()
+        router_adapter = MaskedRouterAdapter.from_uncovered(base, uncovered, num_experts, top_k)
     return _build_fusion_layer(
         layer_index, data_dir, expert_groups=expert_groups,
         fusion_experts=[expert.mlp for expert in fused],

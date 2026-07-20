@@ -569,16 +569,18 @@ def apply_meta_wrappers(registry: Registry) -> None:
 
 
 def _build_fusion_registry() -> Registry:
-    """Build the canonical registry: base methods in ``BASE_FUSION_METHODS``
-    order, then their ``LS_<name>`` wrappers in the same order.
+    """Build the canonical registry with the base methods in
+    ``BASE_FUSION_METHODS`` order.
 
     Order is intentionally pinned: ``Best_*`` uses the first registered method
-    as its fallback, and golden snapshots depend on this exact sequence.
+    as its fallback, and golden snapshots depend on this exact sequence. The
+    ``LS_<name>`` meta-wrappers are NOT applied here -- ``common/__init__.py``
+    calls :func:`apply_meta_wrappers` after ``common.baselines`` registers
+    ``FrequencyWeightedAverage`` so it takes index 7 before the wrappers.
     """
     registry = Registry("fusion")
     for method in BASE_FUSION_METHODS:
         registry.register(method.name, method)
-    apply_meta_wrappers(registry)
     return registry
 
 
