@@ -46,6 +46,7 @@ CPU = torch.device("cpu")
 
 EXPECTED_FUSION_ORDER = [
     "ZipIt", "Average", "Pruning", "Procrustes", "Fisher", "TIES", "Distillation",
+    "FrequencyWeightedAverage",
     "LS_ZipIt", "LS_Average", "LS_Pruning", "LS_Procrustes", "LS_Fisher",
     "LS_TIES", "LS_Distillation",
 ]
@@ -194,9 +195,10 @@ K_AGNOSTIC_METHODS = [
 
 
 def test_arity_split_is_pinned():
-    # Average / Pruning (and nothing else) are k-agnostic; every LS_* wrapper
-    # stays strictly pairwise even when it wraps a k-agnostic base method.
-    assert K_AGNOSTIC_METHODS == ["Average", "Pruning"]
+    # Average / Pruning / FrequencyWeightedAverage (and nothing else) are
+    # k-agnostic; every LS_* wrapper stays strictly pairwise even when it wraps a
+    # k-agnostic base method.
+    assert K_AGNOSTIC_METHODS == ["Average", "Pruning", "FrequencyWeightedAverage"]
     assert set(PAIRWISE_METHODS) | set(K_AGNOSTIC_METHODS) == set(EXPECTED_FUSION_ORDER)
 
 
@@ -287,8 +289,8 @@ def test_ls_refit_unmerge_matches_manual_solve():
 def test_base_fusion_methods_all_in_registry():
     for method in BASE_FUSION_METHODS:
         assert FUSION_REGISTRY[method.name] is method
-        # Only wrappable base methods get an LS_<name> variant; a wrappable=False
-        # method would be intentionally left bare.
+        # Only wrappable base methods get an LS_<name> variant; wrappable=False
+        # methods (e.g. FrequencyWeightedAverage) are intentionally left bare.
         if method.wrappable:
             assert FUSION_REGISTRY[f"LS_{method.name}"].name == f"LS_{method.name}"
         else:

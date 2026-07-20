@@ -106,7 +106,7 @@ def test_partition_is_metadata_only_artifact(path):
 def test_partition_with_singleton_and_triple_roundtrips(path):
     """Groups of size 1 and 3 survive the save/load round-trip unchanged."""
     partition = Partition(
-        groups=(Group(members=(0,)), Group(members=(1, 2, 3))), method="activation_correlation"
+        groups=(Group(members=(0,)), Group(members=(1, 2, 3))), method="reap"
     )
     partition.save(path)
     loaded = Partition.load(path)

@@ -118,6 +118,36 @@ def test_parses_underscored_modes_and_fusion_names(tmp_path):
     assert by_fusion == {("smart_seq", "LS_ZipIt"), ("seq", "Best_MSE"), ("single", "zero")}
 
 
+def test_parses_baseline_fusion_names(tmp_path):
+    """REAP/HC-SMoE baseline fusion names (``Pruning`` / ``FrequencyWeightedAverage``,
+    step-2 design note) parse across all three replace modes.
+
+    Neither name starts with a mode token (``seq_``/``single_``/``smart_seq_``), so
+    the report splits ``<mode>_<fusion>`` correctly -- the structural guarantee the
+    baseline configs (step 7) rely on when stage 4 writes their accuracy lists.
+    """
+    data_dir = seed_data_dir(
+        tmp_path / "ef",
+        accuracy_lists={
+            (ReplaceMode.SEQ, "Pruning"): [0.6, 0.5],
+            (ReplaceMode.SINGLE, "Pruning"): [0.6, 0.55],
+            (ReplaceMode.SMART_SEQ, "Pruning"): [0.6, 0.45],
+            (ReplaceMode.SEQ, "FrequencyWeightedAverage"): [0.6, 0.5],
+            (ReplaceMode.SINGLE, "FrequencyWeightedAverage"): [0.6, 0.55],
+            (ReplaceMode.SMART_SEQ, "FrequencyWeightedAverage"): [0.6, 0.45],
+        },
+    )
+    by_fusion = {(r.mode, r.fusion) for r in report.collect_rows([data_dir])}
+    assert by_fusion == {
+        ("seq", "Pruning"),
+        ("single", "Pruning"),
+        ("smart_seq", "Pruning"),
+        ("seq", "FrequencyWeightedAverage"),
+        ("single", "FrequencyWeightedAverage"),
+        ("smart_seq", "FrequencyWeightedAverage"),
+    }
+
+
 def test_unparseable_filename_warns_and_skips(tmp_path):
     data_dir = seed_data_dir(
         tmp_path / "ef", accuracy_lists={(ReplaceMode.SEQ, "ZipIt"): [0.6, 0.5]}

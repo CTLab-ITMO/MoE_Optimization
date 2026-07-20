@@ -10,6 +10,8 @@ def test_pairing_method_values_and_order_match_frozen_registry():
         "activation_correlation",
         "random",
         "output_similarity",
+        "reap_saliency",
+        "hcsmoe_clustering",
     ]
 
 

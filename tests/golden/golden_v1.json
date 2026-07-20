@@ -168,6 +168,7 @@
       "Fisher",
       "TIES",
       "Distillation",
+      "FrequencyWeightedAverage",
       "LS_ZipIt",
       "LS_Average",
       "LS_Pruning",
@@ -194,7 +195,9 @@
     "pairing_methods": [
       "activation_correlation",
       "random",
-      "output_similarity"
+      "output_similarity",
+      "reap_saliency",
+      "hcsmoe_clustering"
     ]
   },
   "seed": 1234

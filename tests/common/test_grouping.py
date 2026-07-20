@@ -105,12 +105,17 @@ def test_registry_names_match_pairing_methods_in_order():
     assert GROUPING_REGISTRY.names() == [str(method) for method in PairingMethod]
 
 
-def test_registry_entries_are_pair_groupings_named_for_their_key():
+def test_registry_entries_are_groupings_named_for_their_key():
+    # Every entry is a Grouping named for its key. The three pairwise strategies
+    # are PairGrouping; k-agnostic strategies (reap_saliency, hcsmoe_clustering)
+    # need not be.
+    pairwise = {ACT, RAND, OUT}
     for name in GROUPING_REGISTRY.names():
         strategy = GROUPING_REGISTRY[name]
         assert isinstance(strategy, Grouping)
-        assert isinstance(strategy, PairGrouping)
         assert strategy.name == name
+        if name in pairwise:
+            assert isinstance(strategy, PairGrouping)
 
 
 def test_require_registered_drives_pairing_method_validation():
