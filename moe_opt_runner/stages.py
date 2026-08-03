@@ -7,6 +7,7 @@ import torch
 
 from moe_opt_core.artifacts import write_artifact_manifest as write_artifact_manifest_file, write_run_summary
 from moe_opt_core.config import ExperimentConfig, config_hash
+from moe_opt_core.experiment import ExpectedExperimentFailure, ExperimentFailureCode, TraceSource
 from moe_opt_core.pipelines.h1_merge import merge_cluster_modules, run_h1_pipeline
 from moe_opt_core.pipelines.h2_bias import run_h2_pipeline
 from moe_opt_core.pipelines.h3_routing import run_h3_pipeline
@@ -39,8 +40,17 @@ def _ensure_h1_inputs(config: ExperimentConfig, ctx: Optional[RuntimeContext]) -
     p = Path(config.h1.mlp_inputs_path)
     if p.exists():
         return str(p)
+    if config.calibration.source != TraceSource.SYNTHETIC.value:
+        raise ExpectedExperimentFailure(
+            ExperimentFailureCode.TRACE_ARTIFACT_MISSING,
+            f"H1 trace inputs not found: {p}",
+            context={
+                "calibration_source": config.calibration.source,
+                "hint": "Run the collect_traces stage or provide an artifact path",
+            },
+        )
     if not config.h1.auto_generate_inputs_if_missing:
-        raise FileNotFoundError(f"H1 inputs not found: {p}")
+        raise FileNotFoundError(f"Synthetic H1 inputs not found: {p}")
     if ctx is None:
         raise RuntimeError("Runtime context is required to auto-generate H1 inputs")
 
@@ -91,6 +101,12 @@ def _ensure_h2_inputs(config: ExperimentConfig, ctx: Optional[RuntimeContext]) -
         vec = gate_w.norm(dim=1)
         torch.save(vec, imp_path)
     else:
+        if config.calibration.source != TraceSource.SYNTHETIC.value:
+            raise ExpectedExperimentFailure(
+                ExperimentFailureCode.TRACE_ARTIFACT_MISSING,
+                "H2 covariance mode requires a real importance matrix artifact",
+                context={"importance_matrix_path": imp_mat},
+            )
         if not imp_mat:
             imp_mat = str(Path(config.artifacts.root_dir) / f"h2_importance_matrix_layer{h2.layer}.pt")
         mpath = Path(imp_mat)
@@ -108,8 +124,14 @@ def _ensure_h3_inputs(config: ExperimentConfig, ctx: Optional[RuntimeContext]) -
     p = Path(config.h3.routing_probs_path)
     if p.exists():
         return str(p)
+    if config.calibration.source != TraceSource.SYNTHETIC.value:
+        raise ExpectedExperimentFailure(
+            ExperimentFailureCode.TRACE_ARTIFACT_MISSING,
+            f"H3 routing probabilities not found: {p}",
+            context={"hint": "Run the collect_traces stage or provide an artifact path"},
+        )
     if not config.h3.auto_from_model:
-        raise FileNotFoundError(f"H3 routing probs not found: {p}")
+        raise FileNotFoundError(f"Synthetic H3 routing probs not found: {p}")
     if ctx is None:
         raise RuntimeError("Runtime context is required to auto-generate H3 routing probabilities")
 
@@ -151,6 +173,13 @@ def run_h1_stage(config: ExperimentConfig, ctx: Optional[RuntimeContext] = None)
         cluster_count=h1.cluster_count,
         output_pairs_path=h1.output_pairs_path,
         output_diagnostics_path=h1.output_diagnostics_path,
+        validation_inputs_path=str(
+            Path(config.calibration.output_dir) / "validation" / f"layer_{h1.layer}.pt"
+        ),
+        null_trials=h1.null_trials,
+        bootstrap_trials=h1.bootstrap_trials,
+        null_quantile=h1.null_quantile,
+        stability_max_angle_deg=h1.stability_max_angle_deg,
     )
 
     merged_count = 0
@@ -173,6 +202,7 @@ def run_h1_stage(config: ExperimentConfig, ctx: Optional[RuntimeContext] = None)
         "clusters": len(result.clusters),
         "merged_clusters": merged_count,
         "spike_rank": result.diagnostics.get("rank", 0),
+        "embedding_path": result.diagnostics.get("embedding_path", ""),
     }
 
 
@@ -224,6 +254,9 @@ def write_artifact_manifest(config: ExperimentConfig, stage_outputs: Dict[str, D
             "h1_diag": config.h1.output_diagnostics_path,
             "h2_bias": config.h2.output_bias_path,
             "h3_diag": config.h3.output_diagnostics_path,
+            "trace_manifest": Path(config.calibration.output_dir) / "trace_manifest.json",
+            "pilot_runs": Path(config.artifacts.root_dir) / "pilot_runs.jsonl",
+            "pilot_summary": Path(config.artifacts.root_dir) / "pilot_summary.json",
         },
     )
     write_run_summary(

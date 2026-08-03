@@ -3,13 +3,14 @@
 from dataclasses import dataclass
 import json
 from pathlib import Path
-from typing import Dict, Iterable, List, Sequence, Tuple
+from typing import Dict, List, Sequence, Tuple
 
 import torch
 import torch.nn as nn
 
 from common.projection_tools import build_functional_sketch
 from common.rmt_tools import spike_denoised_embedding
+from moe_opt_core.pipelines.rmt_diagnostics import finite_size_spectral_diagnostics
 
 
 @dataclass
@@ -17,6 +18,10 @@ class H1PipelineResult:
     pairs: List[Tuple[int, int]]
     clusters: List[List[int]]
     diagnostics: Dict[str, object]
+    raw_embedding: torch.Tensor
+    spectral_embedding: torch.Tensor
+    functional_cosine_pairs: List[Tuple[int, int]]
+    validation_raw_embedding: torch.Tensor | None
 
 
 @torch.no_grad()
@@ -25,6 +30,8 @@ def collect_mlp_inputs(path: str | Path, n_inputs: int, device: str = "cpu") -> 
     if not p.exists():
         raise FileNotFoundError(f"MLP inputs not found: {p}")
     raw = torch.load(p, map_location="cpu")
+    if isinstance(raw, dict) and "hidden_states" in raw:
+        raw = raw["hidden_states"]
     if isinstance(raw, list):
         if len(raw) == 0:
             raise ValueError("MLP inputs list is empty")
@@ -110,6 +117,22 @@ def _projection_mean(u_list: Sequence[torch.Tensor], rank: int) -> torch.Tensor:
 
 
 @torch.no_grad()
+def _truncated_left_basis(matrix: torch.Tensor, rank: int) -> torch.Tensor:
+    work = matrix.detach().float()
+    max_rank = min(work.shape)
+    rank = max(1, min(rank, max_rank))
+    q = min(max_rank, rank + 8)
+    if q == max_rank:
+        u, _, _ = torch.linalg.svd(work, full_matrices=False)
+        return u[:, :rank]
+    devices = [work.device.index or 0] if work.device.type == "cuda" else []
+    with torch.random.fork_rng(devices=devices):
+        torch.manual_seed(0)
+        u, _, _ = torch.svd_lowrank(work, q=q, niter=2)
+    return u[:, :rank]
+
+
+@torch.no_grad()
 def merge_weight_matrices_baseline(weights: Sequence[torch.Tensor], usage: Sequence[float] | None = None) -> torch.Tensor:
     if not weights:
         raise ValueError("No weights to merge")
@@ -132,17 +155,19 @@ def merge_weight_matrices_geometry(
         raise ValueError("No weights to merge")
     if usage is None:
         usage = [1.0 / len(weights)] * len(weights)
-    max_rank = min(weights[0].shape)
+    original_dtype = weights[0].dtype
+    original_device = weights[0].device
+    work_weights = [weight.detach().to(device=original_device, dtype=torch.float32) for weight in weights]
+    max_rank = min(work_weights[0].shape)
     rank = max(1, min(rank, max_rank))
 
     u_list: List[torch.Tensor] = []
-    for w in weights:
-        u, _, _ = torch.linalg.svd(w, full_matrices=False)
-        u_list.append(u[:, :rank])
+    for weight in work_weights:
+        u_list.append(_truncated_left_basis(weight, rank))
 
     u_star = _projection_mean(u_list, rank=rank)
-    merged = torch.zeros_like(weights[0])
-    for a, w in zip(usage, weights):
+    merged = torch.zeros_like(work_weights[0])
+    for a, w in zip(usage, work_weights):
         wp = u_star @ (u_star.t() @ w)
         merged = merged + float(a) * wp
 
@@ -150,7 +175,7 @@ def merge_weight_matrices_geometry(
         u, s, vt = torch.linalg.svd(merged, full_matrices=False)
         s2 = torch.clamp(s - shrink_tau, min=0.0)
         merged = (u * s2) @ vt
-    return merged
+    return merged.to(dtype=original_dtype, device=original_device)
 
 
 @torch.no_grad()
@@ -194,6 +219,11 @@ def run_h1_with_experts(
     seed: int = 123,
     mp_factor: float = 1.1,
     cluster_count: int = 0,
+    validation_inputs: torch.Tensor | None = None,
+    null_trials: int = 32,
+    bootstrap_trials: int = 32,
+    null_quantile: float = 0.95,
+    stability_max_angle_deg: float = 30.0,
 ) -> H1PipelineResult:
     x = build_functional_sketch(
         list(experts),
@@ -203,15 +233,51 @@ def run_h1_with_experts(
         seed=seed,
         device=str(mlp_inputs.device),
     )
-    emb, info = spike_denoised_embedding(x, mp_factor=mp_factor, min_rank=1)
+    validation_embedding = None
+    if validation_inputs is not None:
+        validation_embedding = build_functional_sketch(
+            list(experts),
+            mlp_inputs=validation_inputs,
+            proj_dim=proj_dim,
+            batch_size=batch_size,
+            seed=seed,
+            device=str(validation_inputs.device),
+        )
+    finite_size = finite_size_spectral_diagnostics(
+        x,
+        validation_embedding=validation_embedding,
+        null_trials=null_trials,
+        bootstrap_trials=bootstrap_trials,
+        null_quantile=null_quantile,
+        stability_max_angle_deg=stability_max_angle_deg,
+        seed=seed,
+    )
+    _, legacy_mp = spike_denoised_embedding(x, mp_factor=mp_factor, min_rank=1)
+    emb = finite_size.signal_embedding
     pairs, clusters = pair_or_cluster(emb, mode=mode, cluster_count=cluster_count)
+    functional_cosine_pairs = greedy_pairs_from_similarity(_cosine_sim_matrix(x))
     diagnostics = {
-        "rank": int(info["rank"]),
-        "tau": float(info["tau"]),
-        "lambda_plus": float(info["lambda_plus"]),
-        "eigvals": info["eigvals"].tolist(),
+        "rank": int(finite_size.r_useful),
+        "r_detect": int(finite_size.r_detect),
+        "r_stable": int(finite_size.r_stable),
+        "r_useful": int(finite_size.r_useful),
+        "null_edge": float(finite_size.null_edge),
+        "bootstrap_max_angle_median_deg": float(finite_size.bootstrap_max_angle_median_deg),
+        "heldout_max_angle_deg": finite_size.heldout_max_angle_deg,
+        "mp_rank": int(legacy_mp["rank"]),
+        "lambda_plus": float(legacy_mp["lambda_plus"]),
+        "tau": float(legacy_mp["tau"]),
+        "eigvals": finite_size.eigenvalues.tolist(),
     }
-    return H1PipelineResult(pairs=pairs, clusters=clusters, diagnostics=diagnostics)
+    return H1PipelineResult(
+        pairs=pairs,
+        clusters=clusters,
+        diagnostics=diagnostics,
+        raw_embedding=x,
+        spectral_embedding=emb,
+        functional_cosine_pairs=functional_cosine_pairs,
+        validation_raw_embedding=validation_embedding,
+    )
 
 
 @torch.no_grad()
@@ -227,8 +293,16 @@ def run_h1_pipeline(
     cluster_count: int,
     output_pairs_path: str,
     output_diagnostics_path: str,
+    validation_inputs_path: str = "",
+    null_trials: int = 32,
+    bootstrap_trials: int = 32,
+    null_quantile: float = 0.95,
+    stability_max_angle_deg: float = 30.0,
 ) -> H1PipelineResult:
     mlp_inputs = collect_mlp_inputs(mlp_inputs_path, n_inputs=n_inputs, device="cpu")
+    validation_inputs = None
+    if validation_inputs_path and Path(validation_inputs_path).exists():
+        validation_inputs = collect_mlp_inputs(validation_inputs_path, n_inputs=n_inputs, device="cpu")
     result = run_h1_with_experts(
         experts=experts,
         mlp_inputs=mlp_inputs,
@@ -238,6 +312,11 @@ def run_h1_pipeline(
         seed=seed,
         mp_factor=mp_factor,
         cluster_count=cluster_count,
+        validation_inputs=validation_inputs,
+        null_trials=null_trials,
+        bootstrap_trials=bootstrap_trials,
+        null_quantile=null_quantile,
+        stability_max_angle_deg=stability_max_angle_deg,
     )
 
     pairs_path = Path(output_pairs_path)
@@ -246,8 +325,20 @@ def run_h1_pipeline(
     diag_path.parent.mkdir(parents=True, exist_ok=True)
 
     torch.save(result.pairs, pairs_path)
+    embedding_path = diag_path.with_suffix(".pt")
+    result.diagnostics["embedding_path"] = str(embedding_path)
     with diag_path.open("w", encoding="utf-8") as f:
         json.dump(result.diagnostics, f, indent=2)
+    torch.save(
+        {
+            "raw_embedding": result.raw_embedding,
+            "spectral_embedding": result.spectral_embedding,
+            "rmt_pairs": result.pairs,
+            "functional_cosine_pairs": result.functional_cosine_pairs,
+            "validation_raw_embedding": result.validation_raw_embedding,
+        },
+        embedding_path,
+    )
     return result
 
 

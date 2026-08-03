@@ -60,23 +60,30 @@ def build_functional_sketch(
     R = torch.randn((d, proj_dim), generator=g, dtype=torch.float32) / (d**0.5)
 
     X = torch.empty((E, N * proj_dim), dtype=torch.float32)
-    R_device = R.to(device)
-
     for e_idx in tqdm(range(E), desc="Sketch experts"):
-        expert = experts[e_idx].to(device)
+        expert = experts[e_idx]
+        try:
+            first_parameter = next(expert.parameters())
+            original_device = first_parameter.device
+            expert_dtype = first_parameter.dtype
+        except StopIteration:
+            original_device = torch.device("cpu")
+            expert_dtype = torch.float32
+        execution_device = original_device if original_device.type != "meta" else device
+        moved = execution_device != original_device
+        if moved:
+            expert = expert.to(execution_device)
+        R_device = R.to(execution_device)
         cursor = 0
         for s in range(0, N, batch_size):
-            x = mlp_inputs[s : s + batch_size].to(device)
+            x = mlp_inputs[s : s + batch_size].to(device=execution_device, dtype=expert_dtype)
             y = expert(x)  # [B, d]
             y = y.float() @ R_device  # [B, proj_dim]
             b = y.shape[0]
             X[e_idx, cursor : cursor + b * proj_dim] = y.reshape(-1).cpu()
             cursor += b * proj_dim
-        # keep modules on CPU between iterations to cap peak VRAM
-        experts[e_idx] = experts[e_idx].cpu()
-
-    if device.type == "cuda":
-        torch.cuda.empty_cache()
+        if moved:
+            experts[e_idx] = expert.to(original_device)
 
     # center each feature dimension across experts
     X = X - X.mean(dim=0, keepdim=True)

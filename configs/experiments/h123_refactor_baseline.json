@@ -29,6 +29,20 @@
     "warmup_steps": 10,
     "measure_steps": 50
   },
+  "calibration": {
+    "source": "synthetic",
+    "output_dir": "artifacts/h123_refactor_baseline/traces",
+    "max_samples": 256,
+    "max_length": 512,
+    "batch_size": 1,
+    "calibration_fraction": 0.6,
+    "validation_fraction": 0.2,
+    "test_fraction": 0.2,
+    "seed": 123
+  },
+  "pilot": {
+    "enabled": false
+  },
   "stages": {
     "h1": {
       "enabled": true,

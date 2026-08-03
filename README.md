@@ -16,6 +16,28 @@ python -m moe_opt_runner.main --config configs/experiments/h123_refactor_baselin
 python -m moe_opt_runner.main --config configs/experiments/h123_refactor_baseline.json
 ```
 
+Run the environment gate before a real GPU pilot:
+
+```bash
+python -m moe_opt_runner.preflight --config configs/experiments/h1_rmt_one_layer_pilot.json --require-cuda --check-model-config
+python -m moe_opt_runner.main --config configs/experiments/h1_rmt_one_layer_pilot.json
+```
+
+Install the experiment-only dependencies without replacing the CUDA-specific Torch
+build already present in the environment:
+
+```bash
+python -m pip install -r requirements-experiment.txt
+```
+
+The one-layer pilot uses real Hugging Face dataset traces, finite-size RMT diagnostics,
+reversible candidate materialization, validation-driven selection, and held-out test
+evaluation. Candidate results are appended to `pilot_runs.jsonl`, so completed runs
+remain available if a later candidate fails.
+
+The detailed launch and interpretation protocol is documented in
+`docs/6. Runbook первой RMT-MoE итерации.md`.
+
 Note: full run requires `torch` and model weights available in the environment.
 
 ## Legacy Thin Wrappers
