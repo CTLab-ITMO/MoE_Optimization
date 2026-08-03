@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 import json
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 
 @dataclass(frozen=True)
@@ -38,6 +38,10 @@ class H1Config:
     cluster_count: int = 0
     geometry_rank: int = 64
     shrink_tau: float = 0.0
+    null_trials: int = 32
+    bootstrap_trials: int = 32
+    null_quantile: float = 0.95
+    stability_max_angle_deg: float = 30.0
 
 
 @dataclass(frozen=True)
@@ -76,6 +80,39 @@ class ProfileConfig:
 
 
 @dataclass(frozen=True)
+class CalibrationConfig:
+    source: str = "artifact"
+    dataset_name: str = ""
+    dataset_config: str = ""
+    dataset_split: str = "train"
+    text_column: str = ""
+    output_dir: str = "artifacts/traces"
+    max_samples: int = 256
+    max_length: int = 512
+    batch_size: int = 1
+    calibration_fraction: float = 0.6
+    validation_fraction: float = 0.2
+    test_fraction: float = 0.2
+    seed: int = 123
+
+
+@dataclass(frozen=True)
+class PilotConfig:
+    enabled: bool = False
+    layer: int = 0
+    methods: Tuple[str, ...] = (
+        "random_merge",
+        "usage_prune",
+        "functional_cosine",
+        "rmt_geometry",
+    )
+    compression_fractions: Tuple[float, ...] = (0.1, 0.25, 0.4)
+    quality_budgets: Tuple[float, ...] = (0.01, 0.03, 0.05)
+    seeds: Tuple[int, ...] = (123, 456, 789)
+    max_eval_batches: int = 32
+
+
+@dataclass(frozen=True)
 class ArtifactSpecConfig:
     root_dir: str
     manifest_path: str
@@ -91,6 +128,8 @@ class ExperimentConfig:
     constants: Dict[str, Dict[str, Any]]
     artifacts: ArtifactSpecConfig
     profile: ProfileConfig
+    calibration: CalibrationConfig
+    pilot: PilotConfig
     h1: H1Config
     h2: H2Config
     h3: H3Config
@@ -149,6 +188,10 @@ def validate_experiment_config_dict(data: Dict[str, Any]) -> None:
     h1_mode = str(h1.get("mode", "pair"))
     if h1_mode not in {"pair", "cluster"}:
         raise ValueError("stages.h1.mode must be 'pair' or 'cluster'")
+    if int(h1.get("null_trials", 32)) < 1 or int(h1.get("bootstrap_trials", 32)) < 1:
+        raise ValueError("stages.h1 null_trials and bootstrap_trials must be positive")
+    if not 0.0 < float(h1.get("null_quantile", 0.95)) < 1.0:
+        raise ValueError("stages.h1.null_quantile must be in (0, 1)")
 
     h2_mode = str(h2.get("mode", "gate_spike"))
     if h2_mode not in {"covariance", "gate_spike"}:
@@ -158,6 +201,56 @@ def validate_experiment_config_dict(data: Dict[str, Any]) -> None:
     k_max = int(h3.get("k_max", 8))
     if k_min < 1 or k_max < 1 or k_min > k_max:
         raise ValueError("stages.h3 requires 1 <= k_min <= k_max")
+
+    calibration = data.get("calibration", {})
+    source = str(calibration.get("source", "artifact"))
+    if source not in {"artifact", "hf_dataset", "synthetic"}:
+        raise ValueError("calibration.source must be one of: artifact, hf_dataset, synthetic")
+    if source == "hf_dataset" and not str(calibration.get("dataset_name", "")).strip():
+        raise ValueError("calibration.dataset_name is required for source='hf_dataset'")
+    if int(calibration.get("max_samples", 256)) < 3:
+        raise ValueError("calibration.max_samples must be >= 3")
+    if int(calibration.get("max_length", 512)) < 2:
+        raise ValueError("calibration.max_length must be >= 2")
+    if int(calibration.get("batch_size", 1)) < 1:
+        raise ValueError("calibration.batch_size must be >= 1")
+
+    fractions = (
+        float(calibration.get("calibration_fraction", 0.6)),
+        float(calibration.get("validation_fraction", 0.2)),
+        float(calibration.get("test_fraction", 0.2)),
+    )
+    if any(value <= 0.0 for value in fractions) or abs(sum(fractions) - 1.0) > 1e-8:
+        raise ValueError("calibration split fractions must be positive and sum to 1")
+
+    pilot = data.get("pilot", {})
+    allowed_methods = {"random_merge", "usage_prune", "functional_cosine", "rmt_geometry"}
+    methods = tuple(str(item) for item in pilot.get("methods", sorted(allowed_methods)))
+    unknown_methods = sorted(set(methods) - allowed_methods)
+    if unknown_methods:
+        raise ValueError(f"pilot.methods contains unsupported methods: {unknown_methods}")
+    for value in pilot.get("compression_fractions", (0.1, 0.25, 0.4)):
+        if not 0.0 < float(value) < 1.0:
+            raise ValueError("pilot.compression_fractions values must be in (0, 1)")
+    for value in pilot.get("quality_budgets", (0.01, 0.03, 0.05)):
+        if float(value) < 0.0:
+            raise ValueError("pilot.quality_budgets values must be non-negative")
+    if bool(pilot.get("enabled", False)):
+        if not methods:
+            raise ValueError("pilot.methods must not be empty when pilot is enabled")
+        if not pilot.get("compression_fractions", (0.1, 0.25, 0.4)):
+            raise ValueError("pilot.compression_fractions must not be empty when pilot is enabled")
+        if not pilot.get("quality_budgets", (0.01, 0.03, 0.05)):
+            raise ValueError("pilot.quality_budgets must not be empty when pilot is enabled")
+        if not pilot.get("seeds", (123, 456, 789)):
+            raise ValueError("pilot.seeds must not be empty when pilot is enabled")
+        pilot_layer = int(pilot.get("layer", h1["layer"]))
+        if pilot_layer not in [int(layer) for layer in data["layers"]]:
+            raise ValueError("pilot.layer must be included in layers")
+        if not bool(h1["enabled"]):
+            raise ValueError("pilot requires stages.h1.enabled=true")
+        if int(pilot.get("max_eval_batches", 32)) < 1:
+            raise ValueError("pilot.max_eval_batches must be >= 1")
 
 
 
@@ -181,6 +274,39 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
         enabled=bool(profile_raw.get("enabled", True)),
         warmup_steps=int(profile_raw.get("warmup_steps", 10)),
         measure_steps=int(profile_raw.get("measure_steps", 50)),
+    )
+
+    calibration_raw = raw.get("calibration", {})
+    calibration = CalibrationConfig(
+        source=str(calibration_raw.get("source", "artifact")),
+        dataset_name=str(calibration_raw.get("dataset_name", "")),
+        dataset_config=str(calibration_raw.get("dataset_config", "")),
+        dataset_split=str(calibration_raw.get("dataset_split", "train")),
+        text_column=str(calibration_raw.get("text_column", "")),
+        output_dir=str(calibration_raw.get("output_dir", "artifacts/traces")),
+        max_samples=int(calibration_raw.get("max_samples", 256)),
+        max_length=int(calibration_raw.get("max_length", 512)),
+        batch_size=int(calibration_raw.get("batch_size", 1)),
+        calibration_fraction=float(calibration_raw.get("calibration_fraction", 0.6)),
+        validation_fraction=float(calibration_raw.get("validation_fraction", 0.2)),
+        test_fraction=float(calibration_raw.get("test_fraction", 0.2)),
+        seed=int(calibration_raw.get("seed", 123)),
+    )
+
+    pilot_raw = raw.get("pilot", {})
+    pilot_defaults = PilotConfig()
+    pilot = PilotConfig(
+        enabled=bool(pilot_raw.get("enabled", False)),
+        layer=int(pilot_raw.get("layer", raw["stages"]["h1"]["layer"])),
+        methods=tuple(str(item) for item in pilot_raw.get("methods", pilot_defaults.methods)),
+        compression_fractions=tuple(
+            float(item) for item in pilot_raw.get("compression_fractions", pilot_defaults.compression_fractions)
+        ),
+        quality_budgets=tuple(
+            float(item) for item in pilot_raw.get("quality_budgets", pilot_defaults.quality_budgets)
+        ),
+        seeds=tuple(int(item) for item in pilot_raw.get("seeds", pilot_defaults.seeds)),
+        max_eval_batches=int(pilot_raw.get("max_eval_batches", 32)),
     )
 
     artifacts = ArtifactSpecConfig(
@@ -220,6 +346,10 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
         cluster_count=int(h1_raw.get("cluster_count", 0)),
         geometry_rank=int(h1_raw.get("geometry_rank", 64)),
         shrink_tau=float(h1_raw.get("shrink_tau", 0.0)),
+        null_trials=int(h1_raw.get("null_trials", 32)),
+        bootstrap_trials=int(h1_raw.get("bootstrap_trials", 32)),
+        null_quantile=float(h1_raw.get("null_quantile", 0.95)),
+        stability_max_angle_deg=float(h1_raw.get("stability_max_angle_deg", 30.0)),
     )
 
     h2_raw = raw["stages"]["h2"]
@@ -258,6 +388,8 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
         constants=constants,
         artifacts=artifacts,
         profile=profile,
+        calibration=calibration,
+        pilot=pilot,
         h1=h1,
         h2=h2,
         h3=h3,

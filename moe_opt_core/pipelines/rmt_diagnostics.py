@@ -1,0 +1,124 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import torch
+
+
+@dataclass(frozen=True)
+class FiniteSizeSpectralResult:
+    signal_embedding: torch.Tensor
+    eigenvalues: torch.Tensor
+    null_edge: float
+    r_detect: int
+    r_stable: int
+    r_useful: int
+    bootstrap_max_angle_median_deg: float
+    heldout_max_angle_deg: float | None
+
+
+def _expert_gram(embedding: torch.Tensor) -> torch.Tensor:
+    centered = embedding.float() - embedding.float().mean(dim=0, keepdim=True)
+    return centered @ centered.t() / max(1, centered.shape[1])
+
+
+def _descending_eigensystem(embedding: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    eigenvalues, eigenvectors = torch.linalg.eigh(_expert_gram(embedding))
+    return eigenvalues.flip(0), eigenvectors.flip(1)
+
+
+def _max_principal_angle_deg(first: torch.Tensor, second: torch.Tensor) -> float:
+    singular_values = torch.linalg.svdvals(first.t() @ second).clamp(0.0, 1.0)
+    angles = torch.arccos(singular_values)
+    return float(torch.rad2deg(angles).max().item())
+
+
+def _empirical_null_edge(
+    embedding: torch.Tensor,
+    *,
+    trials: int,
+    quantile: float,
+    seed: int,
+) -> float:
+    generator = torch.Generator(device="cpu").manual_seed(seed)
+    cpu = embedding.detach().float().cpu()
+    maxima = []
+    for _ in range(max(1, trials)):
+        signs = torch.randint(0, 2, cpu.shape, generator=generator, dtype=torch.int8)
+        signs = signs.to(torch.float32).mul_(2.0).sub_(1.0)
+        eigenvalues, _ = _descending_eigensystem(cpu * signs)
+        maxima.append(eigenvalues[0])
+    return float(torch.quantile(torch.stack(maxima), quantile).item())
+
+
+def finite_size_spectral_diagnostics(
+    calibration_embedding: torch.Tensor,
+    *,
+    validation_embedding: torch.Tensor | None = None,
+    null_trials: int = 32,
+    bootstrap_trials: int = 32,
+    null_quantile: float = 0.95,
+    stability_max_angle_deg: float = 30.0,
+    seed: int = 123,
+    min_rank: int = 1,
+) -> FiniteSizeSpectralResult:
+    eigenvalues, eigenvectors = _descending_eigensystem(calibration_embedding)
+    null_edge = _empirical_null_edge(
+        calibration_embedding,
+        trials=null_trials,
+        quantile=null_quantile,
+        seed=seed,
+    )
+    r_detect = max(min_rank, int((eigenvalues > null_edge).sum().item()))
+    r_detect = min(r_detect, eigenvectors.shape[1])
+
+    generator = torch.Generator(device="cpu").manual_seed(seed + 1)
+    cpu = calibration_embedding.detach().float().cpu()
+    reference = eigenvectors.detach().float().cpu()
+    angle_samples: dict[int, list[float]] = {rank: [] for rank in range(1, r_detect + 1)}
+    for _ in range(max(1, bootstrap_trials)):
+        columns = torch.randint(0, cpu.shape[1], (cpu.shape[1],), generator=generator)
+        _, bootstrap_vectors = _descending_eigensystem(cpu.index_select(1, columns))
+        for rank in range(1, r_detect + 1):
+            angle_samples[rank].append(
+                _max_principal_angle_deg(reference[:, :rank], bootstrap_vectors[:, :rank])
+            )
+
+    medians = {
+        rank: float(torch.tensor(values).median().item())
+        for rank, values in angle_samples.items()
+    }
+    stable = [rank for rank, angle in medians.items() if angle <= stability_max_angle_deg]
+    r_stable = max(stable) if stable else min_rank
+    r_stable = min(r_stable, r_detect)
+
+    heldout_angle = None
+    r_useful = r_stable
+    if validation_embedding is not None:
+        _, validation_vectors = _descending_eigensystem(validation_embedding)
+        useful = []
+        for rank in range(1, r_stable + 1):
+            angle = _max_principal_angle_deg(
+                reference[:, :rank],
+                validation_vectors.detach().float().cpu()[:, :rank],
+            )
+            if rank == r_stable:
+                heldout_angle = angle
+            if angle <= stability_max_angle_deg:
+                useful.append(rank)
+        r_useful = max(useful) if useful else min_rank
+
+    selected_rank = max(min_rank, min(r_useful, eigenvectors.shape[1]))
+    signal_embedding = eigenvectors[:, :selected_rank] * torch.sqrt(
+        eigenvalues[:selected_rank].clamp_min(0.0)
+    ).unsqueeze(0)
+    return FiniteSizeSpectralResult(
+        signal_embedding=signal_embedding,
+        eigenvalues=eigenvalues,
+        null_edge=null_edge,
+        r_detect=r_detect,
+        r_stable=r_stable,
+        r_useful=r_useful,
+        bootstrap_max_angle_median_deg=medians[r_stable],
+        heldout_max_angle_deg=heldout_angle,
+    )
