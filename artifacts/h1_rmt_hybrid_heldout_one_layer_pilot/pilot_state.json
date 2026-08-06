@@ -1,0 +1,83 @@
+{
+  "schema_version": "1.0",
+  "config_hash": "8dd6c0db300a5f29d7a10a2764c7bac15e44ff4bafe8214b74882fe8c617a8be",
+  "completed_steps": [
+    "traces_calibration",
+    "traces_validation",
+    "traces_test",
+    "h1_diagnostics",
+    "baseline_validation",
+    "baseline_test",
+    "select_candidates",
+    "test_selected",
+    "build_summary"
+  ],
+  "completed_validation_candidate_ids": [
+    "functional_cosine-f0.100-s123",
+    "functional_cosine-f0.250-s123",
+    "functional_cosine-f0.400-s123",
+    "random_merge-f0.100-s123",
+    "random_merge-f0.100-s456",
+    "random_merge-f0.100-s789",
+    "random_merge-f0.250-s123",
+    "random_merge-f0.250-s456",
+    "random_merge-f0.250-s789",
+    "random_merge-f0.400-s123",
+    "random_merge-f0.400-s456",
+    "random_merge-f0.400-s789",
+    "rmt_functional_usage-f0.100-s123",
+    "rmt_functional_usage-f0.250-s123",
+    "rmt_functional_usage-f0.400-s123",
+    "rmt_geometry-f0.100-s123",
+    "rmt_geometry-f0.250-s123",
+    "rmt_geometry-f0.400-s123",
+    "usage_prune-f0.100-s123",
+    "usage_prune-f0.250-s123",
+    "usage_prune-f0.400-s123"
+  ],
+  "failed_validation_candidate_ids": [],
+  "selected_candidate_ids": [
+    "random_merge-f0.100-s123",
+    "random_merge-f0.250-s456",
+    "random_merge-f0.400-s123",
+    "usage_prune-f0.100-s123",
+    "usage_prune-f0.250-s123",
+    "usage_prune-f0.400-s123",
+    "functional_cosine-f0.100-s123",
+    "functional_cosine-f0.250-s123",
+    "functional_cosine-f0.400-s123",
+    "rmt_geometry-f0.100-s123",
+    "rmt_geometry-f0.250-s123",
+    "rmt_geometry-f0.400-s123",
+    "rmt_functional_usage-f0.100-s123",
+    "rmt_functional_usage-f0.250-s123",
+    "rmt_functional_usage-f0.400-s123"
+  ],
+  "completed_test_candidate_ids": [
+    "functional_cosine-f0.100-s123",
+    "functional_cosine-f0.250-s123",
+    "functional_cosine-f0.400-s123",
+    "random_merge-f0.100-s123",
+    "random_merge-f0.250-s456",
+    "random_merge-f0.400-s123",
+    "rmt_functional_usage-f0.100-s123",
+    "rmt_functional_usage-f0.250-s123",
+    "rmt_functional_usage-f0.400-s123",
+    "rmt_geometry-f0.100-s123",
+    "rmt_geometry-f0.250-s123",
+    "rmt_geometry-f0.400-s123",
+    "usage_prune-f0.100-s123",
+    "usage_prune-f0.250-s123",
+    "usage_prune-f0.400-s123"
+  ],
+  "failed_test_candidate_ids": [],
+  "last_result": {
+    "step": "build_summary",
+    "status": "completed",
+    "processed_items": 15,
+    "remaining_items": 0,
+    "artifact_paths": [
+      "artifacts/h1_rmt_hybrid_heldout_one_layer_pilot/pilot_summary.json"
+    ]
+  }
+}

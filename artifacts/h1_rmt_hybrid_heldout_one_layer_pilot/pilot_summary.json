@@ -1,0 +1,2860 @@
+{
+  "layer": 0,
+  "trace_metadata": {
+    "source": "hf_dataset",
+    "layer": 0,
+    "split": "calibration",
+    "routed_experts": 60,
+    "shared_experts": 4,
+    "routed_top_k": 4
+  },
+  "shared_experts_modified": false,
+  "validation_candidate_count": 21,
+  "candidate_count": 21,
+  "selected_candidate_count": 15,
+  "completed_test_candidate_count": 15,
+  "failed_test_candidate_count": 0,
+  "record_path": "artifacts/h1_rmt_hybrid_heldout_one_layer_pilot/pilot_runs.jsonl",
+  "selection_path": "artifacts/h1_rmt_hybrid_heldout_one_layer_pilot/pilot_selection.json",
+  "state_path": "artifacts/h1_rmt_hybrid_heldout_one_layer_pilot/pilot_state.json",
+  "baseline_validation": {
+    "nll": 2.721155544609197,
+    "perplexity": 15.197873923410596,
+    "tokens_per_second": 212.70874615502626,
+    "peak_memory_mb": 28194.41845703125,
+    "model_parameter_mb": 27305.19140625,
+    "evaluated_tokens": 2284,
+    "elapsed_seconds": 10.737687289714813
+  },
+  "baseline_test": {
+    "nll": 2.8110111570379264,
+    "perplexity": 16.62672194866614,
+    "tokens_per_second": 209.9573279806486,
+    "peak_memory_mb": 28208.9931640625,
+    "model_parameter_mb": 27305.19140625,
+    "evaluated_tokens": 2272,
+    "elapsed_seconds": 10.82124649733305
+  },
+  "selected_test_results": [
+    {
+      "config_hash": "8dd6c0db300a5f29d7a10a2764c7bac15e44ff4bafe8214b74882fe8c617a8be",
+      "plan": {
+        "candidate_id": "random_merge-f0.100-s123",
+        "layer": 0,
+        "method": "random_merge",
+        "action": "merge",
+        "compression_fraction": 0.1,
+        "groups": [
+          [
+            53,
+            16
+          ],
+          [
+            37,
+            11
+          ],
+          [
+            42,
+            39
+          ],
+          [
+            23,
+            14
+          ],
+          [
+            55,
+            54
+          ],
+          [
+            30,
+            7
+          ],
+          [
+            0
+          ],
+          [
+            1
+          ],
+          [
+            2
+          ],
+          [
+            3
+          ],
+          [
+            4
+          ],
+          [
+            5
+          ],
+          [
+            6
+          ],
+          [
+            8
+          ],
+          [
+            9
+          ],
+          [
+            10
+          ],
+          [
+            12
+          ],
+          [
+            13
+          ],
+          [
+            15
+          ],
+          [
+            17
+          ],
+          [
+            18
+          ],
+          [
+            19
+          ],
+          [
+            20
+          ],
+          [
+            21
+          ],
+          [
+            22
+          ],
+          [
+            24
+          ],
+          [
+            25
+          ],
+          [
+            26
+          ],
+          [
+            27
+          ],
+          [
+            28
+          ],
+          [
+            29
+          ],
+          [
+            31
+          ],
+          [
+            32
+          ],
+          [
+            33
+          ],
+          [
+            34
+          ],
+          [
+            35
+          ],
+          [
+            36
+          ],
+          [
+            38
+          ],
+          [
+            40
+          ],
+          [
+            41
+          ],
+          [
+            43
+          ],
+          [
+            44
+          ],
+          [
+            45
+          ],
+          [
+            46
+          ],
+          [
+            47
+          ],
+          [
+            48
+          ],
+          [
+            49
+          ],
+          [
+            50
+          ],
+          [
+            51
+          ],
+          [
+            52
+          ],
+          [
+            56
+          ],
+          [
+            57
+          ],
+          [
+            58
+          ],
+          [
+            59
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {}
+      },
+      "transform": {
+        "candidate_id": "random_merge-f0.100-s123",
+        "original_experts": 60,
+        "active_experts": 54,
+        "model_parameter_mb": 27206.19140625,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.8271782963838374,
+        "perplexity": 16.89771315302418,
+        "tokens_per_second": 208.26423796550895,
+        "peak_memory_mb": 28308.2275390625,
+        "model_parameter_mb": 27206.19140625,
+        "evaluated_tokens": 2272,
+        "elapsed_seconds": 10.909218126907945
+      },
+      "relative_perplexity_degradation": 0.01629853468378828,
+      "throughput_gain": -0.008063972005281528,
+      "memory_reduction": 0.0036256841611935764,
+      "accepted_quality_budgets": {
+        "0.01": false,
+        "0.03": true,
+        "0.05": true
+      },
+      "record_type": "selected_candidate",
+      "split": "test"
+    },
+    {
+      "config_hash": "8dd6c0db300a5f29d7a10a2764c7bac15e44ff4bafe8214b74882fe8c617a8be",
+      "plan": {
+        "candidate_id": "random_merge-f0.250-s456",
+        "layer": 0,
+        "method": "random_merge",
+        "action": "merge",
+        "compression_fraction": 0.25,
+        "groups": [
+          [
+            25,
+            42
+          ],
+          [
+            58,
+            32
+          ],
+          [
+            3,
+            38
+          ],
+          [
+            35,
+            53
+          ],
+          [
+            15,
+            19
+          ],
+          [
+            0,
+            37
+          ],
+          [
+            44,
+            40
+          ],
+          [
+            10,
+            34
+          ],
+          [
+            14,
+            45
+          ],
+          [
+            54,
+            56
+          ],
+          [
+            6,
+            13
+          ],
+          [
+            59,
+            51
+          ],
+          [
+            23,
+            22
+          ],
+          [
+            26,
+            36
+          ],
+          [
+            1,
+            17
+          ],
+          [
+            2
+          ],
+          [
+            4
+          ],
+          [
+            5
+          ],
+          [
+            7
+          ],
+          [
+            8
+          ],
+          [
+            9
+          ],
+          [
+            11
+          ],
+          [
+            12
+          ],
+          [
+            16
+          ],
+          [
+            18
+          ],
+          [
+            20
+          ],
+          [
+            21
+          ],
+          [
+            24
+          ],
+          [
+            27
+          ],
+          [
+            28
+          ],
+          [
+            29
+          ],
+          [
+            30
+          ],
+          [
+            31
+          ],
+          [
+            33
+          ],
+          [
+            39
+          ],
+          [
+            41
+          ],
+          [
+            43
+          ],
+          [
+            46
+          ],
+          [
+            47
+          ],
+          [
+            48
+          ],
+          [
+            49
+          ],
+          [
+            50
+          ],
+          [
+            52
+          ],
+          [
+            55
+          ],
+          [
+            57
+          ]
+        ],
+        "seed": 456,
+        "diagnostics": {}
+      },
+      "transform": {
+        "candidate_id": "random_merge-f0.250-s456",
+        "original_experts": 60,
+        "active_experts": 45,
+        "model_parameter_mb": 27057.69140625,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.8357174620556997,
+        "perplexity": 17.042623350668173,
+        "tokens_per_second": 207.79944012277076,
+        "peak_memory_mb": 28557.8212890625,
+        "model_parameter_mb": 27057.69140625,
+        "evaluated_tokens": 2272,
+        "elapsed_seconds": 10.933619448915124
+      },
+      "relative_perplexity_degradation": 0.025014034834172305,
+      "throughput_gain": -0.010277744904796715,
+      "memory_reduction": 0.009064210402983996,
+      "accepted_quality_budgets": {
+        "0.01": false,
+        "0.03": true,
+        "0.05": true
+      },
+      "record_type": "selected_candidate",
+      "split": "test"
+    },
+    {
+      "config_hash": "8dd6c0db300a5f29d7a10a2764c7bac15e44ff4bafe8214b74882fe8c617a8be",
+      "plan": {
+        "candidate_id": "random_merge-f0.400-s123",
+        "layer": 0,
+        "method": "random_merge",
+        "action": "merge",
+        "compression_fraction": 0.4,
+        "groups": [
+          [
+            53,
+            16
+          ],
+          [
+            37,
+            11
+          ],
+          [
+            42,
+            39
+          ],
+          [
+            23,
+            14
+          ],
+          [
+            55,
+            54
+          ],
+          [
+            30,
+            7
+          ],
+          [
+            12,
+            32
+          ],
+          [
+            36,
+            22
+          ],
+          [
+            29,
+            19
+          ],
+          [
+            44,
+            40
+          ],
+          [
+            18,
+            13
+          ],
+          [
+            9,
+            33
+          ],
+          [
+            25,
+            50
+          ],
+          [
+            41,
+            52
+          ],
+          [
+            1,
+            31
+          ],
+          [
+            46,
+            28
+          ],
+          [
+            20,
+            38
+          ],
+          [
+            4,
+            51
+          ],
+          [
+            57,
+            27
+          ],
+          [
+            0,
+            45
+          ],
+          [
+            15,
+            43
+          ],
+          [
+            56,
+            47
+          ],
+          [
+            8,
+            10
+          ],
+          [
+            59,
+            48
+          ],
+          [
+            2
+          ],
+          [
+            3
+          ],
+          [
+            5
+          ],
+          [
+            6
+          ],
+          [
+            17
+          ],
+          [
+            21
+          ],
+          [
+            24
+          ],
+          [
+            26
+          ],
+          [
+            34
+          ],
+          [
+            35
+          ],
+          [
+            49
+          ],
+          [
+            58
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {}
+      },
+      "transform": {
+        "candidate_id": "random_merge-f0.400-s123",
+        "original_experts": 60,
+        "active_experts": 36,
+        "model_parameter_mb": 26909.19140625,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.8586226977722746,
+        "perplexity": 17.437493690951303,
+        "tokens_per_second": 192.919979812671,
+        "peak_memory_mb": 28605.2275390625,
+        "model_parameter_mb": 26909.19140625,
+        "evaluated_tokens": 2272,
+        "elapsed_seconds": 11.77690357528627
+      },
+      "relative_perplexity_degradation": 0.048763174412151944,
+      "throughput_gain": -0.08114671839197696,
+      "memory_reduction": 0.014502736644774417,
+      "accepted_quality_budgets": {
+        "0.01": false,
+        "0.03": false,
+        "0.05": true
+      },
+      "record_type": "selected_candidate",
+      "split": "test"
+    },
+    {
+      "config_hash": "8dd6c0db300a5f29d7a10a2764c7bac15e44ff4bafe8214b74882fe8c617a8be",
+      "plan": {
+        "candidate_id": "usage_prune-f0.100-s123",
+        "layer": 0,
+        "method": "usage_prune",
+        "action": "prune",
+        "compression_fraction": 0.1,
+        "groups": [
+          [
+            0
+          ],
+          [
+            1
+          ],
+          [
+            2
+          ],
+          [
+            3
+          ],
+          [
+            4
+          ],
+          [
+            5
+          ],
+          [
+            6
+          ],
+          [
+            7
+          ],
+          [
+            8
+          ],
+          [
+            9
+          ],
+          [
+            10
+          ],
+          [
+            11
+          ],
+          [
+            12
+          ],
+          [
+            13
+          ],
+          [
+            14
+          ],
+          [
+            15
+          ],
+          [
+            16
+          ],
+          [
+            17
+          ],
+          [
+            19
+          ],
+          [
+            20
+          ],
+          [
+            21
+          ],
+          [
+            22
+          ],
+          [
+            23
+          ],
+          [
+            24
+          ],
+          [
+            25
+          ],
+          [
+            26
+          ],
+          [
+            27
+          ],
+          [
+            28
+          ],
+          [
+            29
+          ],
+          [
+            30
+          ],
+          [
+            31
+          ],
+          [
+            32
+          ],
+          [
+            33
+          ],
+          [
+            34
+          ],
+          [
+            35
+          ],
+          [
+            36
+          ],
+          [
+            37
+          ],
+          [
+            38
+          ],
+          [
+            39
+          ],
+          [
+            40
+          ],
+          [
+            41
+          ],
+          [
+            44
+          ],
+          [
+            45
+          ],
+          [
+            47
+          ],
+          [
+            48
+          ],
+          [
+            49
+          ],
+          [
+            50
+          ],
+          [
+            51
+          ],
+          [
+            52
+          ],
+          [
+            53
+          ],
+          [
+            54
+          ],
+          [
+            55
+          ],
+          [
+            56
+          ],
+          [
+            57
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {}
+      },
+      "transform": {
+        "candidate_id": "usage_prune-f0.100-s123",
+        "original_experts": 60,
+        "active_experts": 54,
+        "model_parameter_mb": 27206.16796875,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.8087110770210413,
+        "perplexity": 16.58852310480492,
+        "tokens_per_second": 199.64290667694428,
+        "peak_memory_mb": 28605.9228515625,
+        "model_parameter_mb": 27206.16796875,
+        "evaluated_tokens": 2272,
+        "elapsed_seconds": 11.380319179967046
+      },
+      "relative_perplexity_degradation": -0.0022974368597223904,
+      "throughput_gain": -0.049126274385883795,
+      "memory_reduction": 0.003626542514451492,
+      "accepted_quality_budgets": {
+        "0.01": true,
+        "0.03": true,
+        "0.05": true
+      },
+      "record_type": "selected_candidate",
+      "split": "test"
+    },
+    {
+      "config_hash": "8dd6c0db300a5f29d7a10a2764c7bac15e44ff4bafe8214b74882fe8c617a8be",
+      "plan": {
+        "candidate_id": "usage_prune-f0.250-s123",
+        "layer": 0,
+        "method": "usage_prune",
+        "action": "prune",
+        "compression_fraction": 0.25,
+        "groups": [
+          [
+            0
+          ],
+          [
+            1
+          ],
+          [
+            2
+          ],
+          [
+            3
+          ],
+          [
+            4
+          ],
+          [
+            5
+          ],
+          [
+            7
+          ],
+          [
+            8
+          ],
+          [
+            10
+          ],
+          [
+            11
+          ],
+          [
+            12
+          ],
+          [
+            13
+          ],
+          [
+            14
+          ],
+          [
+            15
+          ],
+          [
+            16
+          ],
+          [
+            17
+          ],
+          [
+            20
+          ],
+          [
+            21
+          ],
+          [
+            22
+          ],
+          [
+            23
+          ],
+          [
+            24
+          ],
+          [
+            27
+          ],
+          [
+            28
+          ],
+          [
+            29
+          ],
+          [
+            30
+          ],
+          [
+            31
+          ],
+          [
+            32
+          ],
+          [
+            33
+          ],
+          [
+            35
+          ],
+          [
+            37
+          ],
+          [
+            38
+          ],
+          [
+            40
+          ],
+          [
+            41
+          ],
+          [
+            44
+          ],
+          [
+            45
+          ],
+          [
+            47
+          ],
+          [
+            48
+          ],
+          [
+            49
+          ],
+          [
+            51
+          ],
+          [
+            52
+          ],
+          [
+            53
+          ],
+          [
+            54
+          ],
+          [
+            55
+          ],
+          [
+            56
+          ],
+          [
+            57
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {}
+      },
+      "transform": {
+        "candidate_id": "usage_prune-f0.250-s123",
+        "original_experts": 60,
+        "active_experts": 45,
+        "model_parameter_mb": 27057.6328125,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.810107231402481,
+        "perplexity": 16.611699419110995,
+        "tokens_per_second": 214.3796817944013,
+        "peak_memory_mb": 28209.1689453125,
+        "model_parameter_mb": 27057.6328125,
+        "evaluated_tokens": 2272,
+        "elapsed_seconds": 10.598019275814295
+      },
+      "relative_perplexity_degradation": -0.0009035172177370709,
+      "throughput_gain": 0.021063107709964335,
+      "memory_reduction": 0.009066356286128618,
+      "accepted_quality_budgets": {
+        "0.01": true,
+        "0.03": true,
+        "0.05": true
+      },
+      "record_type": "selected_candidate",
+      "split": "test"
+    },
+    {
+      "config_hash": "8dd6c0db300a5f29d7a10a2764c7bac15e44ff4bafe8214b74882fe8c617a8be",
+      "plan": {
+        "candidate_id": "usage_prune-f0.400-s123",
+        "layer": 0,
+        "method": "usage_prune",
+        "action": "prune",
+        "compression_fraction": 0.4,
+        "groups": [
+          [
+            0
+          ],
+          [
+            1
+          ],
+          [
+            3
+          ],
+          [
+            5
+          ],
+          [
+            7
+          ],
+          [
+            8
+          ],
+          [
+            10
+          ],
+          [
+            11
+          ],
+          [
+            12
+          ],
+          [
+            13
+          ],
+          [
+            14
+          ],
+          [
+            15
+          ],
+          [
+            16
+          ],
+          [
+            17
+          ],
+          [
+            20
+          ],
+          [
+            21
+          ],
+          [
+            22
+          ],
+          [
+            24
+          ],
+          [
+            27
+          ],
+          [
+            28
+          ],
+          [
+            29
+          ],
+          [
+            30
+          ],
+          [
+            31
+          ],
+          [
+            32
+          ],
+          [
+            33
+          ],
+          [
+            35
+          ],
+          [
+            44
+          ],
+          [
+            45
+          ],
+          [
+            48
+          ],
+          [
+            49
+          ],
+          [
+            51
+          ],
+          [
+            52
+          ],
+          [
+            54
+          ],
+          [
+            55
+          ],
+          [
+            56
+          ],
+          [
+            57
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {}
+      },
+      "transform": {
+        "candidate_id": "usage_prune-f0.400-s123",
+        "original_experts": 60,
+        "active_experts": 36,
+        "model_parameter_mb": 26909.09765625,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.812406997707948,
+        "perplexity": 16.649946408423144,
+        "tokens_per_second": 215.73833072267885,
+        "peak_memory_mb": 28209.8525390625,
+        "model_parameter_mb": 26909.09765625,
+        "evaluated_tokens": 2272,
+        "elapsed_seconds": 10.531276442110538
+      },
+      "relative_perplexity_degradation": 0.001396815309037347,
+      "throughput_gain": 0.027534179433656547,
+      "memory_reduction": 0.014506170057805745,
+      "accepted_quality_budgets": {
+        "0.01": true,
+        "0.03": true,
+        "0.05": true
+      },
+      "record_type": "selected_candidate",
+      "split": "test"
+    },
+    {
+      "config_hash": "8dd6c0db300a5f29d7a10a2764c7bac15e44ff4bafe8214b74882fe8c617a8be",
+      "plan": {
+        "candidate_id": "functional_cosine-f0.100-s123",
+        "layer": 0,
+        "method": "functional_cosine",
+        "action": "merge",
+        "compression_fraction": 0.1,
+        "groups": [
+          [
+            6,
+            18
+          ],
+          [
+            5,
+            45
+          ],
+          [
+            3,
+            38
+          ],
+          [
+            42,
+            59
+          ],
+          [
+            37,
+            49
+          ],
+          [
+            2,
+            19
+          ],
+          [
+            0
+          ],
+          [
+            1
+          ],
+          [
+            4
+          ],
+          [
+            7
+          ],
+          [
+            8
+          ],
+          [
+            9
+          ],
+          [
+            10
+          ],
+          [
+            11
+          ],
+          [
+            12
+          ],
+          [
+            13
+          ],
+          [
+            14
+          ],
+          [
+            15
+          ],
+          [
+            16
+          ],
+          [
+            17
+          ],
+          [
+            20
+          ],
+          [
+            21
+          ],
+          [
+            22
+          ],
+          [
+            23
+          ],
+          [
+            24
+          ],
+          [
+            25
+          ],
+          [
+            26
+          ],
+          [
+            27
+          ],
+          [
+            28
+          ],
+          [
+            29
+          ],
+          [
+            30
+          ],
+          [
+            31
+          ],
+          [
+            32
+          ],
+          [
+            33
+          ],
+          [
+            34
+          ],
+          [
+            35
+          ],
+          [
+            36
+          ],
+          [
+            39
+          ],
+          [
+            40
+          ],
+          [
+            41
+          ],
+          [
+            43
+          ],
+          [
+            44
+          ],
+          [
+            46
+          ],
+          [
+            47
+          ],
+          [
+            48
+          ],
+          [
+            50
+          ],
+          [
+            51
+          ],
+          [
+            52
+          ],
+          [
+            53
+          ],
+          [
+            54
+          ],
+          [
+            55
+          ],
+          [
+            56
+          ],
+          [
+            57
+          ],
+          [
+            58
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {}
+      },
+      "transform": {
+        "candidate_id": "functional_cosine-f0.100-s123",
+        "original_experts": 60,
+        "active_experts": 54,
+        "model_parameter_mb": 27206.19140625,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.820276429325762,
+        "perplexity": 16.781488926704835,
+        "tokens_per_second": 198.16569494826905,
+        "peak_memory_mb": 28308.2275390625,
+        "model_parameter_mb": 27206.19140625,
+        "evaluated_tokens": 2272,
+        "elapsed_seconds": 11.465152939781547
+      },
+      "relative_perplexity_degradation": 0.00930832779404911,
+      "throughput_gain": -0.056162045620367085,
+      "memory_reduction": 0.0036256841611935764,
+      "accepted_quality_budgets": {
+        "0.01": true,
+        "0.03": true,
+        "0.05": true
+      },
+      "record_type": "selected_candidate",
+      "split": "test"
+    },
+    {
+      "config_hash": "8dd6c0db300a5f29d7a10a2764c7bac15e44ff4bafe8214b74882fe8c617a8be",
+      "plan": {
+        "candidate_id": "functional_cosine-f0.250-s123",
+        "layer": 0,
+        "method": "functional_cosine",
+        "action": "merge",
+        "compression_fraction": 0.25,
+        "groups": [
+          [
+            6,
+            18
+          ],
+          [
+            5,
+            45
+          ],
+          [
+            3,
+            38
+          ],
+          [
+            42,
+            59
+          ],
+          [
+            37,
+            49
+          ],
+          [
+            2,
+            19
+          ],
+          [
+            39,
+            43
+          ],
+          [
+            10,
+            34
+          ],
+          [
+            29,
+            30
+          ],
+          [
+            35,
+            44
+          ],
+          [
+            46,
+            58
+          ],
+          [
+            12,
+            22
+          ],
+          [
+            4,
+            51
+          ],
+          [
+            13,
+            15
+          ],
+          [
+            9,
+            21
+          ],
+          [
+            0
+          ],
+          [
+            1
+          ],
+          [
+            7
+          ],
+          [
+            8
+          ],
+          [
+            11
+          ],
+          [
+            14
+          ],
+          [
+            16
+          ],
+          [
+            17
+          ],
+          [
+            20
+          ],
+          [
+            23
+          ],
+          [
+            24
+          ],
+          [
+            25
+          ],
+          [
+            26
+          ],
+          [
+            27
+          ],
+          [
+            28
+          ],
+          [
+            31
+          ],
+          [
+            32
+          ],
+          [
+            33
+          ],
+          [
+            36
+          ],
+          [
+            40
+          ],
+          [
+            41
+          ],
+          [
+            47
+          ],
+          [
+            48
+          ],
+          [
+            50
+          ],
+          [
+            52
+          ],
+          [
+            53
+          ],
+          [
+            54
+          ],
+          [
+            55
+          ],
+          [
+            56
+          ],
+          [
+            57
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {}
+      },
+      "transform": {
+        "candidate_id": "functional_cosine-f0.250-s123",
+        "original_experts": 60,
+        "active_experts": 45,
+        "model_parameter_mb": 27057.69140625,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.835474382666215,
+        "perplexity": 17.038481143651847,
+        "tokens_per_second": 202.29968423347526,
+        "peak_memory_mb": 28458.8212890625,
+        "model_parameter_mb": 27057.69140625,
+        "evaluated_tokens": 2272,
+        "elapsed_seconds": 11.230862809345126
+      },
+      "relative_perplexity_degradation": 0.02476490532872222,
+      "throughput_gain": -0.03647238141589959,
+      "memory_reduction": 0.009064210402983996,
+      "accepted_quality_budgets": {
+        "0.01": false,
+        "0.03": true,
+        "0.05": true
+      },
+      "record_type": "selected_candidate",
+      "split": "test"
+    },
+    {
+      "config_hash": "8dd6c0db300a5f29d7a10a2764c7bac15e44ff4bafe8214b74882fe8c617a8be",
+      "plan": {
+        "candidate_id": "functional_cosine-f0.400-s123",
+        "layer": 0,
+        "method": "functional_cosine",
+        "action": "merge",
+        "compression_fraction": 0.4,
+        "groups": [
+          [
+            6,
+            18
+          ],
+          [
+            5,
+            45
+          ],
+          [
+            3,
+            38
+          ],
+          [
+            42,
+            59
+          ],
+          [
+            37,
+            49
+          ],
+          [
+            2,
+            19
+          ],
+          [
+            39,
+            43
+          ],
+          [
+            10,
+            34
+          ],
+          [
+            29,
+            30
+          ],
+          [
+            35,
+            44
+          ],
+          [
+            46,
+            58
+          ],
+          [
+            12,
+            22
+          ],
+          [
+            4,
+            51
+          ],
+          [
+            13,
+            15
+          ],
+          [
+            9,
+            21
+          ],
+          [
+            27,
+            32
+          ],
+          [
+            25,
+            52
+          ],
+          [
+            7,
+            56
+          ],
+          [
+            50,
+            55
+          ],
+          [
+            36,
+            40
+          ],
+          [
+            17,
+            26
+          ],
+          [
+            0,
+            54
+          ],
+          [
+            20,
+            47
+          ],
+          [
+            28,
+            31
+          ],
+          [
+            1
+          ],
+          [
+            8
+          ],
+          [
+            11
+          ],
+          [
+            14
+          ],
+          [
+            16
+          ],
+          [
+            23
+          ],
+          [
+            24
+          ],
+          [
+            33
+          ],
+          [
+            41
+          ],
+          [
+            48
+          ],
+          [
+            53
+          ],
+          [
+            57
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {}
+      },
+      "transform": {
+        "candidate_id": "functional_cosine-f0.400-s123",
+        "original_experts": 60,
+        "active_experts": 36,
+        "model_parameter_mb": 26909.19140625,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.844662233032811,
+        "perplexity": 17.195749531745463,
+        "tokens_per_second": 209.47503143386734,
+        "peak_memory_mb": 28605.2275390625,
+        "model_parameter_mb": 26909.19140625,
+        "evaluated_tokens": 2272,
+        "elapsed_seconds": 10.846161399036646
+      },
+      "relative_perplexity_degradation": 0.034223678295466575,
+      "throughput_gain": -0.0022971169971534033,
+      "memory_reduction": 0.014502736644774417,
+      "accepted_quality_budgets": {
+        "0.01": false,
+        "0.03": false,
+        "0.05": true
+      },
+      "record_type": "selected_candidate",
+      "split": "test"
+    },
+    {
+      "config_hash": "8dd6c0db300a5f29d7a10a2764c7bac15e44ff4bafe8214b74882fe8c617a8be",
+      "plan": {
+        "candidate_id": "rmt_geometry-f0.100-s123",
+        "layer": 0,
+        "method": "rmt_geometry",
+        "action": "merge",
+        "compression_fraction": 0.1,
+        "groups": [
+          [
+            0,
+            1
+          ],
+          [
+            2,
+            3
+          ],
+          [
+            4,
+            7
+          ],
+          [
+            5,
+            6
+          ],
+          [
+            8,
+            9
+          ],
+          [
+            10,
+            11
+          ],
+          [
+            12
+          ],
+          [
+            13
+          ],
+          [
+            14
+          ],
+          [
+            15
+          ],
+          [
+            16
+          ],
+          [
+            17
+          ],
+          [
+            18
+          ],
+          [
+            19
+          ],
+          [
+            20
+          ],
+          [
+            21
+          ],
+          [
+            22
+          ],
+          [
+            23
+          ],
+          [
+            24
+          ],
+          [
+            25
+          ],
+          [
+            26
+          ],
+          [
+            27
+          ],
+          [
+            28
+          ],
+          [
+            29
+          ],
+          [
+            30
+          ],
+          [
+            31
+          ],
+          [
+            32
+          ],
+          [
+            33
+          ],
+          [
+            34
+          ],
+          [
+            35
+          ],
+          [
+            36
+          ],
+          [
+            37
+          ],
+          [
+            38
+          ],
+          [
+            39
+          ],
+          [
+            40
+          ],
+          [
+            41
+          ],
+          [
+            42
+          ],
+          [
+            43
+          ],
+          [
+            44
+          ],
+          [
+            45
+          ],
+          [
+            46
+          ],
+          [
+            47
+          ],
+          [
+            48
+          ],
+          [
+            49
+          ],
+          [
+            50
+          ],
+          [
+            51
+          ],
+          [
+            52
+          ],
+          [
+            53
+          ],
+          [
+            54
+          ],
+          [
+            55
+          ],
+          [
+            56
+          ],
+          [
+            57
+          ],
+          [
+            58
+          ],
+          [
+            59
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {}
+      },
+      "transform": {
+        "candidate_id": "rmt_geometry-f0.100-s123",
+        "original_experts": 60,
+        "active_experts": 54,
+        "model_parameter_mb": 27206.19140625,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.8258930551753916,
+        "perplexity": 16.876009465975493,
+        "tokens_per_second": 160.09051035825993,
+        "peak_memory_mb": 28705.8212890625,
+        "model_parameter_mb": 27206.19140625,
+        "evaluated_tokens": 2272,
+        "elapsed_seconds": 14.191971747204661
+      },
+      "relative_perplexity_degradation": 0.01499318495124946,
+      "throughput_gain": -0.2375092982083713,
+      "memory_reduction": 0.0036256841611935764,
+      "accepted_quality_budgets": {
+        "0.01": false,
+        "0.03": true,
+        "0.05": true
+      },
+      "record_type": "selected_candidate",
+      "split": "test"
+    },
+    {
+      "config_hash": "8dd6c0db300a5f29d7a10a2764c7bac15e44ff4bafe8214b74882fe8c617a8be",
+      "plan": {
+        "candidate_id": "rmt_geometry-f0.250-s123",
+        "layer": 0,
+        "method": "rmt_geometry",
+        "action": "merge",
+        "compression_fraction": 0.25,
+        "groups": [
+          [
+            0,
+            1
+          ],
+          [
+            2,
+            3
+          ],
+          [
+            4,
+            7
+          ],
+          [
+            5,
+            6
+          ],
+          [
+            8,
+            9
+          ],
+          [
+            10,
+            11
+          ],
+          [
+            12,
+            13
+          ],
+          [
+            14,
+            15
+          ],
+          [
+            16,
+            17
+          ],
+          [
+            18,
+            19
+          ],
+          [
+            20,
+            21
+          ],
+          [
+            22,
+            23
+          ],
+          [
+            24,
+            25
+          ],
+          [
+            26,
+            33
+          ],
+          [
+            27,
+            28
+          ],
+          [
+            29
+          ],
+          [
+            30
+          ],
+          [
+            31
+          ],
+          [
+            32
+          ],
+          [
+            34
+          ],
+          [
+            35
+          ],
+          [
+            36
+          ],
+          [
+            37
+          ],
+          [
+            38
+          ],
+          [
+            39
+          ],
+          [
+            40
+          ],
+          [
+            41
+          ],
+          [
+            42
+          ],
+          [
+            43
+          ],
+          [
+            44
+          ],
+          [
+            45
+          ],
+          [
+            46
+          ],
+          [
+            47
+          ],
+          [
+            48
+          ],
+          [
+            49
+          ],
+          [
+            50
+          ],
+          [
+            51
+          ],
+          [
+            52
+          ],
+          [
+            53
+          ],
+          [
+            54
+          ],
+          [
+            55
+          ],
+          [
+            56
+          ],
+          [
+            57
+          ],
+          [
+            58
+          ],
+          [
+            59
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {}
+      },
+      "transform": {
+        "candidate_id": "rmt_geometry-f0.250-s123",
+        "original_experts": 60,
+        "active_experts": 45,
+        "model_parameter_mb": 27057.69140625,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.8693567986114763,
+        "perplexity": 17.625677692747693,
+        "tokens_per_second": 208.43170552923903,
+        "peak_memory_mb": 28461.6025390625,
+        "model_parameter_mb": 27057.69140625,
+        "evaluated_tokens": 2272,
+        "elapsed_seconds": 10.900452952831984
+      },
+      "relative_perplexity_degradation": 0.06008134057728043,
+      "throughput_gain": -0.007266345338278413,
+      "memory_reduction": 0.009064210402983996,
+      "accepted_quality_budgets": {
+        "0.01": false,
+        "0.03": false,
+        "0.05": false
+      },
+      "record_type": "selected_candidate",
+      "split": "test"
+    },
+    {
+      "config_hash": "8dd6c0db300a5f29d7a10a2764c7bac15e44ff4bafe8214b74882fe8c617a8be",
+      "plan": {
+        "candidate_id": "rmt_geometry-f0.400-s123",
+        "layer": 0,
+        "method": "rmt_geometry",
+        "action": "merge",
+        "compression_fraction": 0.4,
+        "groups": [
+          [
+            0,
+            1
+          ],
+          [
+            2,
+            3
+          ],
+          [
+            4,
+            7
+          ],
+          [
+            5,
+            6
+          ],
+          [
+            8,
+            9
+          ],
+          [
+            10,
+            11
+          ],
+          [
+            12,
+            13
+          ],
+          [
+            14,
+            15
+          ],
+          [
+            16,
+            17
+          ],
+          [
+            18,
+            19
+          ],
+          [
+            20,
+            21
+          ],
+          [
+            22,
+            23
+          ],
+          [
+            24,
+            25
+          ],
+          [
+            26,
+            33
+          ],
+          [
+            27,
+            28
+          ],
+          [
+            29,
+            30
+          ],
+          [
+            31,
+            32
+          ],
+          [
+            34,
+            35
+          ],
+          [
+            36,
+            38
+          ],
+          [
+            37,
+            44
+          ],
+          [
+            39,
+            40
+          ],
+          [
+            41,
+            42
+          ],
+          [
+            43,
+            46
+          ],
+          [
+            45,
+            49
+          ],
+          [
+            47
+          ],
+          [
+            48
+          ],
+          [
+            50
+          ],
+          [
+            51
+          ],
+          [
+            52
+          ],
+          [
+            53
+          ],
+          [
+            54
+          ],
+          [
+            55
+          ],
+          [
+            56
+          ],
+          [
+            57
+          ],
+          [
+            58
+          ],
+          [
+            59
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {}
+      },
+      "transform": {
+        "candidate_id": "rmt_geometry-f0.400-s123",
+        "original_experts": 60,
+        "active_experts": 36,
+        "model_parameter_mb": 26909.19140625,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.901984533741021,
+        "perplexity": 18.210248386121382,
+        "tokens_per_second": 210.74620531340602,
+        "peak_memory_mb": 28612.3212890625,
+        "model_parameter_mb": 26909.19140625,
+        "evaluated_tokens": 2272,
+        "elapsed_seconds": 10.780739784240723
+      },
+      "relative_perplexity_degradation": 0.0952398459747068,
+      "throughput_gain": 0.003757322215636627,
+      "memory_reduction": 0.014502736644774417,
+      "accepted_quality_budgets": {
+        "0.01": false,
+        "0.03": false,
+        "0.05": false
+      },
+      "record_type": "selected_candidate",
+      "split": "test"
+    },
+    {
+      "config_hash": "8dd6c0db300a5f29d7a10a2764c7bac15e44ff4bafe8214b74882fe8c617a8be",
+      "plan": {
+        "candidate_id": "rmt_functional_usage-f0.100-s123",
+        "layer": 0,
+        "method": "rmt_functional_usage",
+        "action": "merge",
+        "compression_fraction": 0.1,
+        "groups": [
+          [
+            9,
+            58
+          ],
+          [
+            2,
+            46
+          ],
+          [
+            18,
+            20
+          ],
+          [
+            29,
+            36
+          ],
+          [
+            19,
+            50
+          ],
+          [
+            10,
+            59
+          ],
+          [
+            0
+          ],
+          [
+            1
+          ],
+          [
+            3
+          ],
+          [
+            4
+          ],
+          [
+            5
+          ],
+          [
+            6
+          ],
+          [
+            7
+          ],
+          [
+            8
+          ],
+          [
+            11
+          ],
+          [
+            12
+          ],
+          [
+            13
+          ],
+          [
+            14
+          ],
+          [
+            15
+          ],
+          [
+            16
+          ],
+          [
+            17
+          ],
+          [
+            21
+          ],
+          [
+            22
+          ],
+          [
+            23
+          ],
+          [
+            24
+          ],
+          [
+            25
+          ],
+          [
+            26
+          ],
+          [
+            27
+          ],
+          [
+            28
+          ],
+          [
+            30
+          ],
+          [
+            31
+          ],
+          [
+            32
+          ],
+          [
+            33
+          ],
+          [
+            34
+          ],
+          [
+            35
+          ],
+          [
+            37
+          ],
+          [
+            38
+          ],
+          [
+            39
+          ],
+          [
+            40
+          ],
+          [
+            41
+          ],
+          [
+            42
+          ],
+          [
+            43
+          ],
+          [
+            44
+          ],
+          [
+            45
+          ],
+          [
+            47
+          ],
+          [
+            48
+          ],
+          [
+            49
+          ],
+          [
+            51
+          ],
+          [
+            52
+          ],
+          [
+            53
+          ],
+          [
+            54
+          ],
+          [
+            55
+          ],
+          [
+            56
+          ],
+          [
+            57
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {
+          "mean_hybrid_score": 0.7076740264892578,
+          "mean_rmt_similarity": 0.9871664047241211,
+          "mean_functional_similarity": 0.48745259642601013,
+          "mean_usage_safety": 0.28988274931907654
+        }
+      },
+      "transform": {
+        "candidate_id": "rmt_functional_usage-f0.100-s123",
+        "original_experts": 60,
+        "active_experts": 54,
+        "model_parameter_mb": 27206.19140625,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.8221879088857644,
+        "perplexity": 16.813597077034903,
+        "tokens_per_second": 208.2354789344412,
+        "peak_memory_mb": 28308.2275390625,
+        "model_parameter_mb": 27206.19140625,
+        "evaluated_tokens": 2272,
+        "elapsed_seconds": 10.910724779590964
+      },
+      "relative_perplexity_degradation": 0.011239445090001743,
+      "throughput_gain": -0.008200947605725428,
+      "memory_reduction": 0.0036256841611935764,
+      "accepted_quality_budgets": {
+        "0.01": false,
+        "0.03": true,
+        "0.05": true
+      },
+      "record_type": "selected_candidate",
+      "split": "test"
+    },
+    {
+      "config_hash": "8dd6c0db300a5f29d7a10a2764c7bac15e44ff4bafe8214b74882fe8c617a8be",
+      "plan": {
+        "candidate_id": "rmt_functional_usage-f0.250-s123",
+        "layer": 0,
+        "method": "rmt_functional_usage",
+        "action": "merge",
+        "compression_fraction": 0.25,
+        "groups": [
+          [
+            9,
+            58
+          ],
+          [
+            2,
+            46
+          ],
+          [
+            18,
+            20
+          ],
+          [
+            29,
+            36
+          ],
+          [
+            19,
+            50
+          ],
+          [
+            10,
+            59
+          ],
+          [
+            3,
+            41
+          ],
+          [
+            11,
+            42
+          ],
+          [
+            17,
+            25
+          ],
+          [
+            6,
+            55
+          ],
+          [
+            7,
+            40
+          ],
+          [
+            0,
+            30
+          ],
+          [
+            12,
+            15
+          ],
+          [
+            27,
+            35
+          ],
+          [
+            4,
+            34
+          ],
+          [
+            1
+          ],
+          [
+            5
+          ],
+          [
+            8
+          ],
+          [
+            13
+          ],
+          [
+            14
+          ],
+          [
+            16
+          ],
+          [
+            21
+          ],
+          [
+            22
+          ],
+          [
+            23
+          ],
+          [
+            24
+          ],
+          [
+            26
+          ],
+          [
+            28
+          ],
+          [
+            31
+          ],
+          [
+            32
+          ],
+          [
+            33
+          ],
+          [
+            37
+          ],
+          [
+            38
+          ],
+          [
+            39
+          ],
+          [
+            43
+          ],
+          [
+            44
+          ],
+          [
+            45
+          ],
+          [
+            47
+          ],
+          [
+            48
+          ],
+          [
+            49
+          ],
+          [
+            51
+          ],
+          [
+            52
+          ],
+          [
+            53
+          ],
+          [
+            54
+          ],
+          [
+            56
+          ],
+          [
+            57
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {
+          "mean_hybrid_score": 0.698940098285675,
+          "mean_rmt_similarity": 0.9859544038772583,
+          "mean_functional_similarity": 0.49279361963272095,
+          "mean_usage_safety": 0.2232343852519989
+        }
+      },
+      "transform": {
+        "candidate_id": "rmt_functional_usage-f0.250-s123",
+        "original_experts": 60,
+        "active_experts": 45,
+        "model_parameter_mb": 27057.69140625,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.8307356713733203,
+        "perplexity": 16.957931701648548,
+        "tokens_per_second": 210.54925293978073,
+        "peak_memory_mb": 28458.8212890625,
+        "model_parameter_mb": 27057.69140625,
+        "evaluated_tokens": 2272,
+        "elapsed_seconds": 10.790824323892593
+      },
+      "relative_perplexity_degradation": 0.019920327891751244,
+      "throughput_gain": 0.002819263156114582,
+      "memory_reduction": 0.009064210402983996,
+      "accepted_quality_budgets": {
+        "0.01": false,
+        "0.03": true,
+        "0.05": true
+      },
+      "record_type": "selected_candidate",
+      "split": "test"
+    },
+    {
+      "config_hash": "8dd6c0db300a5f29d7a10a2764c7bac15e44ff4bafe8214b74882fe8c617a8be",
+      "plan": {
+        "candidate_id": "rmt_functional_usage-f0.400-s123",
+        "layer": 0,
+        "method": "rmt_functional_usage",
+        "action": "merge",
+        "compression_fraction": 0.4,
+        "groups": [
+          [
+            9,
+            58
+          ],
+          [
+            2,
+            46
+          ],
+          [
+            18,
+            20
+          ],
+          [
+            29,
+            36
+          ],
+          [
+            19,
+            50
+          ],
+          [
+            10,
+            59
+          ],
+          [
+            3,
+            41
+          ],
+          [
+            11,
+            42
+          ],
+          [
+            17,
+            25
+          ],
+          [
+            6,
+            55
+          ],
+          [
+            7,
+            40
+          ],
+          [
+            0,
+            30
+          ],
+          [
+            12,
+            15
+          ],
+          [
+            27,
+            35
+          ],
+          [
+            4,
+            34
+          ],
+          [
+            23,
+            56
+          ],
+          [
+            16,
+            22
+          ],
+          [
+            8,
+            28
+          ],
+          [
+            44,
+            53
+          ],
+          [
+            31,
+            38
+          ],
+          [
+            1,
+            47
+          ],
+          [
+            14,
+            43
+          ],
+          [
+            13,
+            52
+          ],
+          [
+            21,
+            57
+          ],
+          [
+            5
+          ],
+          [
+            24
+          ],
+          [
+            26
+          ],
+          [
+            32
+          ],
+          [
+            33
+          ],
+          [
+            37
+          ],
+          [
+            39
+          ],
+          [
+            45
+          ],
+          [
+            48
+          ],
+          [
+            49
+          ],
+          [
+            51
+          ],
+          [
+            54
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {
+          "mean_hybrid_score": 0.6876047253608704,
+          "mean_rmt_similarity": 0.9719385504722595,
+          "mean_functional_similarity": 0.4948159158229828,
+          "mean_usage_safety": 0.18966631591320038
+        }
+      },
+      "transform": {
+        "candidate_id": "rmt_functional_usage-f0.400-s123",
+        "original_experts": 60,
+        "active_experts": 36,
+        "model_parameter_mb": 26909.19140625,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.8591796578445905,
+        "perplexity": 17.447208383795306,
+        "tokens_per_second": 212.75933538333533,
+        "peak_memory_mb": 28605.2275390625,
+        "model_parameter_mb": 26909.19140625,
+        "evaluated_tokens": 2272,
+        "elapsed_seconds": 10.678732361644506
+      },
+      "relative_perplexity_degradation": 0.04934745632135784,
+      "throughput_gain": 0.013345604221753904,
+      "memory_reduction": 0.014502736644774417,
+      "accepted_quality_budgets": {
+        "0.01": false,
+        "0.03": false,
+        "0.05": true
+      },
+      "record_type": "selected_candidate",
+      "split": "test"
+    }
+  ]
+}
