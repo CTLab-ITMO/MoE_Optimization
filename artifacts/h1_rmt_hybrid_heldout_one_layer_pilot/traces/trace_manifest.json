@@ -1,0 +1,44 @@
+[
+  {
+    "source": "hf_dataset",
+    "layer": 0,
+    "split": "calibration",
+    "hidden_states_path": "artifacts/h1_rmt_hybrid_heldout_one_layer_pilot/traces/calibration/layer_0.pt",
+    "routing_probs_path": "artifacts/h1_rmt_hybrid_heldout_one_layer_pilot/traces/calibration/layer_0.pt",
+    "token_batches_path": "artifacts/h1_rmt_hybrid_heldout_one_layer_pilot/traces/calibration/token_batches.pt",
+    "rows": 11274,
+    "tokens": 11274,
+    "sha256": "57511f2f27df4dffe3dde14f266b8c29c40b2e483202c73479b1276ec40fe3d1",
+    "routed_experts": 60,
+    "shared_experts": 4,
+    "routed_top_k": 4
+  },
+  {
+    "source": "hf_dataset",
+    "layer": 0,
+    "split": "test",
+    "hidden_states_path": "artifacts/h1_rmt_hybrid_heldout_one_layer_pilot/traces/test/layer_0.pt",
+    "routing_probs_path": "artifacts/h1_rmt_hybrid_heldout_one_layer_pilot/traces/test/layer_0.pt",
+    "token_batches_path": "artifacts/h1_rmt_hybrid_heldout_one_layer_pilot/traces/test/token_batches.pt",
+    "rows": 3734,
+    "tokens": 3734,
+    "sha256": "eb8b709c19778555ca3a179eda336b9be6538621e08675f71da3f81035e03968",
+    "routed_experts": 60,
+    "shared_experts": 4,
+    "routed_top_k": 4
+  },
+  {
+    "source": "hf_dataset",
+    "layer": 0,
+    "split": "validation",
+    "hidden_states_path": "artifacts/h1_rmt_hybrid_heldout_one_layer_pilot/traces/validation/layer_0.pt",
+    "routing_probs_path": "artifacts/h1_rmt_hybrid_heldout_one_layer_pilot/traces/validation/layer_0.pt",
+    "token_batches_path": "artifacts/h1_rmt_hybrid_heldout_one_layer_pilot/traces/validation/token_batches.pt",
+    "rows": 3797,
+    "tokens": 3797,
+    "sha256": "2e97a92ddb471a75573d4d5c47ace82cb0abfbe5098f1e372f357f9111f39774",
+    "routed_experts": 60,
+    "shared_experts": 4,
+    "routed_top_k": 4
+  }
+]

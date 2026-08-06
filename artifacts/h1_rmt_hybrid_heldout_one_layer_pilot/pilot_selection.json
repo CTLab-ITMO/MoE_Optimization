@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "config_hash": "8dd6c0db300a5f29d7a10a2764c7bac15e44ff4bafe8214b74882fe8c617a8be",
+  "selected_candidate_ids": [
+    "random_merge-f0.100-s123",
+    "random_merge-f0.250-s456",
+    "random_merge-f0.400-s123",
+    "usage_prune-f0.100-s123",
+    "usage_prune-f0.250-s123",
+    "usage_prune-f0.400-s123",
+    "functional_cosine-f0.100-s123",
+    "functional_cosine-f0.250-s123",
+    "functional_cosine-f0.400-s123",
+    "rmt_geometry-f0.100-s123",
+    "rmt_geometry-f0.250-s123",
+    "rmt_geometry-f0.400-s123",
+    "rmt_functional_usage-f0.100-s123",
+    "rmt_functional_usage-f0.250-s123",
+    "rmt_functional_usage-f0.400-s123"
+  ]
+}
