@@ -1,0 +1,114 @@
+{
+  "name": "h1_rmt_pairing_rank_ablation_one_layer_pilot",
+  "model": {
+    "name": "Qwen/Qwen1.5-MoE-A2.7B-Chat",
+    "kind": "qwen",
+    "load_source": "hf",
+    "torch_dtype": "auto",
+    "device_map": "auto",
+    "local_files_only": false,
+    "trust_remote_code": false
+  },
+  "runtime": {
+    "top_k": 4,
+    "expected_routed_experts": 60,
+    "expected_shared_experts": 4,
+    "strict_architecture": true
+  },
+  "layers": [0],
+  "constants": {
+    "training": "../constants/constant_repo_training.json",
+    "routing": "../constants/constant_repo_routing.json",
+    "visualization": "../constants/constant_repo_visualization.json",
+    "io": "../constants/constant_repo_io.json"
+  },
+  "artifacts": {
+    "root_dir": "artifacts/h1_rmt_pairing_rank_ablation_one_layer_pilot",
+    "manifest_path": "artifacts/h1_rmt_pairing_rank_ablation_one_layer_pilot/artifacts_manifest.json",
+    "schema_version": "1.1"
+  },
+  "profile": {
+    "enabled": true,
+    "warmup_steps": 2,
+    "measure_steps": 32
+  },
+  "calibration": {
+    "source": "hf_dataset",
+    "dataset_name": "wikitext",
+    "dataset_config": "wikitext-2-raw-v1",
+    "dataset_split": "train",
+    "text_column": "text",
+    "output_dir": "artifacts/h1_rmt_hybrid_heldout_one_layer_pilot/traces",
+    "max_samples": 384,
+    "max_length": 256,
+    "batch_size": 1,
+    "calibration_fraction": 0.6,
+    "validation_fraction": 0.2,
+    "test_fraction": 0.2,
+    "seed": 2026
+  },
+  "pilot": {
+    "enabled": true,
+    "layer": 0,
+    "methods": [
+      "usage_prune",
+      "usage_guided_merge",
+      "rmt_geometry",
+      "rmt_functional_usage"
+    ],
+    "compression_fractions": [0.1, 0.25, 0.4],
+    "quality_budgets": [0.01, 0.03, 0.05],
+    "seeds": [123],
+    "max_eval_batches": 32,
+    "require_real_traces": true,
+    "candidates_per_invocation": 2,
+    "max_step_seconds": 1200,
+    "spectral_pairing_ranks": [1, 4, 8, 18],
+    "hybrid_pairing": {
+      "rmt_weight": 0.5,
+      "functional_weight": 0.35,
+      "usage_weight": 0.15
+    }
+  },
+  "stages": {
+    "h1": {
+      "enabled": true,
+      "layer": 0,
+      "mlp_inputs_path": "artifacts/h1_rmt_hybrid_heldout_one_layer_pilot/traces/h1_calibration_inputs.pt",
+      "experts_dir": "data/experts",
+      "output_pairs_path": "artifacts/h1_rmt_hybrid_heldout_one_layer_pilot/pairs_0.pt",
+      "output_diagnostics_path": "artifacts/h1_rmt_hybrid_heldout_one_layer_pilot/h1_diag_0.json",
+      "output_merged_dir": "artifacts/h1_rmt_hybrid_heldout_one_layer_pilot/merged",
+      "experts_source": "hf_model",
+      "auto_generate_inputs_if_missing": false,
+      "mode": "pair",
+      "merge_method": "geometry",
+      "proj_dim": 8,
+      "n_inputs": 8192,
+      "batch_size": 64,
+      "mp_factor": 1.1,
+      "cluster_count": 0,
+      "geometry_rank": 64,
+      "shrink_tau": 0.0,
+      "null_trials": 32,
+      "bootstrap_trials": 32,
+      "null_quantile": 0.95,
+      "stability_max_angle_deg": 30.0
+    },
+    "h2": {
+      "enabled": false,
+      "layer": 0,
+      "mode": "gate_spike",
+      "output_bias_path": "artifacts/h1_rmt_pairing_rank_ablation_one_layer_pilot/h2_bias_0.pt"
+    },
+    "h3": {
+      "enabled": false,
+      "routing_probs_path": "artifacts/h1_rmt_hybrid_heldout_one_layer_pilot/traces/routing_probs_0.pt",
+      "output_diagnostics_path": "artifacts/h1_rmt_pairing_rank_ablation_one_layer_pilot/h3_diag_0.json",
+      "auto_from_model": false,
+      "tau": 0.92,
+      "k_min": 1,
+      "k_max": 4
+    }
+  }
+}

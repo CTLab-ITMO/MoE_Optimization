@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 import random
-from typing import Iterable, Sequence
+from typing import Iterable, Mapping, Sequence
 
 import torch
 
@@ -80,6 +80,47 @@ def _usage_safety_similarity(usage: torch.Tensor) -> torch.Tensor:
     return 1.0 - 0.5 * (normalized.unsqueeze(0) + normalized.unsqueeze(1))
 
 
+def _usage_guided_pairs(
+    functional_embedding: torch.Tensor,
+    usage: torch.Tensor,
+    count: int,
+) -> tuple[tuple[tuple[int, int], ...], tuple[tuple[str, float], ...]]:
+    num_experts = functional_embedding.shape[0]
+    if usage.numel() != num_experts:
+        raise ValueError("usage-guided pairing inputs must use the same expert dimension")
+    ordered = sorted(range(num_experts), key=lambda idx: (float(usage[idx].item()), idx))
+    sources = tuple(ordered[:count])
+    available_partners = set(ordered[count:])
+    similarity = _cosine_similarity(functional_embedding)
+    pairs: list[tuple[int, int]] = []
+    for source in sources:
+        if not available_partners:
+            break
+        partner = max(
+            available_partners,
+            key=lambda idx: (float(similarity[source, idx].item()), -idx),
+        )
+        pairs.append((source, partner))
+        available_partners.remove(partner)
+
+    if pairs:
+        source_usage = torch.stack([usage[source] for source, _ in pairs]).mean()
+        partner_usage = torch.stack([usage[partner] for _, partner in pairs]).mean()
+        pair_similarity = torch.stack(
+            [similarity[source, partner] for source, partner in pairs]
+        ).mean()
+    else:
+        source_usage = usage.new_tensor(0.0)
+        partner_usage = usage.new_tensor(0.0)
+        pair_similarity = usage.new_tensor(0.0)
+    diagnostics = (
+        ("mean_source_usage", float(source_usage.item())),
+        ("mean_partner_usage", float(partner_usage.item())),
+        ("mean_functional_similarity", float(pair_similarity.item())),
+    )
+    return tuple(pairs), diagnostics
+
+
 def _greedy_cosine_pairs(embedding: torch.Tensor, count: int) -> tuple[tuple[int, int], ...]:
     return _greedy_pairs_from_score(_cosine_similarity(embedding), count)
 
@@ -149,60 +190,121 @@ def build_candidate_plans(
     functional_embedding: torch.Tensor,
     routing_probs: torch.Tensor,
     hybrid_weights: Sequence[float] = (0.5, 0.35, 0.15),
+    spectral_embeddings: Mapping[int, torch.Tensor] | None = None,
+    hybrid_weight_variants: Sequence[tuple[str, Sequence[float]]] = (),
 ) -> tuple[CandidatePlanContract, ...]:
     plans: list[CandidatePlanContract] = []
     usage = routing_probs.float().mean(dim=0)
     if usage.numel() != num_experts:
         raise ValueError("routing_probs expert dimension does not match the model")
 
+    explicit_rank_variants = tuple(
+        (int(rank), value) for rank, value in (spectral_embeddings or {}).items()
+    )
+    for rank, value in explicit_rank_variants:
+        if value.ndim != 2 or value.shape != (num_experts, rank):
+            raise ValueError(
+                "spectral rank embedding must have shape "
+                f"({num_experts}, {rank}), got {tuple(value.shape)}"
+            )
+    explicit_weight_variants = tuple(
+        (str(name), tuple(float(weight) for weight in weights))
+        for name, weights in hybrid_weight_variants
+    )
+
     for method_token in methods:
         method = CandidateMethod(method_token)
         method_seeds = tuple(seeds) if method == CandidateMethod.RANDOM_MERGE else (int(seeds[0]),)
+        rank_variants = (
+            explicit_rank_variants
+            if explicit_rank_variants
+            and method in {CandidateMethod.RMT_GEOMETRY, CandidateMethod.RMT_FUNCTIONAL_USAGE}
+            else ((None, spectral_embedding),)
+        )
+        weight_variants = (
+            explicit_weight_variants
+            if explicit_weight_variants and method == CandidateMethod.RMT_FUNCTIONAL_USAGE
+            else ((None, tuple(float(weight) for weight in hybrid_weights)),)
+        )
         for fraction in compression_fractions:
             count = _pair_count(num_experts, float(fraction))
-            for seed in method_seeds:
-                diagnostics: tuple[tuple[str, float], ...] = ()
-                if method == CandidateMethod.RANDOM_MERGE:
-                    groups = _partition_from_pairs(num_experts, _random_pairs(num_experts, count, seed))
-                    action = CandidateAction.MERGE
-                elif method == CandidateMethod.FUNCTIONAL_COSINE:
-                    groups = _partition_from_pairs(
-                        num_experts,
-                        _greedy_cosine_pairs(functional_embedding, count),
-                    )
-                    action = CandidateAction.MERGE
-                elif method == CandidateMethod.RMT_GEOMETRY:
-                    groups = _partition_from_pairs(num_experts, tuple(rmt_pairs)[:count])
-                    action = CandidateAction.MERGE
-                elif method == CandidateMethod.RMT_FUNCTIONAL_USAGE:
-                    hybrid_pairs, diagnostics = _hybrid_pairs(
-                        spectral_embedding,
-                        functional_embedding,
-                        usage,
-                        count,
-                        hybrid_weights,
-                    )
-                    groups = _partition_from_pairs(
-                        num_experts,
-                        hybrid_pairs,
-                    )
-                    action = CandidateAction.MERGE
-                else:
-                    prune_count = min(num_experts - 1, max(1, int(math.ceil(num_experts * float(fraction)))))
-                    pruned = set(torch.argsort(usage)[:prune_count].tolist())
-                    groups = tuple((idx,) for idx in range(num_experts) if idx not in pruned)
-                    action = CandidateAction.PRUNE
+            for rank, ranked_embedding in rank_variants:
+                for weight_name, variant_weights in weight_variants:
+                    for seed in method_seeds:
+                        diagnostics: tuple[tuple[str, float], ...] = ()
+                        if method == CandidateMethod.RANDOM_MERGE:
+                            groups = _partition_from_pairs(
+                                num_experts,
+                                _random_pairs(num_experts, count, seed),
+                            )
+                            action = CandidateAction.MERGE
+                        elif method == CandidateMethod.USAGE_PRUNE:
+                            prune_count = min(
+                                num_experts - 1,
+                                max(1, int(math.ceil(num_experts * float(fraction)))),
+                            )
+                            pruned = set(torch.argsort(usage)[:prune_count].tolist())
+                            groups = tuple((idx,) for idx in range(num_experts) if idx not in pruned)
+                            action = CandidateAction.PRUNE
+                        elif method == CandidateMethod.USAGE_GUIDED_MERGE:
+                            usage_pairs, diagnostics = _usage_guided_pairs(
+                                functional_embedding,
+                                usage,
+                                count,
+                            )
+                            groups = _partition_from_pairs(num_experts, usage_pairs)
+                            action = CandidateAction.MERGE
+                        elif method == CandidateMethod.FUNCTIONAL_COSINE:
+                            groups = _partition_from_pairs(
+                                num_experts,
+                                _greedy_cosine_pairs(functional_embedding, count),
+                            )
+                            action = CandidateAction.MERGE
+                        elif method == CandidateMethod.RMT_GEOMETRY:
+                            pairs = (
+                                _greedy_cosine_pairs(ranked_embedding, count)
+                                if rank is not None
+                                else tuple(rmt_pairs)[:count]
+                            )
+                            groups = _partition_from_pairs(num_experts, pairs)
+                            action = CandidateAction.MERGE
+                        elif method == CandidateMethod.RMT_FUNCTIONAL_USAGE:
+                            hybrid_pairs, diagnostics = _hybrid_pairs(
+                                ranked_embedding,
+                                functional_embedding,
+                                usage,
+                                count,
+                                variant_weights,
+                            )
+                            groups = _partition_from_pairs(num_experts, hybrid_pairs)
+                            action = CandidateAction.MERGE
+                        else:
+                            raise AssertionError(f"Unhandled candidate method: {method.value}")
 
-                plan = CandidatePlanContract(
-                    candidate_id=f"{method.value}-f{float(fraction):.3f}-s{int(seed)}",
-                    layer=int(layer),
-                    method=method,
-                    action=action,
-                    compression_fraction=float(fraction),
-                    groups=groups,
-                    seed=int(seed),
-                    diagnostics=diagnostics,
-                )
-                validate_candidate_plan(plan, num_experts=num_experts)
-                plans.append(plan)
+                        id_parts = [method.value]
+                        if rank is not None:
+                            id_parts.append(f"r{rank}")
+                            diagnostics += (("spectral_pairing_rank", float(rank)),)
+                        if weight_name is not None:
+                            id_parts.append(f"w{weight_name}")
+                            diagnostics += (
+                                ("hybrid_rmt_weight", float(variant_weights[0])),
+                                ("hybrid_functional_weight", float(variant_weights[1])),
+                                ("hybrid_usage_weight", float(variant_weights[2])),
+                            )
+                        candidate_prefix = "-".join(id_parts)
+                        plan = CandidatePlanContract(
+                            candidate_id=(
+                                f"{candidate_prefix}-f{float(fraction):.3f}-s{int(seed)}"
+                            ),
+                            layer=int(layer),
+                            method=method,
+                            action=action,
+                            compression_fraction=float(fraction),
+                            groups=groups,
+                            seed=int(seed),
+                            diagnostics=diagnostics,
+                        )
+                        validate_candidate_plan(plan, num_experts=num_experts)
+                        plans.append(plan)
     return tuple(plans)

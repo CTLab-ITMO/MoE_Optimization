@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 import json
 from pathlib import Path
+import re
 from typing import Any, Dict, List, Tuple
 
 
@@ -97,10 +98,19 @@ class CalibrationConfig:
 
 
 @dataclass(frozen=True)
+class HybridPairingVariantConfig:
+    name: str
+    rmt_weight: float
+    functional_weight: float
+    usage_weight: float
+
+
+@dataclass(frozen=True)
 class HybridPairingConfig:
     rmt_weight: float = 0.5
     functional_weight: float = 0.35
     usage_weight: float = 0.15
+    variants: Tuple[HybridPairingVariantConfig, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -121,6 +131,7 @@ class PilotConfig:
     require_real_traces: bool = True
     candidates_per_invocation: int = 2
     max_step_seconds: float = 1800.0
+    spectral_pairing_ranks: Tuple[int, ...] = ()
     hybrid_pairing: HybridPairingConfig = HybridPairingConfig()
 
 
@@ -250,11 +261,12 @@ def validate_experiment_config_dict(data: Dict[str, Any]) -> None:
     allowed_methods = {
         "random_merge",
         "usage_prune",
+        "usage_guided_merge",
         "functional_cosine",
         "rmt_geometry",
         "rmt_functional_usage",
     }
-    methods = tuple(str(item) for item in pilot.get("methods", sorted(allowed_methods)))
+    methods = tuple(str(item) for item in pilot.get("methods", PilotConfig().methods))
     unknown_methods = sorted(set(methods) - allowed_methods)
     if unknown_methods:
         raise ValueError(f"pilot.methods contains unsupported methods: {unknown_methods}")
@@ -286,6 +298,13 @@ def validate_experiment_config_dict(data: Dict[str, Any]) -> None:
             raise ValueError("pilot.max_step_seconds must be positive")
         if bool(pilot.get("require_real_traces", True)) and source == "synthetic":
             raise ValueError("pilot.require_real_traces=true is incompatible with calibration.source='synthetic'")
+    spectral_pairing_ranks = tuple(int(rank) for rank in pilot.get("spectral_pairing_ranks", ()))
+    if any(rank < 1 for rank in spectral_pairing_ranks):
+        raise ValueError("pilot.spectral_pairing_ranks values must be positive")
+    if len(set(spectral_pairing_ranks)) != len(spectral_pairing_ranks):
+        raise ValueError("pilot.spectral_pairing_ranks values must be unique")
+    if expected_routed is not None and any(rank > int(expected_routed) for rank in spectral_pairing_ranks):
+        raise ValueError("pilot.spectral_pairing_ranks must not exceed runtime.expected_routed_experts")
     hybrid = pilot.get("hybrid_pairing", {})
     hybrid_weights = (
         float(hybrid.get("rmt_weight", 0.5)),
@@ -296,6 +315,34 @@ def validate_experiment_config_dict(data: Dict[str, Any]) -> None:
         raise ValueError("pilot.hybrid_pairing weights must be non-negative")
     if sum(hybrid_weights) <= 0.0:
         raise ValueError("pilot.hybrid_pairing must contain at least one positive weight")
+    variants = hybrid.get("variants", ())
+    if not isinstance(variants, (list, tuple)):
+        raise ValueError("pilot.hybrid_pairing.variants must be an array")
+    for index, item in enumerate(variants):
+        if not isinstance(item, dict):
+            raise ValueError("pilot.hybrid_pairing variants must be objects")
+        _require(
+            item,
+            ["name", "rmt_weight", "functional_weight", "usage_weight"],
+            f"pilot.hybrid_pairing.variants[{index}]",
+        )
+    variant_names = tuple(str(item.get("name", "")) for item in variants)
+    if any(not name for name in variant_names):
+        raise ValueError("pilot.hybrid_pairing variant names must not be empty")
+    if any(re.fullmatch(r"[a-z0-9_]+", name) is None for name in variant_names):
+        raise ValueError("pilot.hybrid_pairing variant names must match [a-z0-9_]+")
+    if len(set(variant_names)) != len(variant_names):
+        raise ValueError("pilot.hybrid_pairing variant names must be unique")
+    for item in variants:
+        weights = (
+            float(item.get("rmt_weight", 0.0)),
+            float(item.get("functional_weight", 0.0)),
+            float(item.get("usage_weight", 0.0)),
+        )
+        if any(weight < 0.0 for weight in weights):
+            raise ValueError("pilot.hybrid_pairing variant weights must be non-negative")
+        if sum(weights) <= 0.0:
+            raise ValueError("pilot.hybrid_pairing variants must contain at least one positive weight")
 
 
 
@@ -342,6 +389,15 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
     pilot_defaults = PilotConfig()
     hybrid_raw = pilot_raw.get("hybrid_pairing", {})
     hybrid_defaults = HybridPairingConfig()
+    hybrid_variants = tuple(
+        HybridPairingVariantConfig(
+            name=str(item["name"]),
+            rmt_weight=float(item["rmt_weight"]),
+            functional_weight=float(item["functional_weight"]),
+            usage_weight=float(item["usage_weight"]),
+        )
+        for item in hybrid_raw.get("variants", ())
+    )
     pilot = PilotConfig(
         enabled=bool(pilot_raw.get("enabled", False)),
         layer=int(pilot_raw.get("layer", raw["stages"]["h1"]["layer"])),
@@ -357,12 +413,16 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
         require_real_traces=bool(pilot_raw.get("require_real_traces", True)),
         candidates_per_invocation=int(pilot_raw.get("candidates_per_invocation", 2)),
         max_step_seconds=float(pilot_raw.get("max_step_seconds", 1800.0)),
+        spectral_pairing_ranks=tuple(
+            int(item) for item in pilot_raw.get("spectral_pairing_ranks", ())
+        ),
         hybrid_pairing=HybridPairingConfig(
             rmt_weight=float(hybrid_raw.get("rmt_weight", hybrid_defaults.rmt_weight)),
             functional_weight=float(
                 hybrid_raw.get("functional_weight", hybrid_defaults.functional_weight)
             ),
             usage_weight=float(hybrid_raw.get("usage_weight", hybrid_defaults.usage_weight)),
+            variants=hybrid_variants,
         ),
     )
 

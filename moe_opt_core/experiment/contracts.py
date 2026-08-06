@@ -51,6 +51,7 @@ class CandidateAction(str, Enum):
 class CandidateMethod(str, Enum):
     RANDOM_MERGE = "random_merge"
     USAGE_PRUNE = "usage_prune"
+    USAGE_GUIDED_MERGE = "usage_guided_merge"
     FUNCTIONAL_COSINE = "functional_cosine"
     RMT_GEOMETRY = "rmt_geometry"
     RMT_FUNCTIONAL_USAGE = "rmt_functional_usage"

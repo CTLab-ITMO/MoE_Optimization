@@ -101,6 +101,7 @@
             "enum": [
               "random_merge",
               "usage_prune",
+              "usage_guided_merge",
               "functional_cosine",
               "rmt_geometry",
               "rmt_functional_usage"
@@ -120,13 +121,32 @@
         "require_real_traces": {"type": "boolean"},
         "candidates_per_invocation": {"type": "integer", "minimum": 1},
         "max_step_seconds": {"type": "number", "exclusiveMinimum": 0},
+        "spectral_pairing_ranks": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "integer", "minimum": 1}
+        },
         "hybrid_pairing": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
             "rmt_weight": {"type": "number", "minimum": 0},
             "functional_weight": {"type": "number", "minimum": 0},
-            "usage_weight": {"type": "number", "minimum": 0}
+            "usage_weight": {"type": "number", "minimum": 0},
+            "variants": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name", "rmt_weight", "functional_weight", "usage_weight"],
+                "additionalProperties": false,
+                "properties": {
+                  "name": {"type": "string", "pattern": "^[a-z0-9_]+$"},
+                  "rmt_weight": {"type": "number", "minimum": 0},
+                  "functional_weight": {"type": "number", "minimum": 0},
+                  "usage_weight": {"type": "number", "minimum": 0}
+                }
+              }
+            }
           }
         }
       }
