@@ -75,6 +75,16 @@ def execute_step(
         paths = _h1_artifact_paths(config)
         if executor.is_step_complete(step):
             return pilot_step_result_dict(executor.skip_step(step, paths))
+        validation_trace = _trace_artifact_paths(config, "validation")[1]
+        if not validation_trace.exists():
+            raise ExpectedExperimentFailure(
+                ExperimentFailureCode.PILOT_STATE_MISMATCH,
+                "H1 diagnostics require validation traces for held-out spectral stability",
+                context={
+                    "missing_path": str(validation_trace),
+                    "required_step": PilotStep.TRACES_VALIDATION.value,
+                },
+            )
         executor.begin_step(step)
         executor = _executor_with_runtime(config)
         from moe_opt_runner.stages import run_h1_stage

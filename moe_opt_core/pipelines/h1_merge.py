@@ -264,6 +264,8 @@ def run_h1_with_experts(
         "null_edge": float(finite_size.null_edge),
         "bootstrap_max_angle_median_deg": float(finite_size.bootstrap_max_angle_median_deg),
         "heldout_max_angle_deg": finite_size.heldout_max_angle_deg,
+        "heldout_angles_deg": list(finite_size.heldout_angles_deg),
+        "heldout_passed": finite_size.heldout_passed,
         "mp_rank": int(legacy_mp["rank"]),
         "lambda_plus": float(legacy_mp["lambda_plus"]),
         "tau": float(legacy_mp["tau"]),

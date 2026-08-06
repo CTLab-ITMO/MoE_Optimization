@@ -98,7 +98,13 @@
           "type": "array",
           "items": {
             "type": "string",
-            "enum": ["random_merge", "usage_prune", "functional_cosine", "rmt_geometry"]
+            "enum": [
+              "random_merge",
+              "usage_prune",
+              "functional_cosine",
+              "rmt_geometry",
+              "rmt_functional_usage"
+            ]
           }
         },
         "compression_fractions": {
@@ -113,7 +119,16 @@
         "max_eval_batches": {"type": "integer", "minimum": 1},
         "require_real_traces": {"type": "boolean"},
         "candidates_per_invocation": {"type": "integer", "minimum": 1},
-        "max_step_seconds": {"type": "number", "exclusiveMinimum": 0}
+        "max_step_seconds": {"type": "number", "exclusiveMinimum": 0},
+        "hybrid_pairing": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "rmt_weight": {"type": "number", "minimum": 0},
+            "functional_weight": {"type": "number", "minimum": 0},
+            "usage_weight": {"type": "number", "minimum": 0}
+          }
+        }
       }
     },
     "stages": {

@@ -53,6 +53,7 @@ class CandidateMethod(str, Enum):
     USAGE_PRUNE = "usage_prune"
     FUNCTIONAL_COSINE = "functional_cosine"
     RMT_GEOMETRY = "rmt_geometry"
+    RMT_FUNCTIONAL_USAGE = "rmt_functional_usage"
 
 
 @dataclass(frozen=True)
@@ -108,6 +109,7 @@ class CandidatePlanContract:
     compression_fraction: float
     groups: Tuple[Tuple[int, ...], ...]
     seed: int
+    diagnostics: Tuple[Tuple[str, float], ...] = ()
 
 
 @dataclass(frozen=True)

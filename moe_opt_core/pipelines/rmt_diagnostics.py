@@ -15,6 +15,8 @@ class FiniteSizeSpectralResult:
     r_useful: int
     bootstrap_max_angle_median_deg: float
     heldout_max_angle_deg: float | None
+    heldout_angles_deg: tuple[float, ...]
+    heldout_passed: bool | None
 
 
 def _expert_gram(embedding: torch.Tensor) -> torch.Tensor:
@@ -93,20 +95,25 @@ def finite_size_spectral_diagnostics(
     r_stable = min(r_stable, r_detect)
 
     heldout_angle = None
+    heldout_angles: tuple[float, ...] = ()
+    heldout_passed = None
     r_useful = r_stable
     if validation_embedding is not None:
         _, validation_vectors = _descending_eigensystem(validation_embedding)
+        angle_values = []
         useful = []
         for rank in range(1, r_stable + 1):
             angle = _max_principal_angle_deg(
                 reference[:, :rank],
                 validation_vectors.detach().float().cpu()[:, :rank],
             )
-            if rank == r_stable:
-                heldout_angle = angle
+            angle_values.append(angle)
             if angle <= stability_max_angle_deg:
                 useful.append(rank)
         r_useful = max(useful) if useful else min_rank
+        heldout_angles = tuple(angle_values)
+        heldout_angle = heldout_angles[r_useful - 1]
+        heldout_passed = bool(useful)
 
     selected_rank = max(min_rank, min(r_useful, eigenvectors.shape[1]))
     signal_embedding = eigenvectors[:, :selected_rank] * torch.sqrt(
@@ -121,4 +128,6 @@ def finite_size_spectral_diagnostics(
         r_useful=r_useful,
         bootstrap_max_angle_median_deg=medians[r_stable],
         heldout_max_angle_deg=heldout_angle,
+        heldout_angles_deg=heldout_angles,
+        heldout_passed=heldout_passed,
     )

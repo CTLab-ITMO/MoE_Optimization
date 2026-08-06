@@ -47,3 +47,18 @@ def test_resumable_limits_must_be_positive() -> None:
     raw["pilot"]["max_step_seconds"] = 0
     with pytest.raises(ValueError, match="max_step_seconds"):
         validate_experiment_config_dict(raw)
+
+
+def test_hybrid_pairing_weights_must_define_a_non_negative_score() -> None:
+    raw = _raw_config()
+    raw["pilot"]["hybrid_pairing"] = {
+        "rmt_weight": 0.0,
+        "functional_weight": 0.0,
+        "usage_weight": 0.0,
+    }
+    with pytest.raises(ValueError, match="at least one positive"):
+        validate_experiment_config_dict(raw)
+
+    raw["pilot"]["hybrid_pairing"]["rmt_weight"] = -0.1
+    with pytest.raises(ValueError, match="non-negative"):
+        validate_experiment_config_dict(raw)

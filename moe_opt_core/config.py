@@ -97,6 +97,13 @@ class CalibrationConfig:
 
 
 @dataclass(frozen=True)
+class HybridPairingConfig:
+    rmt_weight: float = 0.5
+    functional_weight: float = 0.35
+    usage_weight: float = 0.15
+
+
+@dataclass(frozen=True)
 class PilotConfig:
     enabled: bool = False
     layer: int = 0
@@ -105,6 +112,7 @@ class PilotConfig:
         "usage_prune",
         "functional_cosine",
         "rmt_geometry",
+        "rmt_functional_usage",
     )
     compression_fractions: Tuple[float, ...] = (0.1, 0.25, 0.4)
     quality_budgets: Tuple[float, ...] = (0.01, 0.03, 0.05)
@@ -113,6 +121,7 @@ class PilotConfig:
     require_real_traces: bool = True
     candidates_per_invocation: int = 2
     max_step_seconds: float = 1800.0
+    hybrid_pairing: HybridPairingConfig = HybridPairingConfig()
 
 
 @dataclass(frozen=True)
@@ -238,7 +247,13 @@ def validate_experiment_config_dict(data: Dict[str, Any]) -> None:
         raise ValueError("calibration split fractions must be positive and sum to 1")
 
     pilot = data.get("pilot", {})
-    allowed_methods = {"random_merge", "usage_prune", "functional_cosine", "rmt_geometry"}
+    allowed_methods = {
+        "random_merge",
+        "usage_prune",
+        "functional_cosine",
+        "rmt_geometry",
+        "rmt_functional_usage",
+    }
     methods = tuple(str(item) for item in pilot.get("methods", sorted(allowed_methods)))
     unknown_methods = sorted(set(methods) - allowed_methods)
     if unknown_methods:
@@ -271,6 +286,16 @@ def validate_experiment_config_dict(data: Dict[str, Any]) -> None:
             raise ValueError("pilot.max_step_seconds must be positive")
         if bool(pilot.get("require_real_traces", True)) and source == "synthetic":
             raise ValueError("pilot.require_real_traces=true is incompatible with calibration.source='synthetic'")
+    hybrid = pilot.get("hybrid_pairing", {})
+    hybrid_weights = (
+        float(hybrid.get("rmt_weight", 0.5)),
+        float(hybrid.get("functional_weight", 0.35)),
+        float(hybrid.get("usage_weight", 0.15)),
+    )
+    if any(weight < 0.0 for weight in hybrid_weights):
+        raise ValueError("pilot.hybrid_pairing weights must be non-negative")
+    if sum(hybrid_weights) <= 0.0:
+        raise ValueError("pilot.hybrid_pairing must contain at least one positive weight")
 
 
 
@@ -315,6 +340,8 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
 
     pilot_raw = raw.get("pilot", {})
     pilot_defaults = PilotConfig()
+    hybrid_raw = pilot_raw.get("hybrid_pairing", {})
+    hybrid_defaults = HybridPairingConfig()
     pilot = PilotConfig(
         enabled=bool(pilot_raw.get("enabled", False)),
         layer=int(pilot_raw.get("layer", raw["stages"]["h1"]["layer"])),
@@ -330,6 +357,13 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
         require_real_traces=bool(pilot_raw.get("require_real_traces", True)),
         candidates_per_invocation=int(pilot_raw.get("candidates_per_invocation", 2)),
         max_step_seconds=float(pilot_raw.get("max_step_seconds", 1800.0)),
+        hybrid_pairing=HybridPairingConfig(
+            rmt_weight=float(hybrid_raw.get("rmt_weight", hybrid_defaults.rmt_weight)),
+            functional_weight=float(
+                hybrid_raw.get("functional_weight", hybrid_defaults.functional_weight)
+            ),
+            usage_weight=float(hybrid_raw.get("usage_weight", hybrid_defaults.usage_weight)),
+        ),
     )
 
     artifacts = ArtifactSpecConfig(

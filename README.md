@@ -44,6 +44,12 @@ reversible candidate materialization, validation-driven selection, and held-out 
 evaluation. Candidate results are appended to `pilot_runs.jsonl`, so completed runs
 remain available if a later candidate fails.
 
+The follow-up held-out hybrid ablation is configured in
+`configs/experiments/h1_rmt_hybrid_heldout_one_layer_pilot.json`. It uses a fresh
+dataset split and compares pure RMT geometry with a deterministic
+`rmt_functional_usage` pairing score. Validation traces must be collected before
+`h1_diagnostics`; the resumable status planner enforces this dependency.
+
 The detailed launch and interpretation protocol is documented in
 `docs/6. Runbook первой RMT-MoE итерации.md`.
 

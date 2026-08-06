@@ -23,6 +23,7 @@ from moe_opt_core.experiment.errors import ExpectedExperimentFailure, Experiment
 from moe_opt_core.experiment.evaluation import compare_evaluations
 from moe_opt_core.experiment.pilot_planning import (
     build_pilot_execution_state,
+    next_pilot_step,
     pending_candidate_ids,
     select_validation_winners,
 )
@@ -74,6 +75,7 @@ def _plan_dict(plan) -> dict[str, object]:
         "compression_fraction": plan.compression_fraction,
         "groups": [list(group) for group in plan.groups],
         "seed": plan.seed,
+        "diagnostics": dict(plan.diagnostics),
     }
 
 
@@ -165,8 +167,14 @@ class ResumablePilotExecutor:
             compression_fractions=self.config.pilot.compression_fractions,
             seeds=self.config.pilot.seeds,
             rmt_pairs=embedding["rmt_pairs"],
+            spectral_embedding=embedding["spectral_embedding"],
             functional_embedding=embedding["raw_embedding"],
             routing_probs=trace["routing_probs"],
+            hybrid_weights=(
+                self.config.pilot.hybrid_pairing.rmt_weight,
+                self.config.pilot.hybrid_pairing.functional_weight,
+                self.config.pilot.hybrid_pairing.usage_weight,
+            ),
         )
 
     def _load_trace_and_plans(self):
@@ -276,29 +284,11 @@ class ResumablePilotExecutor:
         payload["remaining_validation_candidates"] = len(remaining_validation)
         payload["remaining_test_candidates"] = len(remaining_test)
         payload["candidate_grid_available"] = bool(plan_ids)
-        completed = set(state.completed_steps)
-        if PilotStep.TRACES_CALIBRATION not in completed:
-            next_step = PilotStep.TRACES_CALIBRATION
-        elif PilotStep.H1_DIAGNOSTICS not in completed:
-            next_step = PilotStep.H1_DIAGNOSTICS
-        elif PilotStep.TRACES_VALIDATION not in completed:
-            next_step = PilotStep.TRACES_VALIDATION
-        elif PilotStep.BASELINE_VALIDATION not in completed:
-            next_step = PilotStep.BASELINE_VALIDATION
-        elif remaining_validation:
-            next_step = PilotStep.VALIDATE_CANDIDATES
-        elif PilotStep.SELECT_CANDIDATES not in completed:
-            next_step = PilotStep.SELECT_CANDIDATES
-        elif PilotStep.TRACES_TEST not in completed:
-            next_step = PilotStep.TRACES_TEST
-        elif PilotStep.BASELINE_TEST not in completed:
-            next_step = PilotStep.BASELINE_TEST
-        elif remaining_test:
-            next_step = PilotStep.TEST_SELECTED
-        elif PilotStep.BUILD_SUMMARY not in completed:
-            next_step = PilotStep.BUILD_SUMMARY
-        else:
-            next_step = None
+        next_step = next_pilot_step(
+            state.completed_steps,
+            remaining_validation_candidates=len(remaining_validation),
+            remaining_test_candidates=len(remaining_test),
+        )
         payload["next_step"] = next_step.value if next_step is not None else None
         payload["state_path"] = str(self.state_path)
         return payload

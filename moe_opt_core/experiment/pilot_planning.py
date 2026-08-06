@@ -5,6 +5,36 @@ from typing import Iterable, Mapping, Sequence
 from moe_opt_core.experiment.contracts import PilotExecutionStateContract, PilotStep
 
 
+def next_pilot_step(
+    completed_steps: Sequence[PilotStep],
+    *,
+    remaining_validation_candidates: int,
+    remaining_test_candidates: int,
+) -> PilotStep | None:
+    completed = set(completed_steps)
+    if PilotStep.TRACES_CALIBRATION not in completed:
+        return PilotStep.TRACES_CALIBRATION
+    if PilotStep.TRACES_VALIDATION not in completed:
+        return PilotStep.TRACES_VALIDATION
+    if PilotStep.H1_DIAGNOSTICS not in completed:
+        return PilotStep.H1_DIAGNOSTICS
+    if PilotStep.BASELINE_VALIDATION not in completed:
+        return PilotStep.BASELINE_VALIDATION
+    if remaining_validation_candidates:
+        return PilotStep.VALIDATE_CANDIDATES
+    if PilotStep.SELECT_CANDIDATES not in completed:
+        return PilotStep.SELECT_CANDIDATES
+    if PilotStep.TRACES_TEST not in completed:
+        return PilotStep.TRACES_TEST
+    if PilotStep.BASELINE_TEST not in completed:
+        return PilotStep.BASELINE_TEST
+    if remaining_test_candidates:
+        return PilotStep.TEST_SELECTED
+    if PilotStep.BUILD_SUMMARY not in completed:
+        return PilotStep.BUILD_SUMMARY
+    return None
+
+
 def _matching_records(
     records: Iterable[Mapping[str, object]],
     config_hash: str,

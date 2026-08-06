@@ -14,6 +14,7 @@ from moe_opt_core.experiment import (
 from moe_opt_core.experiment.errors import ExpectedExperimentFailure, ExperimentFailureCode
 from moe_opt_core.experiment.pilot_planning import (
     build_pilot_execution_state,
+    next_pilot_step,
     pending_candidate_ids,
     select_validation_winners,
 )
@@ -23,6 +24,7 @@ from moe_opt_runner.pilot_artifacts import (
     write_json_atomic,
     write_selection,
 )
+from moe_opt_runner.pilot_cli import execute_step
 from moe_opt_runner.pilot_executor import ResumablePilotExecutor
 
 
@@ -58,8 +60,15 @@ def _config(tmp_path: Path):
         manifest_path=str(tmp_path / "artifacts" / "manifest.json"),
     )
     calibration = replace(config.calibration, output_dir=str(tmp_path / "traces"))
+    h1 = replace(
+        config.h1,
+        mlp_inputs_path=str(tmp_path / "traces" / "h1_inputs.pt"),
+        output_pairs_path=str(tmp_path / "artifacts" / "pairs_0.pt"),
+        output_diagnostics_path=str(tmp_path / "artifacts" / "h1_diag_0.json"),
+        output_merged_dir=str(tmp_path / "artifacts" / "merged"),
+    )
     pilot = replace(config.pilot, enabled=True)
-    return replace(config, artifacts=artifacts, calibration=calibration, pilot=pilot)
+    return replace(config, artifacts=artifacts, calibration=calibration, h1=h1, pilot=pilot)
 
 
 def test_pending_candidates_and_winner_selection_are_deterministic() -> None:
@@ -102,6 +111,28 @@ def test_pending_candidates_and_winner_selection_are_deterministic() -> None:
         candidate_order=("a", "b", "c"),
         max_quality_budget=0.05,
     ) == ("b",)
+
+
+def test_pilot_requires_validation_traces_before_h1_diagnostics() -> None:
+    assert next_pilot_step(
+        (PilotStep.TRACES_CALIBRATION,),
+        remaining_validation_candidates=0,
+        remaining_test_candidates=0,
+    ) == PilotStep.TRACES_VALIDATION
+    assert next_pilot_step(
+        (PilotStep.TRACES_CALIBRATION, PilotStep.TRACES_VALIDATION),
+        remaining_validation_candidates=0,
+        remaining_test_candidates=0,
+    ) == PilotStep.H1_DIAGNOSTICS
+
+
+def test_h1_step_rejects_missing_validation_trace(tmp_path: Path, monkeypatch) -> None:
+    config = _config(tmp_path)
+    monkeypatch.setattr("moe_opt_runner.pilot_cli.load_experiment_config", lambda _path: config)
+    with pytest.raises(ExpectedExperimentFailure, match="held-out spectral stability") as failure:
+        execute_step("unused.json", PilotStep.H1_DIAGNOSTICS)
+    assert failure.value.code == ExperimentFailureCode.PILOT_STATE_MISMATCH
+    assert failure.value.context["required_step"] == PilotStep.TRACES_VALIDATION.value
 
 
 def test_candidate_batches_resume_without_duplicate_completed_rows(tmp_path: Path, monkeypatch) -> None:

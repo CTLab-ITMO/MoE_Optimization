@@ -82,19 +82,56 @@ def test_candidate_plans_are_deterministic_and_valid() -> None:
     kwargs = {
         "num_experts": 6,
         "layer": 0,
-        "methods": ["random_merge", "usage_prune", "functional_cosine", "rmt_geometry"],
+        "methods": [
+            "random_merge",
+            "usage_prune",
+            "functional_cosine",
+            "rmt_geometry",
+            "rmt_functional_usage",
+        ],
         "compression_fractions": [0.25],
         "seeds": [7, 11],
         "rmt_pairs": [(0, 1), (2, 3), (4, 5)],
+        "spectral_embedding": torch.arange(6, dtype=torch.float32).reshape(6, 1),
         "functional_embedding": torch.arange(24, dtype=torch.float32).reshape(6, 4),
         "routing_probs": torch.softmax(torch.randn(10, 6, generator=torch.Generator().manual_seed(3)), dim=-1),
     }
     first = build_candidate_plans(**kwargs)
     second = build_candidate_plans(**kwargs)
     assert first == second
-    assert len(first) == 5
+    assert len(first) == 6
     for plan in first:
         validate_candidate_plan(plan, num_experts=6)
+
+
+def test_hybrid_pairing_uses_routing_load_as_a_merge_safety_term() -> None:
+    routing_probs = torch.tensor(
+        [
+            [0.45, 0.45, 0.05, 0.05],
+            [0.45, 0.45, 0.05, 0.05],
+        ]
+    )
+    plans = build_candidate_plans(
+        num_experts=4,
+        layer=0,
+        methods=("rmt_functional_usage",),
+        compression_fractions=(0.25,),
+        seeds=(7,),
+        rmt_pairs=((0, 1), (2, 3)),
+        spectral_embedding=torch.tensor([[0.0], [0.1], [10.0], [10.1]]),
+        functional_embedding=torch.ones((4, 2)),
+        routing_probs=routing_probs,
+        hybrid_weights=(0.1, 0.1, 0.8),
+    )
+    assert plans[0].groups[0] == (2, 3)
+    assert plans[0].method == CandidateMethod.RMT_FUNCTIONAL_USAGE
+    diagnostics = dict(plans[0].diagnostics)
+    assert set(diagnostics) == {
+        "mean_hybrid_score",
+        "mean_rmt_similarity",
+        "mean_functional_similarity",
+        "mean_usage_safety",
+    }
 
 
 def test_reversible_transform_restores_layer() -> None:
@@ -251,6 +288,7 @@ def test_one_layer_pilot_writes_incremental_records_and_restores_model(tmp_path:
     torch.save(
         {
             "raw_embedding": torch.randn(4, 8),
+            "spectral_embedding": torch.randn(4, 2),
             "rmt_pairs": [(0, 1), (2, 3)],
         },
         Path(h1.output_diagnostics_path).with_suffix(".pt"),
