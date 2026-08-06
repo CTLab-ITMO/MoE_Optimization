@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0",
+  "config_hash": "6012e1266b819f1f6b7f0a45d5ec5a628d5017fb2d6841ebb4c777dceedb6684",
+  "selected_candidate_ids": [
+    "usage_prune-f0.100-s123",
+    "usage_prune-f0.250-s123",
+    "usage_prune-f0.400-s123",
+    "usage_guided_merge-f0.100-s123",
+    "usage_guided_merge-f0.250-s123",
+    "usage_guided_merge-f0.400-s123",
+    "rmt_geometry-r8-f0.100-s123",
+    "rmt_geometry-r8-f0.250-s123",
+    "rmt_geometry-r4-f0.400-s123",
+    "rmt_functional_usage-r4-f0.100-s123",
+    "rmt_functional_usage-r1-f0.250-s123",
+    "rmt_functional_usage-r1-f0.400-s123"
+  ]
+}
