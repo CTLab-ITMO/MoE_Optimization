@@ -7,7 +7,7 @@ import torch.nn as nn
 from common.moe_utils import MoeHandle
 from moe_opt_core.adapters import HFModelAdapter
 from moe_opt_core.config import load_experiment_config
-from moe_opt_core.experiment import TraceSource
+from moe_opt_core.experiment import MoeLayerRuntimeContract, TraceSource
 from moe_opt_core.experiment.data_planning import split_text_rows
 from moe_opt_runner.runtime import RuntimeContext
 from moe_opt_runner.tracing import collect_traces_from_batches
@@ -41,6 +41,18 @@ def _runtime() -> RuntimeContext:
         model=model,
         adapter=HFModelAdapter(model=model),
         handles_by_layer={0: handle},
+        runtime_contracts_by_layer={
+            0: MoeLayerRuntimeContract(
+                layer=0,
+                kind="tiny",
+                routed_experts=3,
+                shared_experts=0,
+                configured_routed_top_k=2,
+                requested_routed_top_k=2,
+                effective_routed_top_k=2,
+                top_k_updated=False,
+            )
+        },
     )
 
 
@@ -78,5 +90,14 @@ def test_collect_traces_from_batches_writes_real_gate_rows(tmp_path: Path) -> No
     trace = torch.load(tmp_path / "traces" / "calibration" / "layer_0.pt")
     assert trace["hidden_states"].shape == (5, 4)
     assert torch.allclose(trace["routing_probs"].sum(dim=1), torch.ones(5))
+    assert trace["selected_experts"].shape == (5, 2)
+    assert trace["metadata"] == {
+        "source": "hf_dataset",
+        "layer": 0,
+        "split": "calibration",
+        "routed_experts": 3,
+        "shared_experts": 0,
+        "routed_top_k": 2,
+    }
     assert (tmp_path / "h1.pt").exists()
     assert (tmp_path / "routing.pt").exists()

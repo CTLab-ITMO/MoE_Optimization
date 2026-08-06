@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 
 from moe_opt_core.experiment import CandidateAction, CandidatePlanContract
+from moe_opt_core.experiment.candidates import validate_candidate_plan
 from moe_opt_core.pipelines.h1_merge import merge_cluster_modules
 from moe_opt_runner.runtime import RuntimeContext
 
@@ -19,6 +20,7 @@ class AppliedTransformInfo:
     original_experts: int
     active_experts: int
     model_parameter_mb: float
+    shared_experts_preserved: int
 
 
 def model_parameter_mb(model: nn.Module) -> float:
@@ -109,6 +111,12 @@ def reversible_one_layer_transform(
     if not isinstance(old_gate, nn.Linear):
         raise TypeError(f"Only linear gates are supported, got {type(old_gate)}")
     experts = list(old_experts_module)
+    validate_candidate_plan(plan, num_experts=len(experts))
+    runtime_contract = ctx.runtime_contracts_by_layer.get(plan.layer)
+    if runtime_contract is not None and runtime_contract.routed_experts != len(experts):
+        raise ValueError("Runtime contract does not match the routed expert collection")
+    shared_expert = getattr(moe, "shared_expert", None)
+    shared_expert_gate = getattr(moe, "shared_expert_gate", None)
 
     tracked_attributes = (
         "num_experts",
@@ -160,6 +168,7 @@ def reversible_one_layer_transform(
             original_experts=len(experts),
             active_experts=len(new_experts),
             model_parameter_mb=model_parameter_mb(ctx.model),
+            shared_experts_preserved=(runtime_contract.shared_experts if runtime_contract is not None else 0),
         )
     finally:
         setattr(moe, "experts", old_experts_module)
@@ -168,3 +177,7 @@ def reversible_one_layer_transform(
         handle.gate = old_handle_gate
         for name, value in old_attributes.items():
             setattr(moe, name, value)
+        if getattr(moe, "shared_expert", None) is not shared_expert:
+            raise RuntimeError("Shared expert changed during a routed-expert transform")
+        if getattr(moe, "shared_expert_gate", None) is not shared_expert_gate:
+            raise RuntimeError("Shared expert gate changed during a routed-expert transform")

@@ -110,6 +110,7 @@ class PilotConfig:
     quality_budgets: Tuple[float, ...] = (0.01, 0.03, 0.05)
     seeds: Tuple[int, ...] = (123, 456, 789)
     max_eval_batches: int = 32
+    require_real_traces: bool = True
 
 
 @dataclass(frozen=True)
@@ -124,6 +125,9 @@ class ExperimentConfig:
     name: str
     model: ModelConfig
     runtime_top_k: int
+    runtime_expected_routed_experts: int | None
+    runtime_expected_shared_experts: int | None
+    runtime_strict_architecture: bool
     layers: List[int]
     constants: Dict[str, Dict[str, Any]]
     artifacts: ArtifactSpecConfig
@@ -177,6 +181,14 @@ def validate_experiment_config_dict(data: Dict[str, Any]) -> None:
     top_k = int(data["runtime"]["top_k"])
     if top_k < 1:
         raise ValueError("runtime.top_k must be >= 1")
+    expected_routed = data["runtime"].get("expected_routed_experts")
+    if expected_routed is not None and int(expected_routed) < 1:
+        raise ValueError("runtime.expected_routed_experts must be >= 1")
+    expected_shared = data["runtime"].get("expected_shared_experts")
+    if expected_shared is not None and int(expected_shared) < 0:
+        raise ValueError("runtime.expected_shared_experts must be >= 0")
+    if expected_routed is not None and top_k > int(expected_routed):
+        raise ValueError("runtime.top_k must not exceed runtime.expected_routed_experts")
 
     if not isinstance(data["layers"], list) or len(data["layers"]) == 0:
         raise ValueError("layers must be a non-empty list")
@@ -251,6 +263,8 @@ def validate_experiment_config_dict(data: Dict[str, Any]) -> None:
             raise ValueError("pilot requires stages.h1.enabled=true")
         if int(pilot.get("max_eval_batches", 32)) < 1:
             raise ValueError("pilot.max_eval_batches must be >= 1")
+        if bool(pilot.get("require_real_traces", True)) and source == "synthetic":
+            raise ValueError("pilot.require_real_traces=true is incompatible with calibration.source='synthetic'")
 
 
 
@@ -307,6 +321,7 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
         ),
         seeds=tuple(int(item) for item in pilot_raw.get("seeds", pilot_defaults.seeds)),
         max_eval_batches=int(pilot_raw.get("max_eval_batches", 32)),
+        require_real_traces=bool(pilot_raw.get("require_real_traces", True)),
     )
 
     artifacts = ArtifactSpecConfig(
@@ -384,6 +399,17 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
         name=str(raw["name"]),
         model=model,
         runtime_top_k=int(raw["runtime"]["top_k"]),
+        runtime_expected_routed_experts=(
+            int(raw["runtime"]["expected_routed_experts"])
+            if raw["runtime"].get("expected_routed_experts") is not None
+            else None
+        ),
+        runtime_expected_shared_experts=(
+            int(raw["runtime"]["expected_shared_experts"])
+            if raw["runtime"].get("expected_shared_experts") is not None
+            else None
+        ),
+        runtime_strict_architecture=bool(raw["runtime"].get("strict_architecture", False)),
         layers=[int(x) for x in raw["layers"]],
         constants=constants,
         artifacts=artifacts,

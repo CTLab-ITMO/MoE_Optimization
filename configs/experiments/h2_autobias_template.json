@@ -10,7 +10,10 @@
     "trust_remote_code": false
   },
   "runtime": {
-    "top_k": 8
+    "top_k": 4,
+    "expected_routed_experts": 60,
+    "expected_shared_experts": 4,
+    "strict_architecture": true
   },
   "layers": [0],
   "constants": {
@@ -72,7 +75,7 @@
       "auto_from_model": true,
       "tau": 0.92,
       "k_min": 1,
-      "k_max": 8
+      "k_max": 4
     }
   }
 }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict
 import json
 from typing import Dict
 
@@ -50,6 +51,10 @@ def run_experiment_from_config(config_path: str) -> Dict[str, object]:
 
             with timer.time("runtime_context"):
                 ctx = build_runtime_context(config)
+            outputs["stages"]["runtime"] = [
+                asdict(ctx.runtime_contracts_by_layer[layer])
+                for layer in sorted(ctx.runtime_contracts_by_layer)
+            ]
 
         if ExperimentStageId.COLLECT_TRACES in plan.stages:
             from moe_opt_runner.tracing import collect_real_calibration_traces
@@ -64,6 +69,9 @@ def run_experiment_from_config(config_path: str) -> Dict[str, object]:
                     "rows": contract.rows,
                     "tokens": contract.tokens,
                     "sha256": contract.sha256,
+                    "routed_experts": contract.routed_experts,
+                    "shared_experts": contract.shared_experts,
+                    "routed_top_k": contract.routed_top_k,
                 }
                 for contract in contracts
             ]

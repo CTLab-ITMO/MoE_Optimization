@@ -10,7 +10,10 @@
     "trust_remote_code": false
   },
   "runtime": {
-    "top_k": 8
+    "top_k": 4,
+    "expected_routed_experts": 60,
+    "expected_shared_experts": 4,
+    "strict_architecture": true
   },
   "layers": [0],
   "constants": {
@@ -51,7 +54,8 @@
     "compression_fractions": [0.1, 0.25, 0.4],
     "quality_budgets": [0.01, 0.03, 0.05],
     "seeds": [123, 456, 789],
-    "max_eval_batches": 16
+    "max_eval_batches": 16,
+    "require_real_traces": true
   },
   "stages": {
     "h1": {
@@ -91,7 +95,7 @@
       "auto_from_model": false,
       "tau": 0.92,
       "k_min": 1,
-      "k_max": 8
+      "k_max": 4
     }
   }
 }

@@ -7,6 +7,11 @@ import platform
 from typing import Dict
 
 from moe_opt_core.config import load_experiment_config
+from moe_opt_core.experiment.runtime_validation import (
+    infer_configured_routed_expert_count,
+    infer_configured_routed_top_k,
+    infer_configured_shared_expert_count,
+)
 
 
 def build_preflight_report(
@@ -51,12 +56,30 @@ def build_preflight_report(
         try:
             from transformers import AutoConfig
 
-            AutoConfig.from_pretrained(
+            model_config = AutoConfig.from_pretrained(
                 config.model.name,
                 local_files_only=config.model.local_files_only,
                 trust_remote_code=config.model.trust_remote_code,
             )
             report["model_config_available"] = True
+            architecture = {
+                "routed_experts": infer_configured_routed_expert_count(model_config),
+                "shared_experts": infer_configured_shared_expert_count(model_config),
+                "routed_top_k": infer_configured_routed_top_k(model_config),
+            }
+            report["model_architecture"] = architecture
+            expectations = {
+                "routed_experts": config.runtime_expected_routed_experts,
+                "shared_experts": config.runtime_expected_shared_experts,
+                "routed_top_k": config.runtime_top_k,
+            }
+            report["expected_model_architecture"] = expectations
+            for name, expected in expectations.items():
+                observed = architecture[name]
+                if expected is not None and observed is not None and observed != expected:
+                    report["errors"].append(
+                        f"model_architecture_mismatch:{name}:expected={expected}:observed={observed}"
+                    )
         except Exception as exc:
             report["model_config_available"] = False
             report["errors"].append(f"model_config_unavailable:{type(exc).__name__}")

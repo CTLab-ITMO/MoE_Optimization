@@ -28,7 +28,10 @@
       "required": ["top_k"],
       "additionalProperties": false,
       "properties": {
-        "top_k": {"type": "integer", "minimum": 1}
+        "top_k": {"type": "integer", "minimum": 1},
+        "expected_routed_experts": {"type": "integer", "minimum": 1},
+        "expected_shared_experts": {"type": "integer", "minimum": 0},
+        "strict_architecture": {"type": "boolean"}
       }
     },
     "layers": {
@@ -66,6 +69,51 @@
         "measure_steps": {"type": "integer", "minimum": 1}
       }
     },
+    "calibration": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source": {"type": "string", "enum": ["artifact", "hf_dataset", "synthetic"]},
+        "dataset_name": {"type": "string"},
+        "dataset_config": {"type": "string"},
+        "dataset_split": {"type": "string", "minLength": 1},
+        "text_column": {"type": "string"},
+        "output_dir": {"type": "string", "minLength": 1},
+        "max_samples": {"type": "integer", "minimum": 3},
+        "max_length": {"type": "integer", "minimum": 2},
+        "batch_size": {"type": "integer", "minimum": 1},
+        "calibration_fraction": {"type": "number", "exclusiveMinimum": 0},
+        "validation_fraction": {"type": "number", "exclusiveMinimum": 0},
+        "test_fraction": {"type": "number", "exclusiveMinimum": 0},
+        "seed": {"type": "integer"}
+      }
+    },
+    "pilot": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "layer": {"type": "integer", "minimum": 0},
+        "methods": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["random_merge", "usage_prune", "functional_cosine", "rmt_geometry"]
+          }
+        },
+        "compression_fractions": {
+          "type": "array",
+          "items": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1}
+        },
+        "quality_budgets": {
+          "type": "array",
+          "items": {"type": "number", "minimum": 0}
+        },
+        "seeds": {"type": "array", "items": {"type": "integer"}},
+        "max_eval_batches": {"type": "integer", "minimum": 1},
+        "require_real_traces": {"type": "boolean"}
+      }
+    },
     "stages": {
       "type": "object",
       "required": ["h1", "h2", "h3"],
@@ -101,7 +149,11 @@
             "mp_factor": {"type": "number", "exclusiveMinimum": 0},
             "cluster_count": {"type": "integer", "minimum": 0},
             "geometry_rank": {"type": "integer", "minimum": 1},
-            "shrink_tau": {"type": "number", "minimum": 0}
+            "shrink_tau": {"type": "number", "minimum": 0},
+            "null_trials": {"type": "integer", "minimum": 1},
+            "bootstrap_trials": {"type": "integer", "minimum": 1},
+            "null_quantile": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1},
+            "stability_max_angle_deg": {"type": "number", "minimum": 0}
           }
         },
         "h2": {

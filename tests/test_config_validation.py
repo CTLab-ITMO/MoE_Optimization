@@ -6,7 +6,10 @@ from moe_opt_core.config import load_experiment_config
 def test_load_example_config() -> None:
     cfg = load_experiment_config("configs/experiments/h123_refactor_baseline.json")
     assert cfg.name == "h123_refactor_baseline"
-    assert cfg.runtime_top_k == 8
+    assert cfg.runtime_top_k == 4
+    assert cfg.runtime_expected_routed_experts == 60
+    assert cfg.runtime_expected_shared_experts == 4
+    assert cfg.runtime_strict_architecture is True
     assert "training" in cfg.constants
 
 

@@ -13,6 +13,7 @@ from moe_opt_core.config import ExperimentConfig
 from moe_opt_core.experiment import CalibrationTraceContract, TraceSource
 from moe_opt_core.experiment.data_planning import resolve_text_column, split_text_rows
 from moe_opt_core.experiment.errors import ExpectedExperimentFailure, ExperimentFailureCode
+from moe_opt_core.experiment.trace_validation import validate_trace_payload
 from moe_opt_runner.runtime import RuntimeContext
 
 
@@ -180,6 +181,12 @@ def collect_traces_from_batches(
 
         for handle in handles:
             layer = int(handle.layer_idx)
+            runtime_contract = ctx.runtime_contracts_by_layer.get(layer)
+            if runtime_contract is None:
+                raise ExpectedExperimentFailure(
+                    ExperimentFailureCode.RUNTIME_ARCHITECTURE_MISMATCH,
+                    f"Layer {layer} has no validated runtime contract",
+                )
             hidden_parts, logit_parts = captured[layer]
             if not hidden_parts or not logit_parts:
                 raise ExpectedExperimentFailure(
@@ -188,19 +195,39 @@ def collect_traces_from_batches(
                 )
             hidden = torch.cat(hidden_parts, dim=0)
             logits = torch.cat(logit_parts, dim=0)
+            if logits.shape[1] != runtime_contract.routed_experts:
+                raise ExpectedExperimentFailure(
+                    ExperimentFailureCode.RUNTIME_ARCHITECTURE_MISMATCH,
+                    f"Router output width does not match routed experts at layer {layer}",
+                    context={
+                        "router_output_width": int(logits.shape[1]),
+                        "routed_experts": runtime_contract.routed_experts,
+                    },
+                )
             probs = torch.softmax(logits, dim=-1)
-            top_k = min(config.runtime_top_k, probs.shape[1])
+            top_k = runtime_contract.effective_routed_top_k
             selected = torch.topk(probs, k=top_k, dim=-1).indices
             trace_path = split_dir / f"layer_{layer}.pt"
-            torch.save(
-                {
-                    "hidden_states": hidden,
-                    "router_logits": logits,
-                    "routing_probs": probs,
-                    "selected_experts": selected,
+            trace_payload = {
+                "metadata": {
+                    "source": config.calibration.source,
+                    "layer": layer,
+                    "split": split,
+                    "routed_experts": runtime_contract.routed_experts,
+                    "shared_experts": runtime_contract.shared_experts,
+                    "routed_top_k": top_k,
                 },
-                trace_path,
+                "hidden_states": hidden,
+                "router_logits": logits,
+                "routing_probs": probs,
+                "selected_experts": selected,
+            }
+            validate_trace_payload(
+                trace_payload,
+                runtime_contract,
+                require_real_traces=config.pilot.require_real_traces,
             )
+            torch.save(trace_payload, trace_path)
             contracts.append(
                 CalibrationTraceContract(
                     source=TraceSource(config.calibration.source),
@@ -212,6 +239,9 @@ def collect_traces_from_batches(
                     rows=int(hidden.shape[0]),
                     tokens=int(hidden.shape[0]),
                     sha256=_sha256_file(trace_path),
+                    routed_experts=runtime_contract.routed_experts,
+                    shared_experts=runtime_contract.shared_experts,
+                    routed_top_k=top_k,
                 )
             )
 
