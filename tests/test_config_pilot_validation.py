@@ -36,3 +36,14 @@ def test_pilot_rejects_synthetic_traces_when_real_traces_are_required() -> None:
     raw["calibration"]["source"] = "synthetic"
     with pytest.raises(ValueError, match="require_real_traces"):
         validate_experiment_config_dict(raw)
+
+
+def test_resumable_limits_must_be_positive() -> None:
+    raw = _raw_config()
+    raw["pilot"]["candidates_per_invocation"] = 0
+    with pytest.raises(ValueError, match="candidates_per_invocation"):
+        validate_experiment_config_dict(raw)
+    raw = _raw_config()
+    raw["pilot"]["max_step_seconds"] = 0
+    with pytest.raises(ValueError, match="max_step_seconds"):
+        validate_experiment_config_dict(raw)

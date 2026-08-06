@@ -12,6 +12,7 @@ class ExperimentFailureCode(str, Enum):
     MODEL_UNAVAILABLE = "model_unavailable"
     LAYER_UNAVAILABLE = "layer_unavailable"
     RUNTIME_ARCHITECTURE_MISMATCH = "runtime_architecture_mismatch"
+    PILOT_STATE_MISMATCH = "pilot_state_mismatch"
     INVALID_CANDIDATE = "invalid_candidate"
     EVALUATION_FAILED = "evaluation_failed"
 

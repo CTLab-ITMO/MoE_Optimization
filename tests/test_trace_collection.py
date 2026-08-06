@@ -1,4 +1,5 @@
 from dataclasses import replace
+import json
 from pathlib import Path
 
 import torch
@@ -101,3 +102,27 @@ def test_collect_traces_from_batches_writes_real_gate_rows(tmp_path: Path) -> No
     }
     assert (tmp_path / "h1.pt").exists()
     assert (tmp_path / "routing.pt").exists()
+
+
+def test_split_trace_runs_merge_manifest_entries(tmp_path: Path) -> None:
+    config = load_experiment_config("configs/experiments/h123_refactor_baseline.json")
+    calibration = replace(
+        config.calibration,
+        source=TraceSource.HF_DATASET.value,
+        output_dir=str(tmp_path / "traces"),
+    )
+    h1 = replace(config.h1, layer=0, mlp_inputs_path=str(tmp_path / "h1.pt"))
+    h3 = replace(config.h3, routing_probs_path=str(tmp_path / "routing.pt"))
+    config = replace(config, layers=[0], calibration=calibration, h1=h1, h3=h3)
+    batch = {
+        "input_ids": torch.tensor([[1, 2, 3]]),
+        "attention_mask": torch.ones((1, 3), dtype=torch.long),
+        "labels": torch.tensor([[1, 2, 3]]),
+    }
+    collect_traces_from_batches(config, _runtime(), {"calibration": [batch]})
+    collect_traces_from_batches(config, _runtime(), {"validation": [batch]})
+    manifest = json.loads((tmp_path / "traces" / "trace_manifest.json").read_text(encoding="utf-8"))
+    assert {(row["layer"], row["split"]) for row in manifest} == {
+        (0, "calibration"),
+        (0, "validation"),
+    }

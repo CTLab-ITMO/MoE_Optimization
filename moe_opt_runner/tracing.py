@@ -254,18 +254,31 @@ def collect_traces_from_batches(
                 torch.save(probs, h3_path)
 
     manifest_path = output_root / "trace_manifest.json"
-    payload = []
+    existing_payload = []
+    if manifest_path.exists():
+        loaded = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if isinstance(loaded, list):
+            existing_payload = loaded
+    rows_by_key = {
+        (int(row["layer"]), str(row["split"])): row
+        for row in existing_payload
+        if isinstance(row, dict) and "layer" in row and "split" in row
+    }
     for contract in contracts:
         row = asdict(contract)
         row["source"] = contract.source.value
-        payload.append(row)
-    manifest_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        rows_by_key[(contract.layer, contract.split)] = row
+    payload = [rows_by_key[key] for key in sorted(rows_by_key, key=lambda item: (item[1], item[0]))]
+    temporary_manifest = manifest_path.with_name(f".{manifest_path.name}.tmp")
+    temporary_manifest.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    temporary_manifest.replace(manifest_path)
     return tuple(contracts)
 
 
 def collect_real_calibration_traces(
     config: ExperimentConfig,
     ctx: RuntimeContext,
+    splits: Sequence[str] | None = None,
 ) -> tuple[CalibrationTraceContract, ...]:
     if config.calibration.source != TraceSource.HF_DATASET.value:
         raise ExpectedExperimentFailure(
@@ -278,5 +291,10 @@ def collect_real_calibration_traces(
             "Runtime tokenizer is required for real trace collection",
         )
     texts = _load_dataset_texts(config)
-    batches = _tokenize_splits(config, ctx.tokenizer, texts)
+    requested = tuple(splits) if splits is not None else tuple(texts)
+    unknown = sorted(set(requested) - set(texts))
+    if unknown:
+        raise ValueError(f"Unknown trace splits: {unknown}")
+    selected_texts = {split: texts[split] for split in requested}
+    batches = _tokenize_splits(config, ctx.tokenizer, selected_texts)
     return collect_traces_from_batches(config, ctx, batches)

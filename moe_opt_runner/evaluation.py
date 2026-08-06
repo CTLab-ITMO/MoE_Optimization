@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from pathlib import Path
 import time
 from typing import Mapping, Sequence
@@ -97,3 +98,5 @@ def append_incremental_record(path: str | Path, record: Mapping[str, object]) ->
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("a", encoding="utf-8") as stream:
         stream.write(json.dumps(dict(record), ensure_ascii=False) + "\n")
+        stream.flush()
+        os.fsync(stream.fileno())

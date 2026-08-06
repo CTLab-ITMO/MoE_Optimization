@@ -20,8 +20,12 @@ Run the environment gate before a real GPU pilot:
 
 ```bash
 python -m moe_opt_runner.preflight --config configs/experiments/h1_rmt_one_layer_pilot.json --require-cuda --check-model-config
-python -m moe_opt_runner.main --config configs/experiments/h1_rmt_one_layer_pilot.json
+python -m moe_opt_runner.pilot_cli --config configs/experiments/h1_rmt_one_layer_pilot.json --step status
 ```
+
+Run the first Qwen pilot through the bounded commands in
+`docs/6. Runbook первой RMT-MoE итерации.md`; do not use the monolithic runner
+for the server experiment.
 
 For Qwen1.5-MoE the runtime contract treats `top_k=4` as routed top-k and tracks
 the four always-active shared experts separately. Preflight and trace validation

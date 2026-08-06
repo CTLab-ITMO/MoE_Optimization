@@ -1,5 +1,5 @@
 {
-  "name": "h1_rmt_one_layer_pilot",
+  "name": "h1_rmt_one_layer_pilot_resumable",
   "model": {
     "name": "Qwen/Qwen1.5-MoE-A2.7B-Chat",
     "kind": "qwen",
@@ -23,8 +23,8 @@
     "io": "../constants/constant_repo_io.json"
   },
   "artifacts": {
-    "root_dir": "artifacts/h1_rmt_one_layer_pilot",
-    "manifest_path": "artifacts/h1_rmt_one_layer_pilot/artifacts_manifest.json",
+    "root_dir": "artifacts/h1_rmt_one_layer_pilot_resumable",
+    "manifest_path": "artifacts/h1_rmt_one_layer_pilot_resumable/artifacts_manifest.json",
     "schema_version": "1.1"
   },
   "profile": {
@@ -38,7 +38,7 @@
     "dataset_config": "wikitext-2-raw-v1",
     "dataset_split": "train",
     "text_column": "text",
-    "output_dir": "artifacts/h1_rmt_one_layer_pilot/traces",
+    "output_dir": "artifacts/h1_rmt_one_layer_pilot_resumable/traces",
     "max_samples": 192,
     "max_length": 256,
     "batch_size": 1,
@@ -55,17 +55,19 @@
     "quality_budgets": [0.01, 0.03, 0.05],
     "seeds": [123, 456, 789],
     "max_eval_batches": 16,
-    "require_real_traces": true
+    "require_real_traces": true,
+    "candidates_per_invocation": 2,
+    "max_step_seconds": 1200
   },
   "stages": {
     "h1": {
       "enabled": true,
       "layer": 0,
-      "mlp_inputs_path": "artifacts/h1_rmt_one_layer_pilot/traces/h1_calibration_inputs.pt",
+      "mlp_inputs_path": "artifacts/h1_rmt_one_layer_pilot_resumable/traces/h1_calibration_inputs.pt",
       "experts_dir": "data/experts",
-      "output_pairs_path": "artifacts/h1_rmt_one_layer_pilot/pairs_0.pt",
-      "output_diagnostics_path": "artifacts/h1_rmt_one_layer_pilot/h1_diag_0.json",
-      "output_merged_dir": "artifacts/h1_rmt_one_layer_pilot/merged",
+      "output_pairs_path": "artifacts/h1_rmt_one_layer_pilot_resumable/pairs_0.pt",
+      "output_diagnostics_path": "artifacts/h1_rmt_one_layer_pilot_resumable/h1_diag_0.json",
+      "output_merged_dir": "artifacts/h1_rmt_one_layer_pilot_resumable/merged",
       "experts_source": "hf_model",
       "auto_generate_inputs_if_missing": false,
       "mode": "pair",
@@ -86,12 +88,12 @@
       "enabled": false,
       "layer": 0,
       "mode": "gate_spike",
-      "output_bias_path": "artifacts/h1_rmt_one_layer_pilot/h2_bias_0.pt"
+      "output_bias_path": "artifacts/h1_rmt_one_layer_pilot_resumable/h2_bias_0.pt"
     },
     "h3": {
       "enabled": false,
-      "routing_probs_path": "artifacts/h1_rmt_one_layer_pilot/traces/routing_probs_0.pt",
-      "output_diagnostics_path": "artifacts/h1_rmt_one_layer_pilot/h3_diag_0.json",
+      "routing_probs_path": "artifacts/h1_rmt_one_layer_pilot_resumable/traces/routing_probs_0.pt",
+      "output_diagnostics_path": "artifacts/h1_rmt_one_layer_pilot_resumable/h3_diag_0.json",
       "auto_from_model": false,
       "tau": 0.92,
       "k_min": 1,
