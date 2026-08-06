@@ -22,6 +22,25 @@ class ExperimentStageId(str, Enum):
     ARTIFACTS = "artifacts"
 
 
+class PilotStep(str, Enum):
+    TRACES_CALIBRATION = "traces_calibration"
+    TRACES_VALIDATION = "traces_validation"
+    TRACES_TEST = "traces_test"
+    H1_DIAGNOSTICS = "h1_diagnostics"
+    BASELINE_VALIDATION = "baseline_validation"
+    BASELINE_TEST = "baseline_test"
+    VALIDATE_CANDIDATES = "validate_candidates"
+    SELECT_CANDIDATES = "select_candidates"
+    TEST_SELECTED = "test_selected"
+    BUILD_SUMMARY = "build_summary"
+
+
+class PilotStepStatus(str, Enum):
+    COMPLETED = "completed"
+    PARTIAL = "partial"
+    SKIPPED = "skipped"
+
+
 class CandidateAction(str, Enum):
     KEEP = "keep"
     PRUNE = "prune"
@@ -111,3 +130,24 @@ class EvaluationComparisonContract:
     throughput_gain: float
     memory_reduction: float
     accepted_quality_budgets: Mapping[str, bool]
+
+
+@dataclass(frozen=True)
+class PilotExecutionStateContract:
+    schema_version: str
+    config_hash: str
+    completed_steps: Tuple[PilotStep, ...]
+    completed_validation_candidate_ids: Tuple[str, ...]
+    failed_validation_candidate_ids: Tuple[str, ...]
+    selected_candidate_ids: Tuple[str, ...]
+    completed_test_candidate_ids: Tuple[str, ...]
+    failed_test_candidate_ids: Tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class PilotStepResultContract:
+    step: PilotStep
+    status: PilotStepStatus
+    processed_items: int
+    remaining_items: int
+    artifact_paths: Tuple[str, ...] = ()

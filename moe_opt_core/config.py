@@ -111,6 +111,8 @@ class PilotConfig:
     seeds: Tuple[int, ...] = (123, 456, 789)
     max_eval_batches: int = 32
     require_real_traces: bool = True
+    candidates_per_invocation: int = 2
+    max_step_seconds: float = 1800.0
 
 
 @dataclass(frozen=True)
@@ -263,6 +265,10 @@ def validate_experiment_config_dict(data: Dict[str, Any]) -> None:
             raise ValueError("pilot requires stages.h1.enabled=true")
         if int(pilot.get("max_eval_batches", 32)) < 1:
             raise ValueError("pilot.max_eval_batches must be >= 1")
+        if int(pilot.get("candidates_per_invocation", 2)) < 1:
+            raise ValueError("pilot.candidates_per_invocation must be >= 1")
+        if float(pilot.get("max_step_seconds", 1800.0)) <= 0.0:
+            raise ValueError("pilot.max_step_seconds must be positive")
         if bool(pilot.get("require_real_traces", True)) and source == "synthetic":
             raise ValueError("pilot.require_real_traces=true is incompatible with calibration.source='synthetic'")
 
@@ -322,6 +328,8 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
         seeds=tuple(int(item) for item in pilot_raw.get("seeds", pilot_defaults.seeds)),
         max_eval_batches=int(pilot_raw.get("max_eval_batches", 32)),
         require_real_traces=bool(pilot_raw.get("require_real_traces", True)),
+        candidates_per_invocation=int(pilot_raw.get("candidates_per_invocation", 2)),
+        max_step_seconds=float(pilot_raw.get("max_step_seconds", 1800.0)),
     )
 
     artifacts = ArtifactSpecConfig(

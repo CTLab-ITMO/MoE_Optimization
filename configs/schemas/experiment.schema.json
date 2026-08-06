@@ -111,7 +111,9 @@
         },
         "seeds": {"type": "array", "items": {"type": "integer"}},
         "max_eval_batches": {"type": "integer", "minimum": 1},
-        "require_real_traces": {"type": "boolean"}
+        "require_real_traces": {"type": "boolean"},
+        "candidates_per_invocation": {"type": "integer", "minimum": 1},
+        "max_step_seconds": {"type": "number", "exclusiveMinimum": 0}
       }
     },
     "stages": {
