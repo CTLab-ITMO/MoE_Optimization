@@ -26,4 +26,7 @@ def test_finite_size_diagnostics_are_deterministic_and_rank_ordered() -> None:
     assert first.r_useful <= first.r_stable <= first.r_detect
     assert first.r_detect >= 1
     assert first.r_useful == second.r_useful
+    assert first.heldout_max_angle_deg is not None
+    assert first.heldout_passed is True
+    assert len(first.heldout_angles_deg) == first.r_stable
     assert torch.allclose(first.signal_embedding, second.signal_embedding)
