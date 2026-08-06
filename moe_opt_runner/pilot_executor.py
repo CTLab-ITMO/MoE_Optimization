@@ -28,6 +28,7 @@ from moe_opt_core.experiment.pilot_planning import (
     select_validation_winners,
 )
 from moe_opt_core.experiment.trace_validation import validate_trace_payload
+from moe_opt_core.pipelines.rmt_diagnostics import spectral_embeddings_at_ranks
 from moe_opt_runner.evaluation import append_incremental_record, evaluate_language_model
 from moe_opt_runner.pilot_artifacts import (
     read_incremental_records,
@@ -160,6 +161,10 @@ class ResumablePilotExecutor:
         return trace, embedding
 
     def _build_plans(self, *, num_experts: int, trace, embedding):
+        spectral_embeddings = spectral_embeddings_at_ranks(
+            embedding["raw_embedding"],
+            self.config.pilot.spectral_pairing_ranks,
+        )
         return build_candidate_plans(
             num_experts=num_experts,
             layer=self.config.pilot.layer,
@@ -174,6 +179,18 @@ class ResumablePilotExecutor:
                 self.config.pilot.hybrid_pairing.rmt_weight,
                 self.config.pilot.hybrid_pairing.functional_weight,
                 self.config.pilot.hybrid_pairing.usage_weight,
+            ),
+            spectral_embeddings=spectral_embeddings,
+            hybrid_weight_variants=tuple(
+                (
+                    variant.name,
+                    (
+                        variant.rmt_weight,
+                        variant.functional_weight,
+                        variant.usage_weight,
+                    ),
+                )
+                for variant in self.config.pilot.hybrid_pairing.variants
             ),
         )
 

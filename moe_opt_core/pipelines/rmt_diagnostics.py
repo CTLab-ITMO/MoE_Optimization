@@ -29,6 +29,26 @@ def _descending_eigensystem(embedding: torch.Tensor) -> tuple[torch.Tensor, torc
     return eigenvalues.flip(0), eigenvectors.flip(1)
 
 
+def spectral_embeddings_at_ranks(
+    calibration_embedding: torch.Tensor,
+    ranks: tuple[int, ...],
+) -> dict[int, torch.Tensor]:
+    if not ranks:
+        return {}
+    if len(set(ranks)) != len(ranks):
+        raise ValueError("spectral ranks must be unique")
+    eigenvalues, eigenvectors = _descending_eigensystem(calibration_embedding)
+    max_rank = eigenvectors.shape[1]
+    result: dict[int, torch.Tensor] = {}
+    for rank in ranks:
+        if rank < 1 or rank > max_rank:
+            raise ValueError(f"spectral rank must be in [1, {max_rank}], got {rank}")
+        result[rank] = eigenvectors[:, :rank] * torch.sqrt(
+            eigenvalues[:rank].clamp_min(0.0)
+        ).unsqueeze(0)
+    return result
+
+
 def _max_principal_angle_deg(first: torch.Tensor, second: torch.Tensor) -> float:
     singular_values = torch.linalg.svdvals(first.t() @ second).clamp(0.0, 1.0)
     angles = torch.arccos(singular_values)

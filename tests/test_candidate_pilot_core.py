@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
 import torch
 import torch.nn as nn
 import torch.nn.functional as functional
@@ -20,6 +21,7 @@ from moe_opt_core.experiment.evaluation import compare_evaluations
 from moe_opt_runner.evaluation import evaluate_language_model
 from moe_opt_runner.runtime import RuntimeContext
 from moe_opt_runner.pilot import run_one_layer_pilot
+from moe_opt_runner.pilot_executor import ResumablePilotExecutor
 from moe_opt_runner.transforms import GroupedLinearGate, reversible_one_layer_transform
 
 
@@ -85,6 +87,7 @@ def test_candidate_plans_are_deterministic_and_valid() -> None:
         "methods": [
             "random_merge",
             "usage_prune",
+            "usage_guided_merge",
             "functional_cosine",
             "rmt_geometry",
             "rmt_functional_usage",
@@ -99,9 +102,92 @@ def test_candidate_plans_are_deterministic_and_valid() -> None:
     first = build_candidate_plans(**kwargs)
     second = build_candidate_plans(**kwargs)
     assert first == second
-    assert len(first) == 6
+    assert len(first) == 7
     for plan in first:
         validate_candidate_plan(plan, num_experts=6)
+
+
+def test_usage_guided_merge_pairs_low_usage_experts_with_retained_partners() -> None:
+    routing_probs = torch.tensor(
+        [
+            [0.01, 0.02, 0.30, 0.67],
+            [0.01, 0.02, 0.30, 0.67],
+        ]
+    )
+    plans = build_candidate_plans(
+        num_experts=4,
+        layer=0,
+        methods=("usage_guided_merge",),
+        compression_fractions=(0.5,),
+        seeds=(7,),
+        rmt_pairs=((0, 1), (2, 3)),
+        spectral_embedding=torch.ones((4, 1)),
+        functional_embedding=torch.tensor(
+            [[1.0, 0.0], [0.0, 1.0], [1.0, 0.0], [0.0, 1.0]]
+        ),
+        routing_probs=routing_probs,
+    )
+    assert plans[0].method == CandidateMethod.USAGE_GUIDED_MERGE
+    assert plans[0].action == CandidateAction.MERGE
+    assert plans[0].groups == ((0, 2), (1, 3))
+    diagnostics = dict(plans[0].diagnostics)
+    assert diagnostics["mean_source_usage"] == pytest.approx(0.015)
+    assert diagnostics["mean_partner_usage"] == pytest.approx(0.485)
+    assert diagnostics["mean_functional_similarity"] == pytest.approx(1.0)
+
+
+def test_rank_and_weight_ablation_variants_have_unique_candidate_ids() -> None:
+    common = {
+        "num_experts": 4,
+        "layer": 0,
+        "compression_fractions": (0.25,),
+        "seeds": (7,),
+        "rmt_pairs": ((0, 1), (2, 3)),
+        "spectral_embedding": torch.ones((4, 1)),
+        "spectral_embeddings": {
+            1: torch.arange(4, dtype=torch.float32).reshape(4, 1),
+            2: torch.arange(8, dtype=torch.float32).reshape(4, 2),
+        },
+        "functional_embedding": torch.arange(16, dtype=torch.float32).reshape(4, 4),
+        "routing_probs": torch.full((3, 4), 0.25),
+    }
+    plans = build_candidate_plans(
+        methods=("rmt_geometry", "rmt_functional_usage"),
+        hybrid_weight_variants=(
+            ("balanced", (0.5, 0.35, 0.15)),
+            ("usage_heavy", (0.2, 0.3, 0.5)),
+        ),
+        **common,
+    )
+    candidate_ids = tuple(plan.candidate_id for plan in plans)
+    assert len(candidate_ids) == 6
+    assert len(set(candidate_ids)) == 6
+    assert "rmt_geometry-r1-f0.250-s7" in candidate_ids
+    assert "rmt_functional_usage-r2-wusage_heavy-f0.250-s7" in candidate_ids
+    for plan in plans:
+        assert dict(plan.diagnostics)["spectral_pairing_rank"] in {1.0, 2.0}
+
+
+def test_rank_ablation_config_materializes_thirty_unique_plans() -> None:
+    config = load_experiment_config(
+        "configs/experiments/h1_rmt_pairing_rank_ablation_one_layer_pilot.json"
+    )
+    executor = ResumablePilotExecutor(config)
+    raw_embedding = torch.randn(60, 64, generator=torch.Generator().manual_seed(31))
+    plans = executor._build_plans(
+        num_experts=60,
+        trace={"routing_probs": torch.softmax(torch.randn(32, 60), dim=-1)},
+        embedding={
+            "raw_embedding": raw_embedding,
+            "spectral_embedding": raw_embedding[:, :1],
+            "rmt_pairs": tuple((idx, idx + 1) for idx in range(0, 60, 2)),
+        },
+    )
+    assert len(plans) == 30
+    assert len({plan.candidate_id for plan in plans}) == 30
+    assert sum(plan.method == CandidateMethod.USAGE_GUIDED_MERGE for plan in plans) == 3
+    assert sum(plan.method == CandidateMethod.RMT_GEOMETRY for plan in plans) == 12
+    assert sum(plan.method == CandidateMethod.RMT_FUNCTIONAL_USAGE for plan in plans) == 12
 
 
 def test_hybrid_pairing_uses_routing_load_as_a_merge_safety_term() -> None:

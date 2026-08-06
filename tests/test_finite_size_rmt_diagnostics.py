@@ -1,6 +1,10 @@
+import pytest
 import torch
 
-from moe_opt_core.pipelines.rmt_diagnostics import finite_size_spectral_diagnostics
+from moe_opt_core.pipelines.rmt_diagnostics import (
+    finite_size_spectral_diagnostics,
+    spectral_embeddings_at_ranks,
+)
 
 
 def test_finite_size_diagnostics_are_deterministic_and_rank_ordered() -> None:
@@ -30,3 +34,22 @@ def test_finite_size_diagnostics_are_deterministic_and_rank_ordered() -> None:
     assert first.heldout_passed is True
     assert len(first.heldout_angles_deg) == first.r_stable
     assert torch.allclose(first.signal_embedding, second.signal_embedding)
+
+
+def test_spectral_embeddings_at_ranks_are_nested_and_deterministic() -> None:
+    embedding = torch.randn(6, 12, generator=torch.Generator().manual_seed(17))
+    first = spectral_embeddings_at_ranks(embedding, (1, 4))
+    second = spectral_embeddings_at_ranks(embedding, (1, 4))
+    assert first[1].shape == (6, 1)
+    assert first[4].shape == (6, 4)
+    assert torch.allclose(first[1], second[1])
+    assert torch.allclose(first[4], second[4])
+    assert torch.allclose(first[1].abs(), first[4][:, :1].abs())
+
+
+def test_spectral_embeddings_reject_invalid_rank_grid() -> None:
+    embedding = torch.randn(4, 8)
+    with pytest.raises(ValueError, match="unique"):
+        spectral_embeddings_at_ranks(embedding, (1, 1))
+    with pytest.raises(ValueError, match=r"\[1, 4\]"):
+        spectral_embeddings_at_ranks(embedding, (5,))
