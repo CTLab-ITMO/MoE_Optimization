@@ -7,6 +7,8 @@ from moe_opt_core.experiment.contracts import (
     EvaluationMetricsContract,
     ExperimentPlan,
     ExperimentStageId,
+    MoeLayerRuntimeContract,
+    TracePayloadMetadata,
     TraceSource,
 )
 from moe_opt_core.experiment.errors import ExpectedExperimentFailure, ExperimentFailureCode
@@ -23,6 +25,8 @@ __all__ = [
     "ExperimentFailureCode",
     "ExperimentPlan",
     "ExperimentStageId",
+    "MoeLayerRuntimeContract",
+    "TracePayloadMetadata",
     "TraceSource",
     "build_experiment_plan",
 ]

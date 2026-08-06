@@ -23,6 +23,11 @@ python -m moe_opt_runner.preflight --config configs/experiments/h1_rmt_one_layer
 python -m moe_opt_runner.main --config configs/experiments/h1_rmt_one_layer_pilot.json
 ```
 
+For Qwen1.5-MoE the runtime contract treats `top_k=4` as routed top-k and tracks
+the four always-active shared experts separately. Preflight and trace validation
+stop the run if the loaded model does not match the configured 60 routed + 4
+shared architecture.
+
 Install the experiment-only dependencies without replacing the CUDA-specific Torch
 build already present in the environment:
 

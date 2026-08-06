@@ -9,7 +9,12 @@ import torch.nn.functional as functional
 from common.moe_utils import MoeHandle
 from moe_opt_core.adapters import HFModelAdapter
 from moe_opt_core.config import load_experiment_config
-from moe_opt_core.experiment import CandidateAction, CandidateMethod, CandidatePlanContract
+from moe_opt_core.experiment import (
+    CandidateAction,
+    CandidateMethod,
+    CandidatePlanContract,
+    MoeLayerRuntimeContract,
+)
 from moe_opt_core.experiment.candidates import build_candidate_plans, validate_candidate_plan
 from moe_opt_core.experiment.evaluation import compare_evaluations
 from moe_opt_runner.evaluation import evaluate_language_model
@@ -58,6 +63,18 @@ def _runtime() -> RuntimeContext:
         model=model,
         adapter=HFModelAdapter(model=model),
         handles_by_layer={0: handle},
+        runtime_contracts_by_layer={
+            0: MoeLayerRuntimeContract(
+                layer=0,
+                kind="tiny",
+                routed_experts=4,
+                shared_experts=0,
+                configured_routed_top_k=2,
+                requested_routed_top_k=2,
+                effective_routed_top_k=2,
+                top_k_updated=False,
+            )
+        },
     )
 
 
@@ -106,6 +123,39 @@ def test_reversible_transform_restores_layer() -> None:
     assert ctx.handles_by_layer[0].gate is original_gate
     assert ctx.handles_by_layer[0].experts is original_experts
     assert ctx.model.moe.num_experts == 4
+
+
+def test_reversible_transform_never_replaces_shared_expert() -> None:
+    ctx = _runtime()
+    ctx.model.moe.shared_expert = nn.Linear(6, 6)
+    ctx.model.moe.shared_expert_gate = nn.Linear(6, 1)
+    ctx.runtime_contracts_by_layer[0] = replace(
+        ctx.runtime_contracts_by_layer[0],
+        shared_experts=4,
+    )
+    shared_expert = ctx.model.moe.shared_expert
+    shared_expert_gate = ctx.model.moe.shared_expert_gate
+    plan = CandidatePlanContract(
+        candidate_id="shared-isolation",
+        layer=0,
+        method=CandidateMethod.RMT_GEOMETRY,
+        action=CandidateAction.MERGE,
+        compression_fraction=0.25,
+        groups=((0, 1), (2,), (3,)),
+        seed=1,
+    )
+    with reversible_one_layer_transform(
+        ctx,
+        plan,
+        merge_method="baseline",
+        geometry_rank=2,
+        shrink_tau=0.0,
+    ) as info:
+        assert ctx.model.moe.shared_expert is shared_expert
+        assert ctx.model.moe.shared_expert_gate is shared_expert_gate
+        assert info.shared_experts_preserved == 4
+    assert ctx.model.moe.shared_expert is shared_expert
+    assert ctx.model.moe.shared_expert_gate is shared_expert_gate
 
 
 def test_grouped_gate_preserves_group_probability_mass() -> None:
@@ -175,8 +225,20 @@ def test_one_layer_pilot_writes_incremental_records_and_restores_model(tmp_path:
     )
 
     (trace_root / "calibration").mkdir(parents=True)
+    routing_probs = torch.softmax(torch.randn(12, 4), dim=-1)
     torch.save(
-        {"routing_probs": torch.softmax(torch.randn(12, 4), dim=-1)},
+        {
+            "metadata": {
+                "source": "artifact",
+                "layer": 0,
+                "split": "calibration",
+                "routed_experts": 4,
+                "shared_experts": 0,
+                "routed_top_k": 2,
+            },
+            "routing_probs": routing_probs,
+            "selected_experts": torch.topk(routing_probs, k=2, dim=-1).indices,
+        },
         trace_root / "calibration" / "layer_0.pt",
     )
     input_ids = torch.tensor([[1, 2, 3, 4]])

@@ -8,9 +8,8 @@ It provides:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Iterable, List, Optional
 
-import math
 import torch
 import torch.nn as nn
 
@@ -158,7 +157,9 @@ def get_moe_top_k(moe: nn.Module, model_config: Any | None = None, kind: str | N
     if default is not None:
         return max(1, int(default))
     if kind == 'qwen':
-        return 8
+        # Qwen1.5-MoE activates four routed experts plus a separate shared branch.
+        # The shared branch is not part of routed top-k.
+        return 4
     if kind == 'mixtral':
         return 2
     return 2

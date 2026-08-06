@@ -13,6 +13,7 @@ from moe_opt_core.experiment import CandidateMethod
 from moe_opt_core.experiment.candidates import build_candidate_plans
 from moe_opt_core.experiment.errors import ExpectedExperimentFailure, ExperimentFailureCode
 from moe_opt_core.experiment.evaluation import compare_evaluations
+from moe_opt_core.experiment.trace_validation import validate_trace_payload
 from moe_opt_runner.evaluation import append_incremental_record, evaluate_language_model
 from moe_opt_runner.runtime import RuntimeContext
 from moe_opt_runner.transforms import reversible_one_layer_transform
@@ -95,10 +96,26 @@ def run_one_layer_pilot(config: ExperimentConfig, ctx: RuntimeContext) -> Dict[s
             ExperimentFailureCode.LAYER_UNAVAILABLE,
             f"Pilot layer {config.pilot.layer} was not discovered",
         )
+    runtime_contract = ctx.runtime_contracts_by_layer.get(config.pilot.layer)
+    if runtime_contract is None:
+        raise ExpectedExperimentFailure(
+            ExperimentFailureCode.RUNTIME_ARCHITECTURE_MISMATCH,
+            f"Pilot layer {config.pilot.layer} has no validated runtime contract",
+        )
 
     trace = artifacts["trace"]
+    trace_metadata = validate_trace_payload(
+        trace,
+        runtime_contract,
+        require_real_traces=config.pilot.require_real_traces,
+    )
     embedding = artifacts["embedding"]
-    num_experts = len(handle.experts)
+    num_experts = runtime_contract.routed_experts
+    if len(handle.experts) != num_experts:
+        raise ExpectedExperimentFailure(
+            ExperimentFailureCode.RUNTIME_ARCHITECTURE_MISMATCH,
+            "Pilot expert collection does not match the routed expert contract",
+        )
     plans = build_candidate_plans(
         num_experts=num_experts,
         layer=config.pilot.layer,
@@ -252,6 +269,13 @@ def run_one_layer_pilot(config: ExperimentConfig, ctx: RuntimeContext) -> Dict[s
 
     summary = {
         "layer": config.pilot.layer,
+        "trace_metadata": {
+            "source": trace_metadata.source.value,
+            "routed_experts": trace_metadata.routed_experts,
+            "shared_experts": trace_metadata.shared_experts,
+            "routed_top_k": trace_metadata.routed_top_k,
+        },
+        "shared_experts_modified": False,
         "candidate_count": len(plans),
         "selected_candidate_count": len(test_results),
         "record_path": str(record_path),

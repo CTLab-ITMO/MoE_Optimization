@@ -22,3 +22,17 @@ def test_pilot_layer_must_be_in_experiment_layers() -> None:
     raw["pilot"]["layer"] = 3
     with pytest.raises(ValueError, match="pilot.layer"):
         validate_experiment_config_dict(raw)
+
+
+def test_runtime_top_k_is_bounded_by_expected_routed_experts() -> None:
+    raw = _raw_config()
+    raw["runtime"]["top_k"] = 61
+    with pytest.raises(ValueError, match="expected_routed_experts"):
+        validate_experiment_config_dict(raw)
+
+
+def test_pilot_rejects_synthetic_traces_when_real_traces_are_required() -> None:
+    raw = _raw_config()
+    raw["calibration"]["source"] = "synthetic"
+    with pytest.raises(ValueError, match="require_real_traces"):
+        validate_experiment_config_dict(raw)

@@ -1,10 +1,17 @@
 ﻿from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, Optional, Set
 
 from moe_opt_core.adapters import HFModelAdapter
 from moe_opt_core.config import ExperimentConfig
+from moe_opt_core.experiment.contracts import MoeLayerRuntimeContract
+from moe_opt_core.experiment.errors import ExpectedExperimentFailure, ExperimentFailureCode
+from moe_opt_core.experiment.runtime_validation import (
+    build_runtime_contract,
+    infer_routed_expert_count,
+    infer_shared_expert_count,
+)
 
 
 @dataclass
@@ -13,6 +20,7 @@ class RuntimeContext:
     adapter: HFModelAdapter
     handles_by_layer: Dict[int, object]
     tokenizer: Optional[object] = None
+    runtime_contracts_by_layer: Dict[int, MoeLayerRuntimeContract] = field(default_factory=dict)
 
 
 def _resolve_torch_dtype(token: str):
@@ -63,11 +71,46 @@ def build_runtime_context(config: ExperimentConfig) -> RuntimeContext:
     target_layers: Set[int] = set(config.layers)
     target_layers.add(config.h1.layer)
     target_layers.add(config.h2.layer)
+    if config.pilot.enabled:
+        target_layers.add(config.pilot.layer)
 
+    runtime_contracts: Dict[int, MoeLayerRuntimeContract] = {}
+    model_config = getattr(model, "config", None)
     for layer in target_layers:
         h = handles_by_layer.get(layer)
         if h is None:
+            if config.runtime_strict_architecture:
+                raise ExpectedExperimentFailure(
+                    ExperimentFailureCode.LAYER_UNAVAILABLE,
+                    f"Configured MoE layer {layer} was not discovered",
+                    context={"available_layers": sorted(handles_by_layer)},
+                )
             continue
-        adapter.set_top_k_if_possible(h.moe, config.runtime_top_k)
+        routed_experts = infer_routed_expert_count(h.moe, model_config)
+        shared_experts = infer_shared_expert_count(h.moe, model_config)
+        configured_top_k = adapter.get_top_k(h.moe, model_config=model_config)
+        top_k_updated = False
+        if configured_top_k != config.runtime_top_k:
+            top_k_updated = adapter.set_top_k_if_possible(h.moe, config.runtime_top_k)
+        effective_top_k = adapter.get_top_k(h.moe, model_config=model_config)
+        runtime_contracts[layer] = build_runtime_contract(
+            layer=layer,
+            kind=h.kind,
+            routed_experts=routed_experts,
+            shared_experts=shared_experts,
+            configured_routed_top_k=configured_top_k,
+            requested_routed_top_k=config.runtime_top_k,
+            effective_routed_top_k=effective_top_k,
+            top_k_updated=top_k_updated,
+            expected_routed_experts=config.runtime_expected_routed_experts,
+            expected_shared_experts=config.runtime_expected_shared_experts,
+            strict=config.runtime_strict_architecture,
+        )
 
-    return RuntimeContext(model=model, adapter=adapter, handles_by_layer=handles_by_layer, tokenizer=tokenizer)
+    return RuntimeContext(
+        model=model,
+        adapter=adapter,
+        handles_by_layer=handles_by_layer,
+        tokenizer=tokenizer,
+        runtime_contracts_by_layer=runtime_contracts,
+    )

@@ -43,6 +43,28 @@ class ExperimentPlan:
 
 
 @dataclass(frozen=True)
+class MoeLayerRuntimeContract:
+    layer: int
+    kind: str
+    routed_experts: int
+    shared_experts: int
+    configured_routed_top_k: int
+    requested_routed_top_k: int
+    effective_routed_top_k: int
+    top_k_updated: bool
+
+
+@dataclass(frozen=True)
+class TracePayloadMetadata:
+    source: TraceSource
+    layer: int
+    split: str
+    routed_experts: int
+    shared_experts: int
+    routed_top_k: int
+
+
+@dataclass(frozen=True)
 class CalibrationTraceContract:
     source: TraceSource
     layer: int
@@ -53,6 +75,9 @@ class CalibrationTraceContract:
     rows: int
     tokens: int
     sha256: str
+    routed_experts: int
+    shared_experts: int
+    routed_top_k: int
 
 
 @dataclass(frozen=True)
