@@ -14,6 +14,7 @@ from moe_opt_core.experiment.contracts import (
     PilotStepStatus,
     TracePayloadMetadata,
     TraceSource,
+    ValidationRobustnessContract,
 )
 from moe_opt_core.experiment.errors import ExpectedExperimentFailure, ExperimentFailureCode
 from moe_opt_core.experiment.planning import build_experiment_plan
@@ -36,5 +37,6 @@ __all__ = [
     "PilotStepStatus",
     "TracePayloadMetadata",
     "TraceSource",
+    "ValidationRobustnessContract",
     "build_experiment_plan",
 ]

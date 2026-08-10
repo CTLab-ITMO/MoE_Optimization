@@ -53,6 +53,12 @@ dataset split and compares pure RMT geometry with a deterministic
 The detailed launch and interpretation protocol is documented in
 `docs/6. Runbook первой RMT-MoE итерации.md`.
 
+The robust rank-selection follow-up is configured in
+`configs/experiments/h1_rmt_multislice_rank_validation_one_layer_pilot.json`.
+It reuses the held-out traces, evaluates each candidate on three deterministic
+validation slices, and ranks candidates by mean degradation plus a dispersion
+penalty before the test split is unlocked.
+
 Note: full run requires `torch` and model weights available in the environment.
 
 ## Legacy Thin Wrappers

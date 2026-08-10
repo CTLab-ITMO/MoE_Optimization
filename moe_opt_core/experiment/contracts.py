@@ -136,6 +136,19 @@ class EvaluationComparisonContract:
 
 
 @dataclass(frozen=True)
+class ValidationRobustnessContract:
+    slice_count: int
+    relative_perplexity_degradations: Tuple[float, ...]
+    mean_relative_perplexity_degradation: float
+    std_relative_perplexity_degradation: float
+    worst_relative_perplexity_degradation: float
+    std_penalty: float
+    robust_score: float
+    max_slice_degradation: float | None
+    passes_max_slice_degradation: bool
+
+
+@dataclass(frozen=True)
 class PilotExecutionStateContract:
     schema_version: str
     config_hash: str
