@@ -1,0 +1,5266 @@
+{
+  "layer": 0,
+  "trace_metadata": {
+    "source": "hf_dataset",
+    "layer": 0,
+    "split": "calibration",
+    "routed_experts": 60,
+    "shared_experts": 4,
+    "routed_top_k": 4
+  },
+  "shared_experts_modified": false,
+  "validation_candidate_count": 30,
+  "candidate_count": 30,
+  "selected_candidate_count": 12,
+  "completed_test_candidate_count": 12,
+  "failed_test_candidate_count": 0,
+  "record_path": "artifacts/h1_rmt_multislice_rank_validation_one_layer_pilot/pilot_runs.jsonl",
+  "selection_path": "artifacts/h1_rmt_multislice_rank_validation_one_layer_pilot/pilot_selection.json",
+  "state_path": "artifacts/h1_rmt_multislice_rank_validation_one_layer_pilot/pilot_state.json",
+  "validation_selection": {
+    "slice_count": 3,
+    "std_penalty": 1.0,
+    "max_slice_degradation": 0.05
+  },
+  "baseline_validation": {
+    "nll": 2.8031364197426654,
+    "perplexity": 16.496305054573735,
+    "tokens_per_second": 180.33557962389244,
+    "peak_memory_mb": 28095.76416015625,
+    "model_parameter_mb": 27305.19140625,
+    "evaluated_tokens": 1974,
+    "elapsed_seconds": 10.946259213611484
+  },
+  "baseline_validation_slices": [
+    {
+      "nll": 2.4866981014028773,
+      "perplexity": 12.021516686675612,
+      "tokens_per_second": 187.5567752925275,
+      "peak_memory_mb": 28031.21044921875,
+      "model_parameter_mb": 27305.19140625,
+      "evaluated_tokens": 770,
+      "elapsed_seconds": 4.105423538014293
+    },
+    {
+      "nll": 2.841836753002433,
+      "perplexity": 17.14723185997024,
+      "tokens_per_second": 234.15417321710194,
+      "peak_memory_mb": 28095.76416015625,
+      "model_parameter_mb": 27305.19140625,
+      "evaluated_tokens": 860,
+      "elapsed_seconds": 3.6727938186377287
+    },
+    {
+      "nll": 3.4146922875282377,
+      "perplexity": 30.407591192769992,
+      "tokens_per_second": 108.58442392240204,
+      "peak_memory_mb": 27886.3876953125,
+      "model_parameter_mb": 27305.19140625,
+      "evaluated_tokens": 344,
+      "elapsed_seconds": 3.168041856959462
+    }
+  ],
+  "baseline_test": {
+    "nll": 2.8110111570379264,
+    "perplexity": 16.62672194866614,
+    "tokens_per_second": 211.10269915971296,
+    "peak_memory_mb": 28208.9931640625,
+    "model_parameter_mb": 27305.19140625,
+    "evaluated_tokens": 2272,
+    "elapsed_seconds": 10.762534108012915
+  },
+  "selected_validation_results": [
+    {
+      "config_hash": "818ec57a6cc595a323949663a54cd0c5d7210cd51a8398da4dafd918bfa61952",
+      "plan": {
+        "candidate_id": "usage_prune-f0.100-s123",
+        "layer": 0,
+        "method": "usage_prune",
+        "action": "prune",
+        "compression_fraction": 0.1,
+        "groups": [
+          [
+            0
+          ],
+          [
+            1
+          ],
+          [
+            2
+          ],
+          [
+            3
+          ],
+          [
+            4
+          ],
+          [
+            5
+          ],
+          [
+            6
+          ],
+          [
+            7
+          ],
+          [
+            8
+          ],
+          [
+            9
+          ],
+          [
+            10
+          ],
+          [
+            11
+          ],
+          [
+            12
+          ],
+          [
+            13
+          ],
+          [
+            14
+          ],
+          [
+            15
+          ],
+          [
+            16
+          ],
+          [
+            17
+          ],
+          [
+            19
+          ],
+          [
+            20
+          ],
+          [
+            21
+          ],
+          [
+            22
+          ],
+          [
+            23
+          ],
+          [
+            24
+          ],
+          [
+            25
+          ],
+          [
+            26
+          ],
+          [
+            27
+          ],
+          [
+            28
+          ],
+          [
+            29
+          ],
+          [
+            30
+          ],
+          [
+            31
+          ],
+          [
+            32
+          ],
+          [
+            33
+          ],
+          [
+            34
+          ],
+          [
+            35
+          ],
+          [
+            36
+          ],
+          [
+            37
+          ],
+          [
+            38
+          ],
+          [
+            39
+          ],
+          [
+            40
+          ],
+          [
+            41
+          ],
+          [
+            44
+          ],
+          [
+            45
+          ],
+          [
+            47
+          ],
+          [
+            48
+          ],
+          [
+            49
+          ],
+          [
+            50
+          ],
+          [
+            51
+          ],
+          [
+            52
+          ],
+          [
+            53
+          ],
+          [
+            54
+          ],
+          [
+            55
+          ],
+          [
+            56
+          ],
+          [
+            57
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {}
+      },
+      "transform": {
+        "candidate_id": "usage_prune-f0.100-s123",
+        "original_experts": 60,
+        "active_experts": 54,
+        "model_parameter_mb": 27206.16796875,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.8049982584476956,
+        "perplexity": 16.52704712332059,
+        "tokens_per_second": 183.73241063308492,
+        "peak_memory_mb": 28095.97509765625,
+        "model_parameter_mb": 27206.16796875,
+        "evaluated_tokens": 1974,
+        "elapsed_seconds": 10.743885595351458
+      },
+      "relative_perplexity_degradation": 0.0018635730028726538,
+      "throughput_gain": 0.018836166530625365,
+      "memory_reduction": 0.003626542514451492,
+      "accepted_quality_budgets": {
+        "0.01": true,
+        "0.03": true,
+        "0.05": true
+      },
+      "validation_slices": [
+        {
+          "slice_index": 0,
+          "metrics": {
+            "nll": 2.491614693171018,
+            "perplexity": 12.080767112381155,
+            "tokens_per_second": 195.91323568731553,
+            "peak_memory_mb": 28031.42138671875,
+            "model_parameter_mb": 27206.16796875,
+            "evaluated_tokens": 770,
+            "elapsed_seconds": 3.930311279371381
+          },
+          "relative_perplexity_degradation": 0.004928698037845347
+        },
+        {
+          "slice_index": 1,
+          "metrics": {
+            "nll": 2.842067334263824,
+            "perplexity": 17.151186146196505,
+            "tokens_per_second": 236.28590190910984,
+            "peak_memory_mb": 28095.97509765625,
+            "model_parameter_mb": 27206.16796875,
+            "evaluated_tokens": 860,
+            "elapsed_seconds": 3.639658536761999
+          },
+          "relative_perplexity_degradation": 0.00023060784729311834
+        },
+        {
+          "slice_index": 2,
+          "metrics": {
+            "nll": 3.413794595834821,
+            "perplexity": 30.38030679905848,
+            "tokens_per_second": 108.38346822320139,
+            "peak_memory_mb": 27886.5986328125,
+            "model_parameter_mb": 27206.16796875,
+            "evaluated_tokens": 344,
+            "elapsed_seconds": 3.1739157792180777
+          },
+          "relative_perplexity_degradation": -0.0008972888887692765
+        }
+      ],
+      "validation_robustness": {
+        "slice_count": 3,
+        "relative_perplexity_degradations": [
+          0.004928698037845347,
+          0.00023060784729311834,
+          -0.0008972888887692765
+        ],
+        "mean_relative_perplexity_degradation": 0.001420672332123063,
+        "std_relative_perplexity_degradation": 0.002522924364807805,
+        "worst_relative_perplexity_degradation": 0.004928698037845347,
+        "std_penalty": 1.0,
+        "robust_score": 0.003943596696930868,
+        "max_slice_degradation": 0.05,
+        "passes_max_slice_degradation": true
+      },
+      "record_type": "candidate",
+      "split": "validation"
+    },
+    {
+      "config_hash": "818ec57a6cc595a323949663a54cd0c5d7210cd51a8398da4dafd918bfa61952",
+      "plan": {
+        "candidate_id": "usage_prune-f0.250-s123",
+        "layer": 0,
+        "method": "usage_prune",
+        "action": "prune",
+        "compression_fraction": 0.25,
+        "groups": [
+          [
+            0
+          ],
+          [
+            1
+          ],
+          [
+            2
+          ],
+          [
+            3
+          ],
+          [
+            4
+          ],
+          [
+            5
+          ],
+          [
+            7
+          ],
+          [
+            8
+          ],
+          [
+            10
+          ],
+          [
+            11
+          ],
+          [
+            12
+          ],
+          [
+            13
+          ],
+          [
+            14
+          ],
+          [
+            15
+          ],
+          [
+            16
+          ],
+          [
+            17
+          ],
+          [
+            20
+          ],
+          [
+            21
+          ],
+          [
+            22
+          ],
+          [
+            23
+          ],
+          [
+            24
+          ],
+          [
+            27
+          ],
+          [
+            28
+          ],
+          [
+            29
+          ],
+          [
+            30
+          ],
+          [
+            31
+          ],
+          [
+            32
+          ],
+          [
+            33
+          ],
+          [
+            35
+          ],
+          [
+            37
+          ],
+          [
+            38
+          ],
+          [
+            40
+          ],
+          [
+            41
+          ],
+          [
+            44
+          ],
+          [
+            45
+          ],
+          [
+            47
+          ],
+          [
+            48
+          ],
+          [
+            49
+          ],
+          [
+            51
+          ],
+          [
+            52
+          ],
+          [
+            53
+          ],
+          [
+            54
+          ],
+          [
+            55
+          ],
+          [
+            56
+          ],
+          [
+            57
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {}
+      },
+      "transform": {
+        "candidate_id": "usage_prune-f0.250-s123",
+        "original_experts": 60,
+        "active_experts": 45,
+        "model_parameter_mb": 27057.6328125,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.809738454123036,
+        "perplexity": 16.605574531221414,
+        "tokens_per_second": 189.6031801386982,
+        "peak_memory_mb": 28095.93994140625,
+        "model_parameter_mb": 27057.6328125,
+        "evaluated_tokens": 1974,
+        "elapsed_seconds": 10.411217778921127
+      },
+      "relative_perplexity_degradation": 0.0066238758489365335,
+      "throughput_gain": 0.05139085994086279,
+      "memory_reduction": 0.009066356286128618,
+      "accepted_quality_budgets": {
+        "0.01": true,
+        "0.03": true,
+        "0.05": true
+      },
+      "validation_slices": [
+        {
+          "slice_index": 0,
+          "metrics": {
+            "nll": 2.5060688854812025,
+            "perplexity": 12.256652924942557,
+            "tokens_per_second": 210.6139344908624,
+            "peak_memory_mb": 28031.38623046875,
+            "model_parameter_mb": 27057.6328125,
+            "evaluated_tokens": 770,
+            "elapsed_seconds": 3.655978422611952
+          },
+          "relative_perplexity_degradation": 0.019559615013267306
+        },
+        {
+          "slice_index": 1,
+          "metrics": {
+            "nll": 2.8502029077951296,
+            "perplexity": 17.29129002217025,
+            "tokens_per_second": 239.9943469929984,
+            "peak_memory_mb": 28095.93994140625,
+            "model_parameter_mb": 27057.6328125,
+            "evaluated_tokens": 860,
+            "elapsed_seconds": 3.5834177378565073
+          },
+          "relative_perplexity_degradation": 0.008401248864915
+        },
+        {
+          "slice_index": 2,
+          "metrics": {
+            "nll": 3.3883028078910917,
+            "perplexity": 29.61564615192136,
+            "tokens_per_second": 108.45502723063471,
+            "peak_memory_mb": 27886.5634765625,
+            "model_parameter_mb": 27057.6328125,
+            "evaluated_tokens": 344,
+            "elapsed_seconds": 3.171821618452668
+          },
+          "relative_perplexity_degradation": -0.026044320177421088
+        }
+      ],
+      "validation_robustness": {
+        "slice_count": 3,
+        "relative_perplexity_degradations": [
+          0.019559615013267306,
+          0.008401248864915,
+          -0.026044320177421088
+        ],
+        "mean_relative_perplexity_degradation": 0.0006388479002537398,
+        "std_relative_perplexity_degradation": 0.019409978151649344,
+        "worst_relative_perplexity_degradation": 0.019559615013267306,
+        "std_penalty": 1.0,
+        "robust_score": 0.020048826051903085,
+        "max_slice_degradation": 0.05,
+        "passes_max_slice_degradation": true
+      },
+      "record_type": "candidate",
+      "split": "validation"
+    },
+    {
+      "config_hash": "818ec57a6cc595a323949663a54cd0c5d7210cd51a8398da4dafd918bfa61952",
+      "plan": {
+        "candidate_id": "usage_prune-f0.400-s123",
+        "layer": 0,
+        "method": "usage_prune",
+        "action": "prune",
+        "compression_fraction": 0.4,
+        "groups": [
+          [
+            0
+          ],
+          [
+            1
+          ],
+          [
+            3
+          ],
+          [
+            5
+          ],
+          [
+            7
+          ],
+          [
+            8
+          ],
+          [
+            10
+          ],
+          [
+            11
+          ],
+          [
+            12
+          ],
+          [
+            13
+          ],
+          [
+            14
+          ],
+          [
+            15
+          ],
+          [
+            16
+          ],
+          [
+            17
+          ],
+          [
+            20
+          ],
+          [
+            21
+          ],
+          [
+            22
+          ],
+          [
+            24
+          ],
+          [
+            27
+          ],
+          [
+            28
+          ],
+          [
+            29
+          ],
+          [
+            30
+          ],
+          [
+            31
+          ],
+          [
+            32
+          ],
+          [
+            33
+          ],
+          [
+            35
+          ],
+          [
+            44
+          ],
+          [
+            45
+          ],
+          [
+            48
+          ],
+          [
+            49
+          ],
+          [
+            51
+          ],
+          [
+            52
+          ],
+          [
+            54
+          ],
+          [
+            55
+          ],
+          [
+            56
+          ],
+          [
+            57
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {}
+      },
+      "transform": {
+        "candidate_id": "usage_prune-f0.400-s123",
+        "original_experts": 60,
+        "active_experts": 36,
+        "model_parameter_mb": 26909.09765625,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.8035136920219736,
+        "perplexity": 16.50252982732511,
+        "tokens_per_second": 186.40197492491495,
+        "peak_memory_mb": 28095.90478515625,
+        "model_parameter_mb": 26909.09765625,
+        "evaluated_tokens": 1974,
+        "elapsed_seconds": 10.59001655317843
+      },
+      "relative_perplexity_degradation": 0.00037734345544526704,
+      "throughput_gain": 0.03363948098137137,
+      "memory_reduction": 0.014506170057805745,
+      "accepted_quality_budgets": {
+        "0.01": true,
+        "0.03": true,
+        "0.05": true
+      },
+      "validation_slices": [
+        {
+          "slice_index": 0,
+          "metrics": {
+            "nll": 2.5173828629704267,
+            "perplexity": 12.396111850169502,
+            "tokens_per_second": 198.6246697276888,
+            "peak_memory_mb": 28031.35107421875,
+            "model_parameter_mb": 26909.09765625,
+            "evaluated_tokens": 770,
+            "elapsed_seconds": 3.8766584284603596
+          },
+          "relative_perplexity_degradation": 0.03116039125987191
+        },
+        {
+          "slice_index": 1,
+          "metrics": {
+            "nll": 2.8323790306268735,
+            "perplexity": 16.9858225867267,
+            "tokens_per_second": 240.74185148228085,
+            "peak_memory_mb": 28095.90478515625,
+            "model_parameter_mb": 26909.09765625,
+            "evaluated_tokens": 860,
+            "elapsed_seconds": 3.57229121029377
+          },
+          "relative_perplexity_degradation": -0.009413138783079256
+        },
+        {
+          "slice_index": 2,
+          "metrics": {
+            "nll": 3.3718176082123157,
+            "perplexity": 29.131428489853842,
+            "tokens_per_second": 109.51692828328329,
+            "peak_memory_mb": 27886.5283203125,
+            "model_parameter_mb": 26909.09765625,
+            "evaluated_tokens": 344,
+            "elapsed_seconds": 3.1410669144243
+          },
+          "relative_perplexity_degradation": -0.041968556299835535
+        }
+      ],
+      "validation_robustness": {
+        "slice_count": 3,
+        "relative_perplexity_degradations": [
+          0.03116039125987191,
+          -0.009413138783079256,
+          -0.041968556299835535
+        ],
+        "mean_relative_perplexity_degradation": -0.00674043460768096,
+        "std_relative_perplexity_degradation": 0.029914525496314816,
+        "worst_relative_perplexity_degradation": 0.03116039125987191,
+        "std_penalty": 1.0,
+        "robust_score": 0.023174090888633855,
+        "max_slice_degradation": 0.05,
+        "passes_max_slice_degradation": true
+      },
+      "record_type": "candidate",
+      "split": "validation"
+    },
+    {
+      "config_hash": "818ec57a6cc595a323949663a54cd0c5d7210cd51a8398da4dafd918bfa61952",
+      "plan": {
+        "candidate_id": "functional_cosine-f0.100-s123",
+        "layer": 0,
+        "method": "functional_cosine",
+        "action": "merge",
+        "compression_fraction": 0.1,
+        "groups": [
+          [
+            6,
+            18
+          ],
+          [
+            5,
+            45
+          ],
+          [
+            3,
+            38
+          ],
+          [
+            42,
+            59
+          ],
+          [
+            37,
+            49
+          ],
+          [
+            2,
+            19
+          ],
+          [
+            0
+          ],
+          [
+            1
+          ],
+          [
+            4
+          ],
+          [
+            7
+          ],
+          [
+            8
+          ],
+          [
+            9
+          ],
+          [
+            10
+          ],
+          [
+            11
+          ],
+          [
+            12
+          ],
+          [
+            13
+          ],
+          [
+            14
+          ],
+          [
+            15
+          ],
+          [
+            16
+          ],
+          [
+            17
+          ],
+          [
+            20
+          ],
+          [
+            21
+          ],
+          [
+            22
+          ],
+          [
+            23
+          ],
+          [
+            24
+          ],
+          [
+            25
+          ],
+          [
+            26
+          ],
+          [
+            27
+          ],
+          [
+            28
+          ],
+          [
+            29
+          ],
+          [
+            30
+          ],
+          [
+            31
+          ],
+          [
+            32
+          ],
+          [
+            33
+          ],
+          [
+            34
+          ],
+          [
+            35
+          ],
+          [
+            36
+          ],
+          [
+            39
+          ],
+          [
+            40
+          ],
+          [
+            41
+          ],
+          [
+            43
+          ],
+          [
+            44
+          ],
+          [
+            46
+          ],
+          [
+            47
+          ],
+          [
+            48
+          ],
+          [
+            50
+          ],
+          [
+            51
+          ],
+          [
+            52
+          ],
+          [
+            53
+          ],
+          [
+            54
+          ],
+          [
+            55
+          ],
+          [
+            56
+          ],
+          [
+            57
+          ],
+          [
+            58
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {}
+      },
+      "transform": {
+        "candidate_id": "functional_cosine-f0.100-s123",
+        "original_experts": 60,
+        "active_experts": 54,
+        "model_parameter_mb": 27206.19140625,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.8125930196004556,
+        "perplexity": 16.653043951060628,
+        "tokens_per_second": 185.40047027780327,
+        "peak_memory_mb": 28195.87353515625,
+        "model_parameter_mb": 27206.19140625,
+        "evaluated_tokens": 1974,
+        "elapsed_seconds": 10.647222183644772
+      },
+      "relative_perplexity_degradation": 0.009501454778410245,
+      "throughput_gain": 0.028085919952536065,
+      "memory_reduction": 0.0036256841611935764,
+      "accepted_quality_budgets": {
+        "0.01": true,
+        "0.03": true,
+        "0.05": true
+      },
+      "validation_slices": [
+        {
+          "slice_index": 0,
+          "metrics": {
+            "nll": 2.5016132144184855,
+            "perplexity": 12.202162796373027,
+            "tokens_per_second": 205.92272589984393,
+            "peak_memory_mb": 28131.31982421875,
+            "model_parameter_mb": 27206.19140625,
+            "evaluated_tokens": 770,
+            "elapsed_seconds": 3.7392667401582003
+          },
+          "relative_perplexity_degradation": 0.015026898386094611
+        },
+        {
+          "slice_index": 1,
+          "metrics": {
+            "nll": 2.851830824308617,
+            "perplexity": 17.31946172310391,
+            "tokens_per_second": 236.70221517853702,
+            "peak_memory_mb": 28195.87353515625,
+            "model_parameter_mb": 27206.19140625,
+            "evaluated_tokens": 860,
+            "elapsed_seconds": 3.633257083594799
+          },
+          "relative_perplexity_degradation": 0.010044178823739758
+        },
+        {
+          "slice_index": 2,
+          "metrics": {
+            "nll": 3.4105870252431827,
+            "perplexity": 30.283015937472918,
+            "tokens_per_second": 105.04784324971205,
+            "peak_memory_mb": 27986.4970703125,
+            "model_parameter_mb": 27206.19140625,
+            "evaluated_tokens": 344,
+            "elapsed_seconds": 3.2746983598917723
+          },
+          "relative_perplexity_degradation": -0.0040968472151353685
+        }
+      ],
+      "validation_robustness": {
+        "slice_count": 3,
+        "relative_perplexity_degradations": [
+          0.015026898386094611,
+          0.010044178823739758,
+          -0.0040968472151353685
+        ],
+        "mean_relative_perplexity_degradation": 0.006991409998233,
+        "std_relative_perplexity_degradation": 0.008100162944107162,
+        "worst_relative_perplexity_degradation": 0.015026898386094611,
+        "std_penalty": 1.0,
+        "robust_score": 0.015091572942340162,
+        "max_slice_degradation": 0.05,
+        "passes_max_slice_degradation": true
+      },
+      "record_type": "candidate",
+      "split": "validation"
+    },
+    {
+      "config_hash": "818ec57a6cc595a323949663a54cd0c5d7210cd51a8398da4dafd918bfa61952",
+      "plan": {
+        "candidate_id": "functional_cosine-f0.250-s123",
+        "layer": 0,
+        "method": "functional_cosine",
+        "action": "merge",
+        "compression_fraction": 0.25,
+        "groups": [
+          [
+            6,
+            18
+          ],
+          [
+            5,
+            45
+          ],
+          [
+            3,
+            38
+          ],
+          [
+            42,
+            59
+          ],
+          [
+            37,
+            49
+          ],
+          [
+            2,
+            19
+          ],
+          [
+            39,
+            43
+          ],
+          [
+            10,
+            34
+          ],
+          [
+            29,
+            30
+          ],
+          [
+            35,
+            44
+          ],
+          [
+            46,
+            58
+          ],
+          [
+            12,
+            22
+          ],
+          [
+            4,
+            51
+          ],
+          [
+            13,
+            15
+          ],
+          [
+            9,
+            21
+          ],
+          [
+            0
+          ],
+          [
+            1
+          ],
+          [
+            7
+          ],
+          [
+            8
+          ],
+          [
+            11
+          ],
+          [
+            14
+          ],
+          [
+            16
+          ],
+          [
+            17
+          ],
+          [
+            20
+          ],
+          [
+            23
+          ],
+          [
+            24
+          ],
+          [
+            25
+          ],
+          [
+            26
+          ],
+          [
+            27
+          ],
+          [
+            28
+          ],
+          [
+            31
+          ],
+          [
+            32
+          ],
+          [
+            33
+          ],
+          [
+            36
+          ],
+          [
+            40
+          ],
+          [
+            41
+          ],
+          [
+            47
+          ],
+          [
+            48
+          ],
+          [
+            50
+          ],
+          [
+            52
+          ],
+          [
+            53
+          ],
+          [
+            54
+          ],
+          [
+            55
+          ],
+          [
+            56
+          ],
+          [
+            57
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {}
+      },
+      "transform": {
+        "candidate_id": "functional_cosine-f0.250-s123",
+        "original_experts": 60,
+        "active_experts": 45,
+        "model_parameter_mb": 27057.69140625,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.798301021982713,
+        "perplexity": 16.416731398248185,
+        "tokens_per_second": 181.25645230648976,
+        "peak_memory_mb": 28343.49853515625,
+        "model_parameter_mb": 27057.69140625,
+        "evaluated_tokens": 1974,
+        "elapsed_seconds": 10.89064678736031
+      },
+      "relative_perplexity_degradation": -0.004823726044244525,
+      "throughput_gain": 0.005106439253517836,
+      "memory_reduction": 0.009064210402983996,
+      "accepted_quality_budgets": {
+        "0.01": true,
+        "0.03": true,
+        "0.05": true
+      },
+      "validation_slices": [
+        {
+          "slice_index": 0,
+          "metrics": {
+            "nll": 2.4984522773073867,
+            "perplexity": 12.163653422073414,
+            "tokens_per_second": 190.1690023743931,
+            "peak_memory_mb": 28278.94482421875,
+            "model_parameter_mb": 27057.69140625,
+            "evaluated_tokens": 770,
+            "elapsed_seconds": 4.049030022695661
+          },
+          "relative_perplexity_degradation": 0.011823527688094693
+        },
+        {
+          "slice_index": 1,
+          "metrics": {
+            "nll": 2.8282973436422125,
+            "perplexity": 16.91663307677088,
+            "tokens_per_second": 237.56365552116537,
+            "peak_memory_mb": 28343.49853515625,
+            "model_parameter_mb": 27057.69140625,
+            "evaluated_tokens": 860,
+            "elapsed_seconds": 3.620082365348935
+          },
+          "relative_perplexity_degradation": -0.013448163825071302
+        },
+        {
+          "slice_index": 2,
+          "metrics": {
+            "nll": 3.394483280043269,
+            "perplexity": 29.799251628048076,
+            "tokens_per_second": 106.78141449399669,
+            "peak_memory_mb": 28134.1220703125,
+            "model_parameter_mb": 27057.69140625,
+            "evaluated_tokens": 344,
+            "elapsed_seconds": 3.221534399315715
+          },
+          "relative_perplexity_degradation": -0.020006174144651112
+        }
+      ],
+      "validation_robustness": {
+        "slice_count": 3,
+        "relative_perplexity_degradations": [
+          0.011823527688094693,
+          -0.013448163825071302,
+          -0.020006174144651112
+        ],
+        "mean_relative_perplexity_degradation": -0.0072102700938759074,
+        "std_relative_perplexity_degradation": 0.013722632603152126,
+        "worst_relative_perplexity_degradation": 0.011823527688094693,
+        "std_penalty": 1.0,
+        "robust_score": 0.006512362509276218,
+        "max_slice_degradation": 0.05,
+        "passes_max_slice_degradation": true
+      },
+      "record_type": "candidate",
+      "split": "validation"
+    },
+    {
+      "config_hash": "818ec57a6cc595a323949663a54cd0c5d7210cd51a8398da4dafd918bfa61952",
+      "plan": {
+        "candidate_id": "functional_cosine-f0.400-s123",
+        "layer": 0,
+        "method": "functional_cosine",
+        "action": "merge",
+        "compression_fraction": 0.4,
+        "groups": [
+          [
+            6,
+            18
+          ],
+          [
+            5,
+            45
+          ],
+          [
+            3,
+            38
+          ],
+          [
+            42,
+            59
+          ],
+          [
+            37,
+            49
+          ],
+          [
+            2,
+            19
+          ],
+          [
+            39,
+            43
+          ],
+          [
+            10,
+            34
+          ],
+          [
+            29,
+            30
+          ],
+          [
+            35,
+            44
+          ],
+          [
+            46,
+            58
+          ],
+          [
+            12,
+            22
+          ],
+          [
+            4,
+            51
+          ],
+          [
+            13,
+            15
+          ],
+          [
+            9,
+            21
+          ],
+          [
+            27,
+            32
+          ],
+          [
+            25,
+            52
+          ],
+          [
+            7,
+            56
+          ],
+          [
+            50,
+            55
+          ],
+          [
+            36,
+            40
+          ],
+          [
+            17,
+            26
+          ],
+          [
+            0,
+            54
+          ],
+          [
+            20,
+            47
+          ],
+          [
+            28,
+            31
+          ],
+          [
+            1
+          ],
+          [
+            8
+          ],
+          [
+            11
+          ],
+          [
+            14
+          ],
+          [
+            16
+          ],
+          [
+            23
+          ],
+          [
+            24
+          ],
+          [
+            33
+          ],
+          [
+            41
+          ],
+          [
+            48
+          ],
+          [
+            53
+          ],
+          [
+            57
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {}
+      },
+      "transform": {
+        "candidate_id": "functional_cosine-f0.400-s123",
+        "original_experts": 60,
+        "active_experts": 36,
+        "model_parameter_mb": 26909.19140625,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.8258692187982732,
+        "perplexity": 16.875607207843817,
+        "tokens_per_second": 191.26776949644494,
+        "peak_memory_mb": 28492.87353515625,
+        "model_parameter_mb": 26909.19140625,
+        "evaluated_tokens": 1974,
+        "elapsed_seconds": 10.320609714835882
+      },
+      "relative_perplexity_degradation": 0.022993158286977566,
+      "throughput_gain": 0.06062136986695954,
+      "memory_reduction": 0.014502736644774417,
+      "accepted_quality_budgets": {
+        "0.01": false,
+        "0.03": true,
+        "0.05": true
+      },
+      "validation_slices": [
+        {
+          "slice_index": 0,
+          "metrics": {
+            "nll": 2.5325494571165605,
+            "perplexity": 12.585551594128697,
+            "tokens_per_second": 214.44647295960803,
+            "peak_memory_mb": 28428.31982421875,
+            "model_parameter_mb": 26909.19140625,
+            "evaluated_tokens": 770,
+            "elapsed_seconds": 3.5906396098434925
+          },
+          "relative_perplexity_degradation": 0.04691878089544632
+        },
+        {
+          "slice_index": 1,
+          "metrics": {
+            "nll": 2.8467920990877373,
+            "perplexity": 17.232413205459316,
+            "tokens_per_second": 240.2036301138683,
+            "peak_memory_mb": 28492.87353515625,
+            "model_parameter_mb": 26909.19140625,
+            "evaluated_tokens": 860,
+            "elapsed_seconds": 3.5802955999970436
+          },
+          "relative_perplexity_degradation": 0.004967644117994885
+        },
+        {
+          "slice_index": 2,
+          "metrics": {
+            "nll": 3.4301207869551904,
+            "perplexity": 30.88037247058756,
+            "tokens_per_second": 109.21763485541764,
+            "peak_memory_mb": 28283.4970703125,
+            "model_parameter_mb": 26909.19140625,
+            "evaluated_tokens": 344,
+            "elapsed_seconds": 3.149674504995346
+          },
+          "relative_perplexity_degradation": 0.01554813318885917
+        }
+      ],
+      "validation_robustness": {
+        "slice_count": 3,
+        "relative_perplexity_degradations": [
+          0.04691878089544632,
+          0.004967644117994885,
+          0.01554813318885917
+        ],
+        "mean_relative_perplexity_degradation": 0.02247818606743346,
+        "std_relative_perplexity_degradation": 0.017813734287621757,
+        "worst_relative_perplexity_degradation": 0.04691878089544632,
+        "std_penalty": 1.0,
+        "robust_score": 0.040291920355055216,
+        "max_slice_degradation": 0.05,
+        "passes_max_slice_degradation": true
+      },
+      "record_type": "candidate",
+      "split": "validation"
+    },
+    {
+      "config_hash": "818ec57a6cc595a323949663a54cd0c5d7210cd51a8398da4dafd918bfa61952",
+      "plan": {
+        "candidate_id": "rmt_geometry-r8-f0.100-s123",
+        "layer": 0,
+        "method": "rmt_geometry",
+        "action": "merge",
+        "compression_fraction": 0.1,
+        "groups": [
+          [
+            39,
+            41
+          ],
+          [
+            2,
+            29
+          ],
+          [
+            20,
+            27
+          ],
+          [
+            8,
+            47
+          ],
+          [
+            15,
+            35
+          ],
+          [
+            19,
+            48
+          ],
+          [
+            0
+          ],
+          [
+            1
+          ],
+          [
+            3
+          ],
+          [
+            4
+          ],
+          [
+            5
+          ],
+          [
+            6
+          ],
+          [
+            7
+          ],
+          [
+            9
+          ],
+          [
+            10
+          ],
+          [
+            11
+          ],
+          [
+            12
+          ],
+          [
+            13
+          ],
+          [
+            14
+          ],
+          [
+            16
+          ],
+          [
+            17
+          ],
+          [
+            18
+          ],
+          [
+            21
+          ],
+          [
+            22
+          ],
+          [
+            23
+          ],
+          [
+            24
+          ],
+          [
+            25
+          ],
+          [
+            26
+          ],
+          [
+            28
+          ],
+          [
+            30
+          ],
+          [
+            31
+          ],
+          [
+            32
+          ],
+          [
+            33
+          ],
+          [
+            34
+          ],
+          [
+            36
+          ],
+          [
+            37
+          ],
+          [
+            38
+          ],
+          [
+            40
+          ],
+          [
+            42
+          ],
+          [
+            43
+          ],
+          [
+            44
+          ],
+          [
+            45
+          ],
+          [
+            46
+          ],
+          [
+            49
+          ],
+          [
+            50
+          ],
+          [
+            51
+          ],
+          [
+            52
+          ],
+          [
+            53
+          ],
+          [
+            54
+          ],
+          [
+            55
+          ],
+          [
+            56
+          ],
+          [
+            57
+          ],
+          [
+            58
+          ],
+          [
+            59
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {
+          "spectral_pairing_rank": 8.0
+        }
+      },
+      "transform": {
+        "candidate_id": "rmt_geometry-r8-f0.100-s123",
+        "original_experts": 60,
+        "active_experts": 54,
+        "model_parameter_mb": 27206.19140625,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.795302183553199,
+        "perplexity": 16.367574017604674,
+        "tokens_per_second": 180.8489281106402,
+        "peak_memory_mb": 28198.87353515625,
+        "model_parameter_mb": 27206.19140625,
+        "evaluated_tokens": 1974,
+        "elapsed_seconds": 10.91518772393465
+      },
+      "relative_perplexity_degradation": -0.0078036285424637475,
+      "throughput_gain": 0.002846628978143917,
+      "memory_reduction": 0.0036256841611935764,
+      "accepted_quality_budgets": {
+        "0.01": true,
+        "0.03": true,
+        "0.05": true
+      },
+      "validation_slices": [
+        {
+          "slice_index": 0,
+          "metrics": {
+            "nll": 2.490018678330756,
+            "perplexity": 12.061501407053418,
+            "tokens_per_second": 189.8362715860469,
+            "peak_memory_mb": 28134.31982421875,
+            "model_parameter_mb": 27206.19140625,
+            "evaluated_tokens": 770,
+            "elapsed_seconds": 4.056126859039068
+          },
+          "relative_perplexity_degradation": 0.003326096150756408
+        },
+        {
+          "slice_index": 1,
+          "metrics": {
+            "nll": 2.8201403681621997,
+            "perplexity": 16.779205773122953,
+            "tokens_per_second": 236.75176714179824,
+            "peak_memory_mb": 28198.87353515625,
+            "model_parameter_mb": 27206.19140625,
+            "evaluated_tokens": 860,
+            "elapsed_seconds": 3.6324966456741095
+          },
+          "relative_perplexity_degradation": -0.02146271129081978
+        },
+        {
+          "slice_index": 2,
+          "metrics": {
+            "nll": 3.416544800580934,
+            "perplexity": 30.463973861045588,
+            "tokens_per_second": 106.61495529848857,
+            "peak_memory_mb": 27989.4970703125,
+            "model_parameter_mb": 27206.19140625,
+            "evaluated_tokens": 344,
+            "elapsed_seconds": 3.2265642192214727
+          },
+          "relative_perplexity_degradation": 0.001854230015069458
+        }
+      ],
+      "validation_robustness": {
+        "slice_count": 3,
+        "relative_perplexity_degradations": [
+          0.003326096150756408,
+          -0.02146271129081978,
+          0.001854230015069458
+        ],
+        "mean_relative_perplexity_degradation": -0.005427461708331305,
+        "std_relative_perplexity_degradation": 0.011354544445870359,
+        "worst_relative_perplexity_degradation": 0.003326096150756408,
+        "std_penalty": 1.0,
+        "robust_score": 0.005927082737539054,
+        "max_slice_degradation": 0.05,
+        "passes_max_slice_degradation": true
+      },
+      "record_type": "candidate",
+      "split": "validation"
+    },
+    {
+      "config_hash": "818ec57a6cc595a323949663a54cd0c5d7210cd51a8398da4dafd918bfa61952",
+      "plan": {
+        "candidate_id": "rmt_geometry-r8-f0.250-s123",
+        "layer": 0,
+        "method": "rmt_geometry",
+        "action": "merge",
+        "compression_fraction": 0.25,
+        "groups": [
+          [
+            39,
+            41
+          ],
+          [
+            2,
+            29
+          ],
+          [
+            20,
+            27
+          ],
+          [
+            8,
+            47
+          ],
+          [
+            15,
+            35
+          ],
+          [
+            19,
+            48
+          ],
+          [
+            17,
+            36
+          ],
+          [
+            14,
+            52
+          ],
+          [
+            28,
+            34
+          ],
+          [
+            23,
+            30
+          ],
+          [
+            13,
+            24
+          ],
+          [
+            3,
+            44
+          ],
+          [
+            4,
+            10
+          ],
+          [
+            21,
+            22
+          ],
+          [
+            51,
+            56
+          ],
+          [
+            0
+          ],
+          [
+            1
+          ],
+          [
+            5
+          ],
+          [
+            6
+          ],
+          [
+            7
+          ],
+          [
+            9
+          ],
+          [
+            11
+          ],
+          [
+            12
+          ],
+          [
+            16
+          ],
+          [
+            18
+          ],
+          [
+            25
+          ],
+          [
+            26
+          ],
+          [
+            31
+          ],
+          [
+            32
+          ],
+          [
+            33
+          ],
+          [
+            37
+          ],
+          [
+            38
+          ],
+          [
+            40
+          ],
+          [
+            42
+          ],
+          [
+            43
+          ],
+          [
+            45
+          ],
+          [
+            46
+          ],
+          [
+            49
+          ],
+          [
+            50
+          ],
+          [
+            53
+          ],
+          [
+            54
+          ],
+          [
+            55
+          ],
+          [
+            57
+          ],
+          [
+            58
+          ],
+          [
+            59
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {
+          "spectral_pairing_rank": 8.0
+        }
+      },
+      "transform": {
+        "candidate_id": "rmt_geometry-r8-f0.250-s123",
+        "original_experts": 60,
+        "active_experts": 45,
+        "model_parameter_mb": 27057.69140625,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.8158976587239493,
+        "perplexity": 16.708167282820774,
+        "tokens_per_second": 143.2259021030519,
+        "peak_memory_mb": 28348.37353515625,
+        "model_parameter_mb": 27057.69140625,
+        "evaluated_tokens": 1974,
+        "elapsed_seconds": 13.782423228025436
+      },
+      "relative_perplexity_degradation": 0.012843011058909726,
+      "throughput_gain": -0.20578123073791876,
+      "memory_reduction": 0.009064210402983996,
+      "accepted_quality_budgets": {
+        "0.01": false,
+        "0.03": true,
+        "0.05": true
+      },
+      "validation_slices": [
+        {
+          "slice_index": 0,
+          "metrics": {
+            "nll": 2.4993773698806763,
+            "perplexity": 12.174911133928198,
+            "tokens_per_second": 153.12735167416753,
+            "peak_memory_mb": 28283.81982421875,
+            "model_parameter_mb": 27057.69140625,
+            "evaluated_tokens": 770,
+            "elapsed_seconds": 5.028494201600552
+          },
+          "relative_perplexity_degradation": 0.012759991209978061
+        },
+        {
+          "slice_index": 1,
+          "metrics": {
+            "nll": 2.853304217859756,
+            "perplexity": 17.34499891486289,
+            "tokens_per_second": 184.93448909721872,
+            "peak_memory_mb": 28348.37353515625,
+            "model_parameter_mb": 27057.69140625,
+            "evaluated_tokens": 860,
+            "elapsed_seconds": 4.650295378640294
+          },
+          "relative_perplexity_degradation": 0.011533468288507542
+        },
+        {
+          "slice_index": 2,
+          "metrics": {
+            "nll": 3.4308714423068736,
+            "perplexity": 30.903561689911474,
+            "tokens_per_second": 83.82814586426682,
+            "peak_memory_mb": 28138.9970703125,
+            "model_parameter_mb": 27057.69140625,
+            "evaluated_tokens": 344,
+            "elapsed_seconds": 4.103633647784591
+          },
+          "relative_perplexity_degradation": 0.016310746023822098
+        }
+      ],
+      "validation_robustness": {
+        "slice_count": 3,
+        "relative_perplexity_degradations": [
+          0.012759991209978061,
+          0.011533468288507542,
+          0.016310746023822098
+        ],
+        "mean_relative_perplexity_degradation": 0.013534735174102567,
+        "std_relative_perplexity_degradation": 0.0020257947901245344,
+        "worst_relative_perplexity_degradation": 0.016310746023822098,
+        "std_penalty": 1.0,
+        "robust_score": 0.015560529964227101,
+        "max_slice_degradation": 0.05,
+        "passes_max_slice_degradation": true
+      },
+      "record_type": "candidate",
+      "split": "validation"
+    },
+    {
+      "config_hash": "818ec57a6cc595a323949663a54cd0c5d7210cd51a8398da4dafd918bfa61952",
+      "plan": {
+        "candidate_id": "rmt_geometry-r4-f0.400-s123",
+        "layer": 0,
+        "method": "rmt_geometry",
+        "action": "merge",
+        "compression_fraction": 0.4,
+        "groups": [
+          [
+            29,
+            51
+          ],
+          [
+            7,
+            53
+          ],
+          [
+            37,
+            40
+          ],
+          [
+            22,
+            59
+          ],
+          [
+            13,
+            52
+          ],
+          [
+            23,
+            30
+          ],
+          [
+            1,
+            11
+          ],
+          [
+            21,
+            39
+          ],
+          [
+            42,
+            44
+          ],
+          [
+            0,
+            24
+          ],
+          [
+            12,
+            36
+          ],
+          [
+            10,
+            32
+          ],
+          [
+            2,
+            56
+          ],
+          [
+            25,
+            48
+          ],
+          [
+            46,
+            55
+          ],
+          [
+            20,
+            58
+          ],
+          [
+            3,
+            35
+          ],
+          [
+            41,
+            43
+          ],
+          [
+            8,
+            15
+          ],
+          [
+            5,
+            17
+          ],
+          [
+            14,
+            57
+          ],
+          [
+            4,
+            34
+          ],
+          [
+            26,
+            28
+          ],
+          [
+            27,
+            49
+          ],
+          [
+            6
+          ],
+          [
+            9
+          ],
+          [
+            16
+          ],
+          [
+            18
+          ],
+          [
+            19
+          ],
+          [
+            31
+          ],
+          [
+            33
+          ],
+          [
+            38
+          ],
+          [
+            45
+          ],
+          [
+            47
+          ],
+          [
+            50
+          ],
+          [
+            54
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {
+          "spectral_pairing_rank": 4.0
+        }
+      },
+      "transform": {
+        "candidate_id": "rmt_geometry-r4-f0.400-s123",
+        "original_experts": 60,
+        "active_experts": 36,
+        "model_parameter_mb": 26909.19140625,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.8217998389173546,
+        "perplexity": 16.807073490834178,
+        "tokens_per_second": 190.01265072562657,
+        "peak_memory_mb": 28896.37353515625,
+        "model_parameter_mb": 26909.19140625,
+        "evaluated_tokens": 1974,
+        "elapsed_seconds": 10.388781970366836
+      },
+      "relative_perplexity_degradation": 0.018838669340336844,
+      "throughput_gain": 0.05366146337797906,
+      "memory_reduction": 0.014502736644774417,
+      "accepted_quality_budgets": {
+        "0.01": false,
+        "0.03": true,
+        "0.05": true
+      },
+      "validation_slices": [
+        {
+          "slice_index": 0,
+          "metrics": {
+            "nll": 2.5060492366939395,
+            "perplexity": 12.256412098942654,
+            "tokens_per_second": 211.60798143663382,
+            "peak_memory_mb": 28831.38671875,
+            "model_parameter_mb": 26909.19140625,
+            "evaluated_tokens": 770,
+            "elapsed_seconds": 3.638804145157337
+          },
+          "relative_perplexity_degradation": 0.01953958210010187
+        },
+        {
+          "slice_index": 1,
+          "metrics": {
+            "nll": 2.859780935354011,
+            "perplexity": 17.457702152316,
+            "tokens_per_second": 238.47111173599393,
+            "peak_memory_mb": 28896.37353515625,
+            "model_parameter_mb": 26909.19140625,
+            "evaluated_tokens": 860,
+            "elapsed_seconds": 3.6063068341463804
+          },
+          "relative_perplexity_degradation": 0.018106146512810728
+        },
+        {
+          "slice_index": 2,
+          "metrics": {
+            "nll": 3.433614434197892,
+            "perplexity": 30.988446274671656,
+            "tokens_per_second": 109.42620935140131,
+            "peak_memory_mb": 28686.9970703125,
+            "model_parameter_mb": 26909.19140625,
+            "evaluated_tokens": 344,
+            "elapsed_seconds": 3.143670991063118
+          },
+          "relative_perplexity_degradation": 0.01910230502045729
+        }
+      ],
+      "validation_robustness": {
+        "slice_count": 3,
+        "relative_perplexity_degradations": [
+          0.01953958210010187,
+          0.018106146512810728,
+          0.01910230502045729
+        ],
+        "mean_relative_perplexity_degradation": 0.018916011211123296,
+        "std_relative_perplexity_degradation": 0.0005998407751369267,
+        "worst_relative_perplexity_degradation": 0.01953958210010187,
+        "std_penalty": 1.0,
+        "robust_score": 0.019515851986260224,
+        "max_slice_degradation": 0.05,
+        "passes_max_slice_degradation": true
+      },
+      "record_type": "candidate",
+      "split": "validation"
+    },
+    {
+      "config_hash": "818ec57a6cc595a323949663a54cd0c5d7210cd51a8398da4dafd918bfa61952",
+      "plan": {
+        "candidate_id": "rmt_functional_usage-r4-f0.100-s123",
+        "layer": 0,
+        "method": "rmt_functional_usage",
+        "action": "merge",
+        "compression_fraction": 0.1,
+        "groups": [
+          [
+            0,
+            47
+          ],
+          [
+            35,
+            44
+          ],
+          [
+            4,
+            51
+          ],
+          [
+            20,
+            53
+          ],
+          [
+            25,
+            48
+          ],
+          [
+            8,
+            15
+          ],
+          [
+            1
+          ],
+          [
+            2
+          ],
+          [
+            3
+          ],
+          [
+            5
+          ],
+          [
+            6
+          ],
+          [
+            7
+          ],
+          [
+            9
+          ],
+          [
+            10
+          ],
+          [
+            11
+          ],
+          [
+            12
+          ],
+          [
+            13
+          ],
+          [
+            14
+          ],
+          [
+            16
+          ],
+          [
+            17
+          ],
+          [
+            18
+          ],
+          [
+            19
+          ],
+          [
+            21
+          ],
+          [
+            22
+          ],
+          [
+            23
+          ],
+          [
+            24
+          ],
+          [
+            26
+          ],
+          [
+            27
+          ],
+          [
+            28
+          ],
+          [
+            29
+          ],
+          [
+            30
+          ],
+          [
+            31
+          ],
+          [
+            32
+          ],
+          [
+            33
+          ],
+          [
+            34
+          ],
+          [
+            36
+          ],
+          [
+            37
+          ],
+          [
+            38
+          ],
+          [
+            39
+          ],
+          [
+            40
+          ],
+          [
+            41
+          ],
+          [
+            42
+          ],
+          [
+            43
+          ],
+          [
+            45
+          ],
+          [
+            46
+          ],
+          [
+            49
+          ],
+          [
+            50
+          ],
+          [
+            52
+          ],
+          [
+            54
+          ],
+          [
+            55
+          ],
+          [
+            56
+          ],
+          [
+            57
+          ],
+          [
+            58
+          ],
+          [
+            59
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {
+          "mean_hybrid_score": 0.6227749586105347,
+          "mean_rmt_similarity": 0.8497273921966553,
+          "mean_functional_similarity": 0.5013628602027893,
+          "mean_usage_safety": 0.14956174790859222,
+          "spectral_pairing_rank": 4.0
+        }
+      },
+      "transform": {
+        "candidate_id": "rmt_functional_usage-r4-f0.100-s123",
+        "original_experts": 60,
+        "active_experts": 54,
+        "model_parameter_mb": 27206.19140625,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.791371657614046,
+        "perplexity": 16.3033671094876,
+        "tokens_per_second": 188.21961627461337,
+        "peak_memory_mb": 28294.87353515625,
+        "model_parameter_mb": 27206.19140625,
+        "evaluated_tokens": 1974,
+        "elapsed_seconds": 10.487748509272933
+      },
+      "relative_perplexity_degradation": -0.011695827911029189,
+      "throughput_gain": 0.0437186974814614,
+      "memory_reduction": 0.0036256841611935764,
+      "accepted_quality_budgets": {
+        "0.01": true,
+        "0.03": true,
+        "0.05": true
+      },
+      "validation_slices": [
+        {
+          "slice_index": 0,
+          "metrics": {
+            "nll": 2.488298222925756,
+            "perplexity": 12.040767972354322,
+            "tokens_per_second": 209.1510160890304,
+            "peak_memory_mb": 28230.31982421875,
+            "model_parameter_mb": 27206.19140625,
+            "evaluated_tokens": 770,
+            "elapsed_seconds": 3.6815503668040037
+          },
+          "relative_perplexity_degradation": 0.0016014024004182836
+        },
+        {
+          "slice_index": 1,
+          "metrics": {
+            "nll": 2.815376407323882,
+            "perplexity": 16.699460396667483,
+            "tokens_per_second": 237.62528203473573,
+            "peak_memory_mb": 28294.87353515625,
+            "model_parameter_mb": 27206.19140625,
+            "evaluated_tokens": 860,
+            "elapsed_seconds": 3.619143521413207
+          },
+          "relative_perplexity_degradation": -0.02611333811541139
+        },
+        {
+          "slice_index": 2,
+          "metrics": {
+            "nll": 3.409750901682432,
+            "perplexity": 30.2577061768751,
+            "tokens_per_second": 107.93665026238203,
+            "peak_memory_mb": 28085.4970703125,
+            "model_parameter_mb": 27206.19140625,
+            "evaluated_tokens": 344,
+            "elapsed_seconds": 3.1870546210557222
+          },
+          "relative_perplexity_degradation": -0.004929197283161657
+        }
+      ],
+      "validation_robustness": {
+        "slice_count": 3,
+        "relative_perplexity_degradations": [
+          0.0016014024004182836,
+          -0.02611333811541139,
+          -0.004929197283161657
+        ],
+        "mean_relative_perplexity_degradation": -0.00981371099938492,
+        "std_relative_perplexity_degradation": 0.01182992155927566,
+        "worst_relative_perplexity_degradation": 0.0016014024004182836,
+        "std_penalty": 1.0,
+        "robust_score": 0.0020162105598907406,
+        "max_slice_degradation": 0.05,
+        "passes_max_slice_degradation": true
+      },
+      "record_type": "candidate",
+      "split": "validation"
+    },
+    {
+      "config_hash": "818ec57a6cc595a323949663a54cd0c5d7210cd51a8398da4dafd918bfa61952",
+      "plan": {
+        "candidate_id": "rmt_functional_usage-r1-f0.250-s123",
+        "layer": 0,
+        "method": "rmt_functional_usage",
+        "action": "merge",
+        "compression_fraction": 0.25,
+        "groups": [
+          [
+            9,
+            58
+          ],
+          [
+            2,
+            46
+          ],
+          [
+            18,
+            20
+          ],
+          [
+            29,
+            36
+          ],
+          [
+            19,
+            50
+          ],
+          [
+            10,
+            59
+          ],
+          [
+            3,
+            41
+          ],
+          [
+            11,
+            42
+          ],
+          [
+            17,
+            25
+          ],
+          [
+            6,
+            55
+          ],
+          [
+            7,
+            40
+          ],
+          [
+            0,
+            30
+          ],
+          [
+            12,
+            15
+          ],
+          [
+            27,
+            35
+          ],
+          [
+            4,
+            34
+          ],
+          [
+            1
+          ],
+          [
+            5
+          ],
+          [
+            8
+          ],
+          [
+            13
+          ],
+          [
+            14
+          ],
+          [
+            16
+          ],
+          [
+            21
+          ],
+          [
+            22
+          ],
+          [
+            23
+          ],
+          [
+            24
+          ],
+          [
+            26
+          ],
+          [
+            28
+          ],
+          [
+            31
+          ],
+          [
+            32
+          ],
+          [
+            33
+          ],
+          [
+            37
+          ],
+          [
+            38
+          ],
+          [
+            39
+          ],
+          [
+            43
+          ],
+          [
+            44
+          ],
+          [
+            45
+          ],
+          [
+            47
+          ],
+          [
+            48
+          ],
+          [
+            49
+          ],
+          [
+            51
+          ],
+          [
+            52
+          ],
+          [
+            53
+          ],
+          [
+            54
+          ],
+          [
+            56
+          ],
+          [
+            57
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {
+          "mean_hybrid_score": 0.698940098285675,
+          "mean_rmt_similarity": 0.9859544038772583,
+          "mean_functional_similarity": 0.49279361963272095,
+          "mean_usage_safety": 0.2232343852519989,
+          "spectral_pairing_rank": 1.0
+        }
+      },
+      "transform": {
+        "candidate_id": "rmt_functional_usage-r1-f0.250-s123",
+        "original_experts": 60,
+        "active_experts": 45,
+        "model_parameter_mb": 27057.69140625,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.8094809955135065,
+        "perplexity": 16.60129983339466,
+        "tokens_per_second": 142.58659553842156,
+        "peak_memory_mb": 28343.49853515625,
+        "model_parameter_mb": 27057.69140625,
+        "evaluated_tokens": 1974,
+        "elapsed_seconds": 13.84421861357987
+      },
+      "relative_perplexity_degradation": 0.006364745224677559,
+      "throughput_gain": -0.2093263246454199,
+      "memory_reduction": 0.009064210402983996,
+      "accepted_quality_budgets": {
+        "0.01": true,
+        "0.03": true,
+        "0.05": true
+      },
+      "validation_slices": [
+        {
+          "slice_index": 0,
+          "metrics": {
+            "nll": 2.5014975402262305,
+            "perplexity": 12.200751402680279,
+            "tokens_per_second": 151.82815697957273,
+            "peak_memory_mb": 28278.94482421875,
+            "model_parameter_mb": 27057.69140625,
+            "evaluated_tokens": 770,
+            "elapsed_seconds": 5.071523064747453
+          },
+          "relative_perplexity_degradation": 0.014909492760037946
+        },
+        {
+          "slice_index": 1,
+          "metrics": {
+            "nll": 2.8400090857993723,
+            "perplexity": 17.11592104826412,
+            "tokens_per_second": 184.68192457276572,
+            "peak_memory_mb": 28343.49853515625,
+            "model_parameter_mb": 27057.69140625,
+            "evaluated_tokens": 860,
+            "elapsed_seconds": 4.6566549595445395
+          },
+          "relative_perplexity_degradation": -0.0018259980364069284
+        },
+        {
+          "slice_index": 2,
+          "metrics": {
+            "nll": 3.4225423412267553,
+            "perplexity": 30.647231781601217,
+            "tokens_per_second": 83.57546349160663,
+            "peak_memory_mb": 28134.1220703125,
+            "model_parameter_mb": 27057.69140625,
+            "evaluated_tokens": 344,
+            "elapsed_seconds": 4.116040589287877
+          },
+          "relative_perplexity_degradation": 0.007880946152952983
+        }
+      ],
+      "validation_robustness": {
+        "slice_count": 3,
+        "relative_perplexity_degradations": [
+          0.014909492760037946,
+          -0.0018259980364069284,
+          0.007880946152952983
+        ],
+        "mean_relative_perplexity_degradation": 0.006988146958861334,
+        "std_relative_perplexity_degradation": 0.006861340046482698,
+        "worst_relative_perplexity_degradation": 0.014909492760037946,
+        "std_penalty": 1.0,
+        "robust_score": 0.013849487005344031,
+        "max_slice_degradation": 0.05,
+        "passes_max_slice_degradation": true
+      },
+      "record_type": "candidate",
+      "split": "validation"
+    },
+    {
+      "config_hash": "818ec57a6cc595a323949663a54cd0c5d7210cd51a8398da4dafd918bfa61952",
+      "plan": {
+        "candidate_id": "rmt_functional_usage-r1-f0.400-s123",
+        "layer": 0,
+        "method": "rmt_functional_usage",
+        "action": "merge",
+        "compression_fraction": 0.4,
+        "groups": [
+          [
+            9,
+            58
+          ],
+          [
+            2,
+            46
+          ],
+          [
+            18,
+            20
+          ],
+          [
+            29,
+            36
+          ],
+          [
+            19,
+            50
+          ],
+          [
+            10,
+            59
+          ],
+          [
+            3,
+            41
+          ],
+          [
+            11,
+            42
+          ],
+          [
+            17,
+            25
+          ],
+          [
+            6,
+            55
+          ],
+          [
+            7,
+            40
+          ],
+          [
+            0,
+            30
+          ],
+          [
+            12,
+            15
+          ],
+          [
+            27,
+            35
+          ],
+          [
+            4,
+            34
+          ],
+          [
+            23,
+            56
+          ],
+          [
+            16,
+            22
+          ],
+          [
+            8,
+            28
+          ],
+          [
+            44,
+            53
+          ],
+          [
+            31,
+            38
+          ],
+          [
+            1,
+            47
+          ],
+          [
+            14,
+            43
+          ],
+          [
+            13,
+            52
+          ],
+          [
+            21,
+            57
+          ],
+          [
+            5
+          ],
+          [
+            24
+          ],
+          [
+            26
+          ],
+          [
+            32
+          ],
+          [
+            33
+          ],
+          [
+            37
+          ],
+          [
+            39
+          ],
+          [
+            45
+          ],
+          [
+            48
+          ],
+          [
+            49
+          ],
+          [
+            51
+          ],
+          [
+            54
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {
+          "mean_hybrid_score": 0.6876047253608704,
+          "mean_rmt_similarity": 0.9719385504722595,
+          "mean_functional_similarity": 0.4948159158229828,
+          "mean_usage_safety": 0.18966631591320038,
+          "spectral_pairing_rank": 1.0
+        }
+      },
+      "transform": {
+        "candidate_id": "rmt_functional_usage-r1-f0.400-s123",
+        "original_experts": 60,
+        "active_experts": 36,
+        "model_parameter_mb": 26909.19140625,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.817119499470325,
+        "perplexity": 16.728594479253353,
+        "tokens_per_second": 141.67460425177325,
+        "peak_memory_mb": 28491.99853515625,
+        "model_parameter_mb": 26909.19140625,
+        "evaluated_tokens": 1974,
+        "elapsed_seconds": 13.933336962014437
+      },
+      "relative_perplexity_degradation": 0.014081300261552299,
+      "throughput_gain": -0.214383514627288,
+      "memory_reduction": 0.014502736644774417,
+      "accepted_quality_budgets": {
+        "0.01": false,
+        "0.03": true,
+        "0.05": true
+      },
+      "validation_slices": [
+        {
+          "slice_index": 0,
+          "metrics": {
+            "nll": 2.503943495316939,
+            "perplexity": 12.230630419153936,
+            "tokens_per_second": 151.07592902430085,
+            "peak_memory_mb": 28427.44482421875,
+            "model_parameter_mb": 26909.19140625,
+            "evaluated_tokens": 770,
+            "elapsed_seconds": 5.096774879842997
+          },
+          "relative_perplexity_degradation": 0.017394954224877468
+        },
+        {
+          "slice_index": 1,
+          "metrics": {
+            "nll": 2.852210323755131,
+            "perplexity": 17.326035696572497,
+            "tokens_per_second": 184.45806666306024,
+            "peak_memory_mb": 28491.99853515625,
+            "model_parameter_mb": 26909.19140625,
+            "evaluated_tokens": 860,
+            "elapsed_seconds": 4.6623062659054995
+          },
+          "relative_perplexity_degradation": 0.01042756277295509
+        },
+        {
+          "slice_index": 2,
+          "metrics": {
+            "nll": 3.4303968666597853,
+            "perplexity": 30.888899091656373,
+            "tokens_per_second": 82.40989894762211,
+            "peak_memory_mb": 28282.6220703125,
+            "model_parameter_mb": 26909.19140625,
+            "evaluated_tokens": 344,
+            "elapsed_seconds": 4.174255816265941
+          },
+          "relative_perplexity_degradation": 0.015828544123574817
+        }
+      ],
+      "validation_robustness": {
+        "slice_count": 3,
+        "relative_perplexity_degradations": [
+          0.017394954224877468,
+          0.01042756277295509,
+          0.015828544123574817
+        ],
+        "mean_relative_perplexity_degradation": 0.014550353707135791,
+        "std_relative_perplexity_degradation": 0.002984567413276468,
+        "worst_relative_perplexity_degradation": 0.017394954224877468,
+        "std_penalty": 1.0,
+        "robust_score": 0.01753492112041226,
+        "max_slice_degradation": 0.05,
+        "passes_max_slice_degradation": true
+      },
+      "record_type": "candidate",
+      "split": "validation"
+    }
+  ],
+  "selected_test_results": [
+    {
+      "config_hash": "818ec57a6cc595a323949663a54cd0c5d7210cd51a8398da4dafd918bfa61952",
+      "plan": {
+        "candidate_id": "usage_prune-f0.100-s123",
+        "layer": 0,
+        "method": "usage_prune",
+        "action": "prune",
+        "compression_fraction": 0.1,
+        "groups": [
+          [
+            0
+          ],
+          [
+            1
+          ],
+          [
+            2
+          ],
+          [
+            3
+          ],
+          [
+            4
+          ],
+          [
+            5
+          ],
+          [
+            6
+          ],
+          [
+            7
+          ],
+          [
+            8
+          ],
+          [
+            9
+          ],
+          [
+            10
+          ],
+          [
+            11
+          ],
+          [
+            12
+          ],
+          [
+            13
+          ],
+          [
+            14
+          ],
+          [
+            15
+          ],
+          [
+            16
+          ],
+          [
+            17
+          ],
+          [
+            19
+          ],
+          [
+            20
+          ],
+          [
+            21
+          ],
+          [
+            22
+          ],
+          [
+            23
+          ],
+          [
+            24
+          ],
+          [
+            25
+          ],
+          [
+            26
+          ],
+          [
+            27
+          ],
+          [
+            28
+          ],
+          [
+            29
+          ],
+          [
+            30
+          ],
+          [
+            31
+          ],
+          [
+            32
+          ],
+          [
+            33
+          ],
+          [
+            34
+          ],
+          [
+            35
+          ],
+          [
+            36
+          ],
+          [
+            37
+          ],
+          [
+            38
+          ],
+          [
+            39
+          ],
+          [
+            40
+          ],
+          [
+            41
+          ],
+          [
+            44
+          ],
+          [
+            45
+          ],
+          [
+            47
+          ],
+          [
+            48
+          ],
+          [
+            49
+          ],
+          [
+            50
+          ],
+          [
+            51
+          ],
+          [
+            52
+          ],
+          [
+            53
+          ],
+          [
+            54
+          ],
+          [
+            55
+          ],
+          [
+            56
+          ],
+          [
+            57
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {}
+      },
+      "transform": {
+        "candidate_id": "usage_prune-f0.100-s123",
+        "original_experts": 60,
+        "active_experts": 54,
+        "model_parameter_mb": 27206.16796875,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.8087110770210413,
+        "perplexity": 16.58852310480492,
+        "tokens_per_second": 213.32690487415132,
+        "peak_memory_mb": 28209.2041015625,
+        "model_parameter_mb": 27206.16796875,
+        "evaluated_tokens": 2272,
+        "elapsed_seconds": 10.650320930406451
+      },
+      "relative_perplexity_degradation": -0.0022974368597223904,
+      "throughput_gain": 0.010536131102500068,
+      "memory_reduction": 0.003626542514451492,
+      "accepted_quality_budgets": {
+        "0.01": true,
+        "0.03": true,
+        "0.05": true
+      },
+      "record_type": "selected_candidate",
+      "split": "test"
+    },
+    {
+      "config_hash": "818ec57a6cc595a323949663a54cd0c5d7210cd51a8398da4dafd918bfa61952",
+      "plan": {
+        "candidate_id": "usage_prune-f0.250-s123",
+        "layer": 0,
+        "method": "usage_prune",
+        "action": "prune",
+        "compression_fraction": 0.25,
+        "groups": [
+          [
+            0
+          ],
+          [
+            1
+          ],
+          [
+            2
+          ],
+          [
+            3
+          ],
+          [
+            4
+          ],
+          [
+            5
+          ],
+          [
+            7
+          ],
+          [
+            8
+          ],
+          [
+            10
+          ],
+          [
+            11
+          ],
+          [
+            12
+          ],
+          [
+            13
+          ],
+          [
+            14
+          ],
+          [
+            15
+          ],
+          [
+            16
+          ],
+          [
+            17
+          ],
+          [
+            20
+          ],
+          [
+            21
+          ],
+          [
+            22
+          ],
+          [
+            23
+          ],
+          [
+            24
+          ],
+          [
+            27
+          ],
+          [
+            28
+          ],
+          [
+            29
+          ],
+          [
+            30
+          ],
+          [
+            31
+          ],
+          [
+            32
+          ],
+          [
+            33
+          ],
+          [
+            35
+          ],
+          [
+            37
+          ],
+          [
+            38
+          ],
+          [
+            40
+          ],
+          [
+            41
+          ],
+          [
+            44
+          ],
+          [
+            45
+          ],
+          [
+            47
+          ],
+          [
+            48
+          ],
+          [
+            49
+          ],
+          [
+            51
+          ],
+          [
+            52
+          ],
+          [
+            53
+          ],
+          [
+            54
+          ],
+          [
+            55
+          ],
+          [
+            56
+          ],
+          [
+            57
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {}
+      },
+      "transform": {
+        "candidate_id": "usage_prune-f0.250-s123",
+        "original_experts": 60,
+        "active_experts": 45,
+        "model_parameter_mb": 27057.6328125,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.810107231402481,
+        "perplexity": 16.611699419110995,
+        "tokens_per_second": 215.7579614086752,
+        "peak_memory_mb": 28209.8876953125,
+        "model_parameter_mb": 27057.6328125,
+        "evaluated_tokens": 2272,
+        "elapsed_seconds": 10.53031825646758
+      },
+      "relative_perplexity_degradation": -0.0009035172177370709,
+      "throughput_gain": 0.022052120922623653,
+      "memory_reduction": 0.009066356286128618,
+      "accepted_quality_budgets": {
+        "0.01": true,
+        "0.03": true,
+        "0.05": true
+      },
+      "record_type": "selected_candidate",
+      "split": "test"
+    },
+    {
+      "config_hash": "818ec57a6cc595a323949663a54cd0c5d7210cd51a8398da4dafd918bfa61952",
+      "plan": {
+        "candidate_id": "usage_prune-f0.400-s123",
+        "layer": 0,
+        "method": "usage_prune",
+        "action": "prune",
+        "compression_fraction": 0.4,
+        "groups": [
+          [
+            0
+          ],
+          [
+            1
+          ],
+          [
+            3
+          ],
+          [
+            5
+          ],
+          [
+            7
+          ],
+          [
+            8
+          ],
+          [
+            10
+          ],
+          [
+            11
+          ],
+          [
+            12
+          ],
+          [
+            13
+          ],
+          [
+            14
+          ],
+          [
+            15
+          ],
+          [
+            16
+          ],
+          [
+            17
+          ],
+          [
+            20
+          ],
+          [
+            21
+          ],
+          [
+            22
+          ],
+          [
+            24
+          ],
+          [
+            27
+          ],
+          [
+            28
+          ],
+          [
+            29
+          ],
+          [
+            30
+          ],
+          [
+            31
+          ],
+          [
+            32
+          ],
+          [
+            33
+          ],
+          [
+            35
+          ],
+          [
+            44
+          ],
+          [
+            45
+          ],
+          [
+            48
+          ],
+          [
+            49
+          ],
+          [
+            51
+          ],
+          [
+            52
+          ],
+          [
+            54
+          ],
+          [
+            55
+          ],
+          [
+            56
+          ],
+          [
+            57
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {}
+      },
+      "transform": {
+        "candidate_id": "usage_prune-f0.400-s123",
+        "original_experts": 60,
+        "active_experts": 36,
+        "model_parameter_mb": 26909.09765625,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.812406997707948,
+        "perplexity": 16.649946408423144,
+        "tokens_per_second": 217.67784973271029,
+        "peak_memory_mb": 28209.1337890625,
+        "model_parameter_mb": 26909.09765625,
+        "evaluated_tokens": 2272,
+        "elapsed_seconds": 10.437442315742373
+      },
+      "relative_perplexity_degradation": 0.001396815309037347,
+      "throughput_gain": 0.031146691156340056,
+      "memory_reduction": 0.014506170057805745,
+      "accepted_quality_budgets": {
+        "0.01": true,
+        "0.03": true,
+        "0.05": true
+      },
+      "record_type": "selected_candidate",
+      "split": "test"
+    },
+    {
+      "config_hash": "818ec57a6cc595a323949663a54cd0c5d7210cd51a8398da4dafd918bfa61952",
+      "plan": {
+        "candidate_id": "functional_cosine-f0.100-s123",
+        "layer": 0,
+        "method": "functional_cosine",
+        "action": "merge",
+        "compression_fraction": 0.1,
+        "groups": [
+          [
+            6,
+            18
+          ],
+          [
+            5,
+            45
+          ],
+          [
+            3,
+            38
+          ],
+          [
+            42,
+            59
+          ],
+          [
+            37,
+            49
+          ],
+          [
+            2,
+            19
+          ],
+          [
+            0
+          ],
+          [
+            1
+          ],
+          [
+            4
+          ],
+          [
+            7
+          ],
+          [
+            8
+          ],
+          [
+            9
+          ],
+          [
+            10
+          ],
+          [
+            11
+          ],
+          [
+            12
+          ],
+          [
+            13
+          ],
+          [
+            14
+          ],
+          [
+            15
+          ],
+          [
+            16
+          ],
+          [
+            17
+          ],
+          [
+            20
+          ],
+          [
+            21
+          ],
+          [
+            22
+          ],
+          [
+            23
+          ],
+          [
+            24
+          ],
+          [
+            25
+          ],
+          [
+            26
+          ],
+          [
+            27
+          ],
+          [
+            28
+          ],
+          [
+            29
+          ],
+          [
+            30
+          ],
+          [
+            31
+          ],
+          [
+            32
+          ],
+          [
+            33
+          ],
+          [
+            34
+          ],
+          [
+            35
+          ],
+          [
+            36
+          ],
+          [
+            39
+          ],
+          [
+            40
+          ],
+          [
+            41
+          ],
+          [
+            43
+          ],
+          [
+            44
+          ],
+          [
+            46
+          ],
+          [
+            47
+          ],
+          [
+            48
+          ],
+          [
+            50
+          ],
+          [
+            51
+          ],
+          [
+            52
+          ],
+          [
+            53
+          ],
+          [
+            54
+          ],
+          [
+            55
+          ],
+          [
+            56
+          ],
+          [
+            57
+          ],
+          [
+            58
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {}
+      },
+      "transform": {
+        "candidate_id": "functional_cosine-f0.100-s123",
+        "original_experts": 60,
+        "active_experts": 54,
+        "model_parameter_mb": 27206.19140625,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.820276429325762,
+        "perplexity": 16.781488926704835,
+        "tokens_per_second": 212.12766202019662,
+        "peak_memory_mb": 28309.8212890625,
+        "model_parameter_mb": 27206.19140625,
+        "evaluated_tokens": 2272,
+        "elapsed_seconds": 10.710531471297145
+      },
+      "relative_perplexity_degradation": 0.00930832779404911,
+      "throughput_gain": 0.004855280697800168,
+      "memory_reduction": 0.0036256841611935764,
+      "accepted_quality_budgets": {
+        "0.01": true,
+        "0.03": true,
+        "0.05": true
+      },
+      "record_type": "selected_candidate",
+      "split": "test"
+    },
+    {
+      "config_hash": "818ec57a6cc595a323949663a54cd0c5d7210cd51a8398da4dafd918bfa61952",
+      "plan": {
+        "candidate_id": "functional_cosine-f0.250-s123",
+        "layer": 0,
+        "method": "functional_cosine",
+        "action": "merge",
+        "compression_fraction": 0.25,
+        "groups": [
+          [
+            6,
+            18
+          ],
+          [
+            5,
+            45
+          ],
+          [
+            3,
+            38
+          ],
+          [
+            42,
+            59
+          ],
+          [
+            37,
+            49
+          ],
+          [
+            2,
+            19
+          ],
+          [
+            39,
+            43
+          ],
+          [
+            10,
+            34
+          ],
+          [
+            29,
+            30
+          ],
+          [
+            35,
+            44
+          ],
+          [
+            46,
+            58
+          ],
+          [
+            12,
+            22
+          ],
+          [
+            4,
+            51
+          ],
+          [
+            13,
+            15
+          ],
+          [
+            9,
+            21
+          ],
+          [
+            0
+          ],
+          [
+            1
+          ],
+          [
+            7
+          ],
+          [
+            8
+          ],
+          [
+            11
+          ],
+          [
+            14
+          ],
+          [
+            16
+          ],
+          [
+            17
+          ],
+          [
+            20
+          ],
+          [
+            23
+          ],
+          [
+            24
+          ],
+          [
+            25
+          ],
+          [
+            26
+          ],
+          [
+            27
+          ],
+          [
+            28
+          ],
+          [
+            31
+          ],
+          [
+            32
+          ],
+          [
+            33
+          ],
+          [
+            36
+          ],
+          [
+            40
+          ],
+          [
+            41
+          ],
+          [
+            47
+          ],
+          [
+            48
+          ],
+          [
+            50
+          ],
+          [
+            52
+          ],
+          [
+            53
+          ],
+          [
+            54
+          ],
+          [
+            55
+          ],
+          [
+            56
+          ],
+          [
+            57
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {}
+      },
+      "transform": {
+        "candidate_id": "functional_cosine-f0.250-s123",
+        "original_experts": 60,
+        "active_experts": 45,
+        "model_parameter_mb": 27057.69140625,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.835474382666215,
+        "perplexity": 17.038481143651847,
+        "tokens_per_second": 206.5904930763861,
+        "peak_memory_mb": 28456.7275390625,
+        "model_parameter_mb": 27057.69140625,
+        "evaluated_tokens": 2272,
+        "elapsed_seconds": 10.99760190397501
+      },
+      "relative_perplexity_degradation": 0.02476490532872222,
+      "throughput_gain": -0.021374459451667494,
+      "memory_reduction": 0.009064210402983996,
+      "accepted_quality_budgets": {
+        "0.01": false,
+        "0.03": true,
+        "0.05": true
+      },
+      "record_type": "selected_candidate",
+      "split": "test"
+    },
+    {
+      "config_hash": "818ec57a6cc595a323949663a54cd0c5d7210cd51a8398da4dafd918bfa61952",
+      "plan": {
+        "candidate_id": "functional_cosine-f0.400-s123",
+        "layer": 0,
+        "method": "functional_cosine",
+        "action": "merge",
+        "compression_fraction": 0.4,
+        "groups": [
+          [
+            6,
+            18
+          ],
+          [
+            5,
+            45
+          ],
+          [
+            3,
+            38
+          ],
+          [
+            42,
+            59
+          ],
+          [
+            37,
+            49
+          ],
+          [
+            2,
+            19
+          ],
+          [
+            39,
+            43
+          ],
+          [
+            10,
+            34
+          ],
+          [
+            29,
+            30
+          ],
+          [
+            35,
+            44
+          ],
+          [
+            46,
+            58
+          ],
+          [
+            12,
+            22
+          ],
+          [
+            4,
+            51
+          ],
+          [
+            13,
+            15
+          ],
+          [
+            9,
+            21
+          ],
+          [
+            27,
+            32
+          ],
+          [
+            25,
+            52
+          ],
+          [
+            7,
+            56
+          ],
+          [
+            50,
+            55
+          ],
+          [
+            36,
+            40
+          ],
+          [
+            17,
+            26
+          ],
+          [
+            0,
+            54
+          ],
+          [
+            20,
+            47
+          ],
+          [
+            28,
+            31
+          ],
+          [
+            1
+          ],
+          [
+            8
+          ],
+          [
+            11
+          ],
+          [
+            14
+          ],
+          [
+            16
+          ],
+          [
+            23
+          ],
+          [
+            24
+          ],
+          [
+            33
+          ],
+          [
+            41
+          ],
+          [
+            48
+          ],
+          [
+            53
+          ],
+          [
+            57
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {}
+      },
+      "transform": {
+        "candidate_id": "functional_cosine-f0.400-s123",
+        "original_experts": 60,
+        "active_experts": 36,
+        "model_parameter_mb": 26909.19140625,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.844662233032811,
+        "perplexity": 17.195749531745463,
+        "tokens_per_second": 211.31830580960536,
+        "peak_memory_mb": 28607.3212890625,
+        "model_parameter_mb": 26909.19140625,
+        "evaluated_tokens": 2272,
+        "elapsed_seconds": 10.751553166657686
+      },
+      "relative_perplexity_degradation": 0.034223678295466575,
+      "throughput_gain": 0.0010213353536010494,
+      "memory_reduction": 0.014502736644774417,
+      "accepted_quality_budgets": {
+        "0.01": false,
+        "0.03": false,
+        "0.05": true
+      },
+      "record_type": "selected_candidate",
+      "split": "test"
+    },
+    {
+      "config_hash": "818ec57a6cc595a323949663a54cd0c5d7210cd51a8398da4dafd918bfa61952",
+      "plan": {
+        "candidate_id": "rmt_geometry-r8-f0.100-s123",
+        "layer": 0,
+        "method": "rmt_geometry",
+        "action": "merge",
+        "compression_fraction": 0.1,
+        "groups": [
+          [
+            39,
+            41
+          ],
+          [
+            2,
+            29
+          ],
+          [
+            20,
+            27
+          ],
+          [
+            8,
+            47
+          ],
+          [
+            15,
+            35
+          ],
+          [
+            19,
+            48
+          ],
+          [
+            0
+          ],
+          [
+            1
+          ],
+          [
+            3
+          ],
+          [
+            4
+          ],
+          [
+            5
+          ],
+          [
+            6
+          ],
+          [
+            7
+          ],
+          [
+            9
+          ],
+          [
+            10
+          ],
+          [
+            11
+          ],
+          [
+            12
+          ],
+          [
+            13
+          ],
+          [
+            14
+          ],
+          [
+            16
+          ],
+          [
+            17
+          ],
+          [
+            18
+          ],
+          [
+            21
+          ],
+          [
+            22
+          ],
+          [
+            23
+          ],
+          [
+            24
+          ],
+          [
+            25
+          ],
+          [
+            26
+          ],
+          [
+            28
+          ],
+          [
+            30
+          ],
+          [
+            31
+          ],
+          [
+            32
+          ],
+          [
+            33
+          ],
+          [
+            34
+          ],
+          [
+            36
+          ],
+          [
+            37
+          ],
+          [
+            38
+          ],
+          [
+            40
+          ],
+          [
+            42
+          ],
+          [
+            43
+          ],
+          [
+            44
+          ],
+          [
+            45
+          ],
+          [
+            46
+          ],
+          [
+            49
+          ],
+          [
+            50
+          ],
+          [
+            51
+          ],
+          [
+            52
+          ],
+          [
+            53
+          ],
+          [
+            54
+          ],
+          [
+            55
+          ],
+          [
+            56
+          ],
+          [
+            57
+          ],
+          [
+            58
+          ],
+          [
+            59
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {
+          "spectral_pairing_rank": 8.0
+        }
+      },
+      "transform": {
+        "candidate_id": "rmt_geometry-r8-f0.100-s123",
+        "original_experts": 60,
+        "active_experts": 54,
+        "model_parameter_mb": 27206.19140625,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.833911447457864,
+        "perplexity": 17.011871901253198,
+        "tokens_per_second": 204.71130112056468,
+        "peak_memory_mb": 28312.1025390625,
+        "model_parameter_mb": 27206.19140625,
+        "evaluated_tokens": 2272,
+        "elapsed_seconds": 11.098556784912944
+      },
+      "relative_perplexity_degradation": 0.02316451515675677,
+      "throughput_gain": -0.030276249733371507,
+      "memory_reduction": 0.0036256841611935764,
+      "accepted_quality_budgets": {
+        "0.01": false,
+        "0.03": true,
+        "0.05": true
+      },
+      "record_type": "selected_candidate",
+      "split": "test"
+    },
+    {
+      "config_hash": "818ec57a6cc595a323949663a54cd0c5d7210cd51a8398da4dafd918bfa61952",
+      "plan": {
+        "candidate_id": "rmt_geometry-r8-f0.250-s123",
+        "layer": 0,
+        "method": "rmt_geometry",
+        "action": "merge",
+        "compression_fraction": 0.25,
+        "groups": [
+          [
+            39,
+            41
+          ],
+          [
+            2,
+            29
+          ],
+          [
+            20,
+            27
+          ],
+          [
+            8,
+            47
+          ],
+          [
+            15,
+            35
+          ],
+          [
+            19,
+            48
+          ],
+          [
+            17,
+            36
+          ],
+          [
+            14,
+            52
+          ],
+          [
+            28,
+            34
+          ],
+          [
+            23,
+            30
+          ],
+          [
+            13,
+            24
+          ],
+          [
+            3,
+            44
+          ],
+          [
+            4,
+            10
+          ],
+          [
+            21,
+            22
+          ],
+          [
+            51,
+            56
+          ],
+          [
+            0
+          ],
+          [
+            1
+          ],
+          [
+            5
+          ],
+          [
+            6
+          ],
+          [
+            7
+          ],
+          [
+            9
+          ],
+          [
+            11
+          ],
+          [
+            12
+          ],
+          [
+            16
+          ],
+          [
+            18
+          ],
+          [
+            25
+          ],
+          [
+            26
+          ],
+          [
+            31
+          ],
+          [
+            32
+          ],
+          [
+            33
+          ],
+          [
+            37
+          ],
+          [
+            38
+          ],
+          [
+            40
+          ],
+          [
+            42
+          ],
+          [
+            43
+          ],
+          [
+            45
+          ],
+          [
+            46
+          ],
+          [
+            49
+          ],
+          [
+            50
+          ],
+          [
+            53
+          ],
+          [
+            54
+          ],
+          [
+            55
+          ],
+          [
+            57
+          ],
+          [
+            58
+          ],
+          [
+            59
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {
+          "spectral_pairing_rank": 8.0
+        }
+      },
+      "transform": {
+        "candidate_id": "rmt_geometry-r8-f0.250-s123",
+        "original_experts": 60,
+        "active_experts": 45,
+        "model_parameter_mb": 27057.69140625,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.8734186953327185,
+        "perplexity": 17.697416975320333,
+        "tokens_per_second": 209.62727542268632,
+        "peak_memory_mb": 28462.3212890625,
+        "model_parameter_mb": 27057.69140625,
+        "evaluated_tokens": 2272,
+        "elapsed_seconds": 10.838284261524677
+      },
+      "relative_perplexity_degradation": 0.06439603849513387,
+      "throughput_gain": -0.006989127770035686,
+      "memory_reduction": 0.009064210402983996,
+      "accepted_quality_budgets": {
+        "0.01": false,
+        "0.03": false,
+        "0.05": false
+      },
+      "record_type": "selected_candidate",
+      "split": "test"
+    },
+    {
+      "config_hash": "818ec57a6cc595a323949663a54cd0c5d7210cd51a8398da4dafd918bfa61952",
+      "plan": {
+        "candidate_id": "rmt_geometry-r4-f0.400-s123",
+        "layer": 0,
+        "method": "rmt_geometry",
+        "action": "merge",
+        "compression_fraction": 0.4,
+        "groups": [
+          [
+            29,
+            51
+          ],
+          [
+            7,
+            53
+          ],
+          [
+            37,
+            40
+          ],
+          [
+            22,
+            59
+          ],
+          [
+            13,
+            52
+          ],
+          [
+            23,
+            30
+          ],
+          [
+            1,
+            11
+          ],
+          [
+            21,
+            39
+          ],
+          [
+            42,
+            44
+          ],
+          [
+            0,
+            24
+          ],
+          [
+            12,
+            36
+          ],
+          [
+            10,
+            32
+          ],
+          [
+            2,
+            56
+          ],
+          [
+            25,
+            48
+          ],
+          [
+            46,
+            55
+          ],
+          [
+            20,
+            58
+          ],
+          [
+            3,
+            35
+          ],
+          [
+            41,
+            43
+          ],
+          [
+            8,
+            15
+          ],
+          [
+            5,
+            17
+          ],
+          [
+            14,
+            57
+          ],
+          [
+            4,
+            34
+          ],
+          [
+            26,
+            28
+          ],
+          [
+            27,
+            49
+          ],
+          [
+            6
+          ],
+          [
+            9
+          ],
+          [
+            16
+          ],
+          [
+            18
+          ],
+          [
+            19
+          ],
+          [
+            31
+          ],
+          [
+            33
+          ],
+          [
+            38
+          ],
+          [
+            45
+          ],
+          [
+            47
+          ],
+          [
+            50
+          ],
+          [
+            54
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {
+          "spectral_pairing_rank": 4.0
+        }
+      },
+      "transform": {
+        "candidate_id": "rmt_geometry-r4-f0.400-s123",
+        "original_experts": 60,
+        "active_experts": 36,
+        "model_parameter_mb": 26909.19140625,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.90052473613284,
+        "perplexity": 18.18368450274697,
+        "tokens_per_second": 216.37220363731413,
+        "peak_memory_mb": 28611.6025390625,
+        "model_parameter_mb": 26909.19140625,
+        "evaluated_tokens": 2272,
+        "elapsed_seconds": 10.50042455457151
+      },
+      "relative_perplexity_degradation": 0.09364218388253831,
+      "throughput_gain": 0.02496180531360448,
+      "memory_reduction": 0.014502736644774417,
+      "accepted_quality_budgets": {
+        "0.01": false,
+        "0.03": false,
+        "0.05": false
+      },
+      "record_type": "selected_candidate",
+      "split": "test"
+    },
+    {
+      "config_hash": "818ec57a6cc595a323949663a54cd0c5d7210cd51a8398da4dafd918bfa61952",
+      "plan": {
+        "candidate_id": "rmt_functional_usage-r4-f0.100-s123",
+        "layer": 0,
+        "method": "rmt_functional_usage",
+        "action": "merge",
+        "compression_fraction": 0.1,
+        "groups": [
+          [
+            0,
+            47
+          ],
+          [
+            35,
+            44
+          ],
+          [
+            4,
+            51
+          ],
+          [
+            20,
+            53
+          ],
+          [
+            25,
+            48
+          ],
+          [
+            8,
+            15
+          ],
+          [
+            1
+          ],
+          [
+            2
+          ],
+          [
+            3
+          ],
+          [
+            5
+          ],
+          [
+            6
+          ],
+          [
+            7
+          ],
+          [
+            9
+          ],
+          [
+            10
+          ],
+          [
+            11
+          ],
+          [
+            12
+          ],
+          [
+            13
+          ],
+          [
+            14
+          ],
+          [
+            16
+          ],
+          [
+            17
+          ],
+          [
+            18
+          ],
+          [
+            19
+          ],
+          [
+            21
+          ],
+          [
+            22
+          ],
+          [
+            23
+          ],
+          [
+            24
+          ],
+          [
+            26
+          ],
+          [
+            27
+          ],
+          [
+            28
+          ],
+          [
+            29
+          ],
+          [
+            30
+          ],
+          [
+            31
+          ],
+          [
+            32
+          ],
+          [
+            33
+          ],
+          [
+            34
+          ],
+          [
+            36
+          ],
+          [
+            37
+          ],
+          [
+            38
+          ],
+          [
+            39
+          ],
+          [
+            40
+          ],
+          [
+            41
+          ],
+          [
+            42
+          ],
+          [
+            43
+          ],
+          [
+            45
+          ],
+          [
+            46
+          ],
+          [
+            49
+          ],
+          [
+            50
+          ],
+          [
+            52
+          ],
+          [
+            54
+          ],
+          [
+            55
+          ],
+          [
+            56
+          ],
+          [
+            57
+          ],
+          [
+            58
+          ],
+          [
+            59
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {
+          "mean_hybrid_score": 0.6227749586105347,
+          "mean_rmt_similarity": 0.8497273921966553,
+          "mean_functional_similarity": 0.5013628602027893,
+          "mean_usage_safety": 0.14956174790859222,
+          "spectral_pairing_rank": 4.0
+        }
+      },
+      "transform": {
+        "candidate_id": "rmt_functional_usage-r4-f0.100-s123",
+        "original_experts": 60,
+        "active_experts": 54,
+        "model_parameter_mb": 27206.19140625,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.8345923738580354,
+        "perplexity": 17.023459678711152,
+        "tokens_per_second": 212.41266910704348,
+        "peak_memory_mb": 28712.3212890625,
+        "model_parameter_mb": 27206.19140625,
+        "evaluated_tokens": 2272,
+        "elapsed_seconds": 10.69616049528122
+      },
+      "relative_perplexity_degradation": 0.023861452141312745,
+      "throughput_gain": 0.006205368062771388,
+      "memory_reduction": 0.0036256841611935764,
+      "accepted_quality_budgets": {
+        "0.01": false,
+        "0.03": true,
+        "0.05": true
+      },
+      "record_type": "selected_candidate",
+      "split": "test"
+    },
+    {
+      "config_hash": "818ec57a6cc595a323949663a54cd0c5d7210cd51a8398da4dafd918bfa61952",
+      "plan": {
+        "candidate_id": "rmt_functional_usage-r1-f0.250-s123",
+        "layer": 0,
+        "method": "rmt_functional_usage",
+        "action": "merge",
+        "compression_fraction": 0.25,
+        "groups": [
+          [
+            9,
+            58
+          ],
+          [
+            2,
+            46
+          ],
+          [
+            18,
+            20
+          ],
+          [
+            29,
+            36
+          ],
+          [
+            19,
+            50
+          ],
+          [
+            10,
+            59
+          ],
+          [
+            3,
+            41
+          ],
+          [
+            11,
+            42
+          ],
+          [
+            17,
+            25
+          ],
+          [
+            6,
+            55
+          ],
+          [
+            7,
+            40
+          ],
+          [
+            0,
+            30
+          ],
+          [
+            12,
+            15
+          ],
+          [
+            27,
+            35
+          ],
+          [
+            4,
+            34
+          ],
+          [
+            1
+          ],
+          [
+            5
+          ],
+          [
+            8
+          ],
+          [
+            13
+          ],
+          [
+            14
+          ],
+          [
+            16
+          ],
+          [
+            21
+          ],
+          [
+            22
+          ],
+          [
+            23
+          ],
+          [
+            24
+          ],
+          [
+            26
+          ],
+          [
+            28
+          ],
+          [
+            31
+          ],
+          [
+            32
+          ],
+          [
+            33
+          ],
+          [
+            37
+          ],
+          [
+            38
+          ],
+          [
+            39
+          ],
+          [
+            43
+          ],
+          [
+            44
+          ],
+          [
+            45
+          ],
+          [
+            47
+          ],
+          [
+            48
+          ],
+          [
+            49
+          ],
+          [
+            51
+          ],
+          [
+            52
+          ],
+          [
+            53
+          ],
+          [
+            54
+          ],
+          [
+            56
+          ],
+          [
+            57
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {
+          "mean_hybrid_score": 0.698940098285675,
+          "mean_rmt_similarity": 0.9859544038772583,
+          "mean_functional_similarity": 0.49279361963272095,
+          "mean_usage_safety": 0.2232343852519989,
+          "spectral_pairing_rank": 1.0
+        }
+      },
+      "transform": {
+        "candidate_id": "rmt_functional_usage-r1-f0.250-s123",
+        "original_experts": 60,
+        "active_experts": 45,
+        "model_parameter_mb": 27057.69140625,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.8307356713733203,
+        "perplexity": 16.957931701648548,
+        "tokens_per_second": 212.2372705655319,
+        "peak_memory_mb": 28456.7275390625,
+        "model_parameter_mb": 27057.69140625,
+        "evaluated_tokens": 2272,
+        "elapsed_seconds": 10.705000087618828
+      },
+      "relative_perplexity_degradation": 0.019920327891751244,
+      "throughput_gain": 0.005374499759288165,
+      "memory_reduction": 0.009064210402983996,
+      "accepted_quality_budgets": {
+        "0.01": false,
+        "0.03": true,
+        "0.05": true
+      },
+      "record_type": "selected_candidate",
+      "split": "test"
+    },
+    {
+      "config_hash": "818ec57a6cc595a323949663a54cd0c5d7210cd51a8398da4dafd918bfa61952",
+      "plan": {
+        "candidate_id": "rmt_functional_usage-r1-f0.400-s123",
+        "layer": 0,
+        "method": "rmt_functional_usage",
+        "action": "merge",
+        "compression_fraction": 0.4,
+        "groups": [
+          [
+            9,
+            58
+          ],
+          [
+            2,
+            46
+          ],
+          [
+            18,
+            20
+          ],
+          [
+            29,
+            36
+          ],
+          [
+            19,
+            50
+          ],
+          [
+            10,
+            59
+          ],
+          [
+            3,
+            41
+          ],
+          [
+            11,
+            42
+          ],
+          [
+            17,
+            25
+          ],
+          [
+            6,
+            55
+          ],
+          [
+            7,
+            40
+          ],
+          [
+            0,
+            30
+          ],
+          [
+            12,
+            15
+          ],
+          [
+            27,
+            35
+          ],
+          [
+            4,
+            34
+          ],
+          [
+            23,
+            56
+          ],
+          [
+            16,
+            22
+          ],
+          [
+            8,
+            28
+          ],
+          [
+            44,
+            53
+          ],
+          [
+            31,
+            38
+          ],
+          [
+            1,
+            47
+          ],
+          [
+            14,
+            43
+          ],
+          [
+            13,
+            52
+          ],
+          [
+            21,
+            57
+          ],
+          [
+            5
+          ],
+          [
+            24
+          ],
+          [
+            26
+          ],
+          [
+            32
+          ],
+          [
+            33
+          ],
+          [
+            37
+          ],
+          [
+            39
+          ],
+          [
+            45
+          ],
+          [
+            48
+          ],
+          [
+            49
+          ],
+          [
+            51
+          ],
+          [
+            54
+          ]
+        ],
+        "seed": 123,
+        "diagnostics": {
+          "mean_hybrid_score": 0.6876047253608704,
+          "mean_rmt_similarity": 0.9719385504722595,
+          "mean_functional_similarity": 0.4948159158229828,
+          "mean_usage_safety": 0.18966631591320038,
+          "spectral_pairing_rank": 1.0
+        }
+      },
+      "transform": {
+        "candidate_id": "rmt_functional_usage-r1-f0.400-s123",
+        "original_experts": 60,
+        "active_experts": 36,
+        "model_parameter_mb": 26909.19140625,
+        "shared_experts_preserved": 4
+      },
+      "metrics": {
+        "nll": 2.8591796578445905,
+        "perplexity": 17.447208383795306,
+        "tokens_per_second": 213.9288645982913,
+        "peak_memory_mb": 28607.3212890625,
+        "model_parameter_mb": 26909.19140625,
+        "evaluated_tokens": 2272,
+        "elapsed_seconds": 10.620352724567056
+      },
+      "relative_perplexity_degradation": 0.04934745632135784,
+      "throughput_gain": 0.013387632890663248,
+      "memory_reduction": 0.014502736644774417,
+      "accepted_quality_budgets": {
+        "0.01": false,
+        "0.03": false,
+        "0.05": true
+      },
+      "record_type": "selected_candidate",
+      "split": "test"
+    }
+  ]
+}
