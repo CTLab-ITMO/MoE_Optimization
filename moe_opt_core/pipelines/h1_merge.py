@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 import json
+import math
 from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
 
@@ -132,14 +133,33 @@ def _truncated_left_basis(matrix: torch.Tensor, rank: int) -> torch.Tensor:
     return u[:, :rank]
 
 
+def _normalized_merge_coefficients(
+    count: int,
+    usage: Sequence[float] | None,
+) -> tuple[float, ...]:
+    if usage is None:
+        return tuple(1.0 / count for _ in range(count))
+    coefficients = tuple(float(value) for value in usage)
+    if len(coefficients) != count:
+        raise ValueError("Merge coefficients must align with the tensors")
+    if any(not math.isfinite(value) or value < 0.0 for value in coefficients):
+        raise ValueError("Merge coefficients must be finite and non-negative")
+    total = sum(coefficients)
+    if total <= 0.0:
+        raise ValueError("Merge coefficients must contain at least one positive value")
+    return tuple(value / total for value in coefficients)
+
+
 @torch.no_grad()
-def merge_weight_matrices_baseline(weights: Sequence[torch.Tensor], usage: Sequence[float] | None = None) -> torch.Tensor:
+def merge_weight_matrices_baseline(
+    weights: Sequence[torch.Tensor],
+    usage: Sequence[float] | None = None,
+) -> torch.Tensor:
     if not weights:
         raise ValueError("No weights to merge")
-    if usage is None:
-        usage = [1.0 / len(weights)] * len(weights)
+    coefficients = _normalized_merge_coefficients(len(weights), usage)
     out = torch.zeros_like(weights[0])
-    for a, w in zip(usage, weights):
+    for a, w in zip(coefficients, weights):
         out = out + float(a) * w
     return out
 
@@ -153,8 +173,7 @@ def merge_weight_matrices_geometry(
 ) -> torch.Tensor:
     if not weights:
         raise ValueError("No weights to merge")
-    if usage is None:
-        usage = [1.0 / len(weights)] * len(weights)
+    coefficients = _normalized_merge_coefficients(len(weights), usage)
     original_dtype = weights[0].dtype
     original_device = weights[0].device
     work_weights = [weight.detach().to(device=original_device, dtype=torch.float32) for weight in weights]
@@ -167,7 +186,7 @@ def merge_weight_matrices_geometry(
 
     u_star = _projection_mean(u_list, rank=rank)
     merged = torch.zeros_like(work_weights[0])
-    for a, w in zip(usage, work_weights):
+    for a, w in zip(coefficients, work_weights):
         wp = u_star @ (u_star.t() @ w)
         merged = merged + float(a) * wp
 
@@ -179,14 +198,28 @@ def merge_weight_matrices_geometry(
 
 
 @torch.no_grad()
-def _merge_param_tensor(tensors: Sequence[torch.Tensor], method: str, rank: int, shrink_tau: float) -> torch.Tensor:
+def _merge_param_tensor(
+    tensors: Sequence[torch.Tensor],
+    method: str,
+    rank: int,
+    shrink_tau: float,
+    usage: Sequence[float] | None = None,
+) -> torch.Tensor:
     if tensors[0].ndim < 2:
-        return merge_weight_matrices_baseline([t.detach() for t in tensors])
+        return merge_weight_matrices_baseline(
+            [t.detach() for t in tensors],
+            usage=usage,
+        )
     mats = [t.detach().reshape(t.shape[0], -1) for t in tensors]
     if method == "baseline":
-        merged = merge_weight_matrices_baseline(mats)
+        merged = merge_weight_matrices_baseline(mats, usage=usage)
     else:
-        merged = merge_weight_matrices_geometry(mats, rank=rank, shrink_tau=shrink_tau)
+        merged = merge_weight_matrices_geometry(
+            mats,
+            usage=usage,
+            rank=rank,
+            shrink_tau=shrink_tau,
+        )
     return merged.reshape(tensors[0].shape)
 
 
@@ -197,6 +230,7 @@ def merge_cluster_modules(
     method: str,
     rank: int,
     shrink_tau: float,
+    usage: Sequence[float] | None = None,
 ) -> Dict[str, torch.Tensor]:
     if not cluster:
         raise ValueError("Cluster is empty")
@@ -205,7 +239,13 @@ def merge_cluster_modules(
     merged: Dict[str, torch.Tensor] = {}
     for key in keys:
         tensors = [sd[key] for sd in state_dicts]
-        merged[key] = _merge_param_tensor(tensors, method=method, rank=rank, shrink_tau=shrink_tau)
+        merged[key] = _merge_param_tensor(
+            tensors,
+            method=method,
+            rank=rank,
+            shrink_tau=shrink_tau,
+            usage=usage,
+        )
     return merged
 
 

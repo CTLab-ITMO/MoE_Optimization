@@ -10,6 +10,11 @@ from moe_opt_core.experiment.contracts import (
     CandidateAction,
     CandidateMethod,
     CandidatePlanContract,
+    MergeWeightingPolicy,
+)
+from moe_opt_core.experiment.merge_weighting import (
+    build_group_merge_weights,
+    merge_weight_diagnostics,
 )
 
 
@@ -176,6 +181,20 @@ def validate_candidate_plan(plan: CandidatePlanContract, num_experts: int) -> No
         raise ValueError(f"Merge candidate {plan.candidate_id} must cover every expert")
     if not plan.groups:
         raise ValueError(f"Candidate {plan.candidate_id} has no active expert groups")
+    if plan.group_merge_weights:
+        if plan.action != CandidateAction.MERGE:
+            raise ValueError("Only merge candidates may define group merge weights")
+        if len(plan.group_merge_weights) != len(plan.groups):
+            raise ValueError("Group merge weights must align with candidate groups")
+        for group, weights in zip(plan.groups, plan.group_merge_weights):
+            if len(weights) != len(group):
+                raise ValueError("Each merge weight vector must align with its expert group")
+            if any(not math.isfinite(weight) or weight < 0.0 for weight in weights):
+                raise ValueError("Group merge weights must be finite and non-negative")
+            if not math.isclose(sum(weights), 1.0, rel_tol=1e-9, abs_tol=1e-9):
+                raise ValueError("Each group merge weight vector must sum to one")
+    elif plan.merge_weighting != MergeWeightingPolicy.UNIFORM:
+        raise ValueError("Non-uniform merge weighting requires explicit group weights")
 
 
 def build_candidate_plans(
@@ -192,11 +211,15 @@ def build_candidate_plans(
     hybrid_weights: Sequence[float] = (0.5, 0.35, 0.15),
     spectral_embeddings: Mapping[int, torch.Tensor] | None = None,
     hybrid_weight_variants: Sequence[tuple[str, Sequence[float]]] = (),
+    spectral_rank_schedule: Sequence[tuple[str, float, int]] = (),
+    merge_weighting_methods: Sequence[str] = (),
+    merge_weighting_variants: Sequence[tuple[str, str, float]] = (),
 ) -> tuple[CandidatePlanContract, ...]:
     plans: list[CandidatePlanContract] = []
     usage = routing_probs.float().mean(dim=0)
     if usage.numel() != num_experts:
         raise ValueError("routing_probs expert dimension does not match the model")
+    usage_values = tuple(float(value) for value in usage.detach().cpu().tolist())
 
     explicit_rank_variants = tuple(
         (int(rank), value) for rank, value in (spectral_embeddings or {}).items()
@@ -211,16 +234,23 @@ def build_candidate_plans(
         (str(name), tuple(float(weight) for weight in weights))
         for name, weights in hybrid_weight_variants
     )
+    explicit_rank_schedule = tuple(
+        (CandidateMethod(method), float(fraction), int(rank))
+        for method, fraction, rank in spectral_rank_schedule
+    )
+    weighted_methods = {CandidateMethod(method) for method in merge_weighting_methods}
+    explicit_merge_weighting_variants = tuple(
+        (str(name), MergeWeightingPolicy(policy), float(minimum_weight))
+        for name, policy, minimum_weight in merge_weighting_variants
+    )
+    if weighted_methods and not explicit_merge_weighting_variants:
+        raise ValueError("merge weighting methods require at least one weighting variant")
+    if explicit_merge_weighting_variants and not weighted_methods:
+        raise ValueError("merge weighting variants require at least one target method")
 
     for method_token in methods:
         method = CandidateMethod(method_token)
         method_seeds = tuple(seeds) if method == CandidateMethod.RANDOM_MERGE else (int(seeds[0]),)
-        rank_variants = (
-            explicit_rank_variants
-            if explicit_rank_variants
-            and method in {CandidateMethod.RMT_GEOMETRY, CandidateMethod.RMT_FUNCTIONAL_USAGE}
-            else ((None, spectral_embedding),)
-        )
         weight_variants = (
             explicit_weight_variants
             if explicit_weight_variants and method == CandidateMethod.RMT_FUNCTIONAL_USAGE
@@ -228,6 +258,40 @@ def build_candidate_plans(
         )
         for fraction in compression_fractions:
             count = _pair_count(num_experts, float(fraction))
+            rank_variants = (
+                explicit_rank_variants
+                if explicit_rank_variants
+                and method
+                in {CandidateMethod.RMT_GEOMETRY, CandidateMethod.RMT_FUNCTIONAL_USAGE}
+                else ((None, spectral_embedding),)
+            )
+            scheduled_ranks = tuple(
+                rank
+                for scheduled_method, scheduled_fraction, rank in explicit_rank_schedule
+                if scheduled_method == method
+                and math.isclose(
+                    scheduled_fraction,
+                    float(fraction),
+                    rel_tol=0.0,
+                    abs_tol=1e-12,
+                )
+            )
+            method_has_schedule = any(
+                scheduled_method == method
+                for scheduled_method, _, _ in explicit_rank_schedule
+            )
+            if method_has_schedule:
+                if len(scheduled_ranks) != 1:
+                    raise ValueError(
+                        "spectral rank schedule must contain one rank per method and fraction"
+                    )
+                scheduled_rank = scheduled_ranks[0]
+                matching_embeddings = tuple(
+                    item for item in explicit_rank_variants if item[0] == scheduled_rank
+                )
+                if len(matching_embeddings) != 1:
+                    raise ValueError("scheduled spectral rank has no matching embedding")
+                rank_variants = matching_embeddings
             for rank, ranked_embedding in rank_variants:
                 for weight_name, variant_weights in weight_variants:
                     for seed in method_seeds:
@@ -281,30 +345,58 @@ def build_candidate_plans(
                         else:
                             raise AssertionError(f"Unhandled candidate method: {method.value}")
 
-                        id_parts = [method.value]
-                        if rank is not None:
-                            id_parts.append(f"r{rank}")
-                            diagnostics += (("spectral_pairing_rank", float(rank)),)
-                        if weight_name is not None:
-                            id_parts.append(f"w{weight_name}")
-                            diagnostics += (
-                                ("hybrid_rmt_weight", float(variant_weights[0])),
-                                ("hybrid_functional_weight", float(variant_weights[1])),
-                                ("hybrid_usage_weight", float(variant_weights[2])),
-                            )
-                        candidate_prefix = "-".join(id_parts)
-                        plan = CandidatePlanContract(
-                            candidate_id=(
-                                f"{candidate_prefix}-f{float(fraction):.3f}-s{int(seed)}"
-                            ),
-                            layer=int(layer),
-                            method=method,
-                            action=action,
-                            compression_fraction=float(fraction),
-                            groups=groups,
-                            seed=int(seed),
-                            diagnostics=diagnostics,
+                        candidate_merge_variants = (
+                            explicit_merge_weighting_variants
+                            if method in weighted_methods
+                            else ((None, MergeWeightingPolicy.UNIFORM, 0.0),)
                         )
-                        validate_candidate_plan(plan, num_experts=num_experts)
-                        plans.append(plan)
+                        for merge_variant_name, merge_policy, minimum_weight in candidate_merge_variants:
+                            variant_diagnostics = diagnostics
+                            id_parts = [method.value]
+                            if rank is not None:
+                                id_parts.append(f"r{rank}")
+                                variant_diagnostics += (
+                                    ("spectral_pairing_rank", float(rank)),
+                                )
+                            if weight_name is not None:
+                                id_parts.append(f"w{weight_name}")
+                                variant_diagnostics += (
+                                    ("hybrid_rmt_weight", float(variant_weights[0])),
+                                    ("hybrid_functional_weight", float(variant_weights[1])),
+                                    ("hybrid_usage_weight", float(variant_weights[2])),
+                                )
+
+                            group_merge_weights: tuple[tuple[float, ...], ...] = ()
+                            if merge_variant_name is not None:
+                                id_parts.append(f"mw{merge_variant_name}")
+                                group_merge_weights = build_group_merge_weights(
+                                    groups,
+                                    usage_values,
+                                    policy=merge_policy,
+                                    minimum_weight=minimum_weight,
+                                )
+                                variant_diagnostics += merge_weight_diagnostics(
+                                    group_merge_weights
+                                )
+                                variant_diagnostics += (
+                                    ("merge_weight_minimum", float(minimum_weight)),
+                                )
+
+                            candidate_prefix = "-".join(id_parts)
+                            plan = CandidatePlanContract(
+                                candidate_id=(
+                                    f"{candidate_prefix}-f{float(fraction):.3f}-s{int(seed)}"
+                                ),
+                                layer=int(layer),
+                                method=method,
+                                action=action,
+                                compression_fraction=float(fraction),
+                                groups=groups,
+                                seed=int(seed),
+                                diagnostics=variant_diagnostics,
+                                merge_weighting=merge_policy,
+                                group_merge_weights=group_merge_weights,
+                            )
+                            validate_candidate_plan(plan, num_experts=num_experts)
+                            plans.append(plan)
     return tuple(plans)

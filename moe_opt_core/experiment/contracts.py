@@ -57,6 +57,12 @@ class CandidateMethod(str, Enum):
     RMT_FUNCTIONAL_USAGE = "rmt_functional_usage"
 
 
+class MergeWeightingPolicy(str, Enum):
+    UNIFORM = "uniform"
+    USAGE_PROPORTIONAL = "usage_proportional"
+    USAGE_BOUNDED = "usage_bounded"
+
+
 @dataclass(frozen=True)
 class ExperimentPlan:
     experiment_name: str
@@ -111,6 +117,8 @@ class CandidatePlanContract:
     groups: Tuple[Tuple[int, ...], ...]
     seed: int
     diagnostics: Tuple[Tuple[str, float], ...] = ()
+    merge_weighting: MergeWeightingPolicy = MergeWeightingPolicy.UNIFORM
+    group_merge_weights: Tuple[Tuple[float, ...], ...] = ()
 
 
 @dataclass(frozen=True)

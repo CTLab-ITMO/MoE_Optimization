@@ -21,6 +21,7 @@ class AppliedTransformInfo:
     active_experts: int
     model_parameter_mb: float
     shared_experts_preserved: int
+    merge_weighting: str
 
 
 def model_parameter_mb(model: nn.Module) -> float:
@@ -36,11 +37,12 @@ def _merge_expert_group(
     method: str,
     rank: int,
     shrink_tau: float,
+    merge_weights: tuple[float, ...] | None = None,
     cache: Dict[Tuple[object, ...], nn.Module] | None = None,
 ) -> nn.Module:
     if len(group) == 1:
         return experts[group[0]]
-    cache_key = (method, group, int(rank), float(shrink_tau))
+    cache_key = (method, group, int(rank), float(shrink_tau), merge_weights)
     if cache is not None and cache_key in cache:
         return cache[cache_key]
     merged = deepcopy(experts[group[0]])
@@ -51,6 +53,7 @@ def _merge_expert_group(
             method=method,
             rank=rank,
             shrink_tau=shrink_tau,
+            usage=merge_weights,
         )
     )
     if cache is not None:
@@ -143,9 +146,14 @@ def reversible_one_layer_transform(
                 method=method,
                 rank=geometry_rank,
                 shrink_tau=shrink_tau,
+                merge_weights=(
+                    plan.group_merge_weights[index]
+                    if plan.group_merge_weights
+                    else None
+                ),
                 cache=expert_cache,
             )
-            for group in plan.groups
+            for index, group in enumerate(plan.groups)
         ]
     )
     if plan.action == CandidateAction.MERGE:
@@ -169,6 +177,7 @@ def reversible_one_layer_transform(
             active_experts=len(new_experts),
             model_parameter_mb=model_parameter_mb(ctx.model),
             shared_experts_preserved=(runtime_contract.shared_experts if runtime_contract is not None else 0),
+            merge_weighting=plan.merge_weighting.value,
         )
     finally:
         setattr(moe, "experts", old_experts_module)
