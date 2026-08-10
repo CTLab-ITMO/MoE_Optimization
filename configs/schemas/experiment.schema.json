@@ -126,6 +126,15 @@
           "uniqueItems": true,
           "items": {"type": "integer", "minimum": 1}
         },
+        "validation_selection": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "slice_count": {"type": "integer", "minimum": 1},
+            "std_penalty": {"type": "number", "minimum": 0},
+            "max_slice_degradation": {"type": "number", "minimum": 0}
+          }
+        },
         "hybrid_pairing": {
           "type": "object",
           "additionalProperties": false,

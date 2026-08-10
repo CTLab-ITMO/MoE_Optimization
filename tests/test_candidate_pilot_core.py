@@ -329,9 +329,15 @@ def test_one_layer_pilot_writes_incremental_records_and_restores_model(tmp_path:
         compression_fractions=(0.25,),
         quality_budgets=(1e9,),
         seeds=(7,),
-        max_eval_batches=1,
+        max_eval_batches=3,
+        validation_selection=replace(
+            config.pilot.validation_selection,
+            slice_count=3,
+            std_penalty=1.0,
+            max_slice_degradation=1e9,
+        ),
     )
-    profile = replace(config.profile, warmup_steps=0, measure_steps=1)
+    profile = replace(config.profile, warmup_steps=0, measure_steps=3)
     artifacts = replace(
         config.artifacts,
         root_dir=str(artifact_root),
@@ -365,7 +371,8 @@ def test_one_layer_pilot_writes_incremental_records_and_restores_model(tmp_path:
         trace_root / "calibration" / "layer_0.pt",
     )
     input_ids = torch.tensor([[1, 2, 3, 4]])
-    batches = [{"input_ids": input_ids, "attention_mask": torch.ones_like(input_ids), "labels": input_ids}]
+    batch = {"input_ids": input_ids, "attention_mask": torch.ones_like(input_ids), "labels": input_ids}
+    batches = [batch, batch, batch]
     for split in ("validation", "test"):
         split_dir = trace_root / split
         split_dir.mkdir(parents=True)
@@ -385,6 +392,10 @@ def test_one_layer_pilot_writes_incremental_records_and_restores_model(tmp_path:
     summary = run_one_layer_pilot(config, ctx)
     assert summary["candidate_count"] == 1
     assert summary["selected_candidate_count"] == 1
+    assert summary["validation_selection"]["slice_count"] == 3
+    assert len(summary["baseline_validation_slices"]) == 3
+    assert len(summary["selected_validation_results"]) == 1
+    assert summary["selected_validation_results"][0]["validation_robustness"]["slice_count"] == 3
     assert ctx.model.moe.gate is original_gate
     records = (artifact_root / "pilot_runs.jsonl").read_text(encoding="utf-8").strip().splitlines()
     assert len(records) == 4

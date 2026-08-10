@@ -8,6 +8,7 @@ from moe_opt_core.experiment import (
     CandidateAction,
     CandidateMethod,
     CandidatePlanContract,
+    EvaluationMetricsContract,
     PilotStep,
     PilotStepStatus,
 )
@@ -113,6 +114,38 @@ def test_pending_candidates_and_winner_selection_are_deterministic() -> None:
     ) == ("b",)
 
 
+def test_robust_winner_selection_penalizes_unstable_candidates() -> None:
+    def row(candidate_id: str, perplexity: float, score: float, passes: bool) -> dict:
+        return {
+            "config_hash": "hash",
+            "record_type": "candidate",
+            "split": "validation",
+            "plan": {
+                "candidate_id": candidate_id,
+                "method": "rmt_geometry",
+                "compression_fraction": 0.25,
+            },
+            "metrics": {"perplexity": perplexity},
+            "relative_perplexity_degradation": perplexity / 2.0 - 1.0,
+            "validation_robustness": {
+                "robust_score": score,
+                "passes_max_slice_degradation": passes,
+            },
+        }
+
+    records = (
+        row("lower_aggregate", 2.02, 0.04, True),
+        row("lower_dispersion", 2.03, 0.02, True),
+        row("hard_limit_failed", 2.00, 0.0, False),
+    )
+    assert select_validation_winners(
+        records=records,
+        config_hash="hash",
+        candidate_order=("lower_aggregate", "lower_dispersion", "hard_limit_failed"),
+        max_quality_budget=0.05,
+    ) == ("lower_dispersion",)
+
+
 def test_pilot_requires_validation_traces_before_h1_diagnostics() -> None:
     assert next_pilot_step(
         (PilotStep.TRACES_CALIBRATION,),
@@ -154,7 +187,8 @@ def test_candidate_batches_resume_without_duplicate_completed_rows(tmp_path: Pat
     )
     monkeypatch.setattr("moe_opt_runner.pilot_executor.torch.load", lambda *args, **kwargs: [object()])
 
-    def fake_evaluate(plan, batches, baseline, expert_cache):
+    def fake_evaluate(plan, batches, baseline, expert_cache, *, split):
+        assert split == "validation"
         return {
             "config_hash": executor.run_hash,
             "plan": {
@@ -222,6 +256,84 @@ def test_reader_ignores_only_a_truncated_final_ledger_row(tmp_path: Path) -> Non
     ledger = tmp_path / "pilot_runs.jsonl"
     ledger.write_text('{"record_type": "baseline"}\n{"record_type":', encoding="utf-8")
     assert read_incremental_records(ledger) == ({"record_type": "baseline"},)
+
+
+def test_multislice_baseline_is_persisted_with_aggregate_metrics(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config = _config(tmp_path)
+    validation_selection = replace(
+        config.pilot.validation_selection,
+        slice_count=3,
+        std_penalty=1.0,
+        max_slice_degradation=0.05,
+    )
+    config = replace(
+        config,
+        pilot=replace(
+            config.pilot,
+            max_eval_batches=7,
+            validation_selection=validation_selection,
+        ),
+        profile=replace(config.profile, measure_steps=7),
+    )
+    batch_path = Path(config.calibration.output_dir) / "validation" / "token_batches.pt"
+    batch_path.parent.mkdir(parents=True)
+    batch_path.write_bytes(b"placeholder")
+    monkeypatch.setattr(
+        "moe_opt_runner.pilot_executor.torch.load",
+        lambda *args, **kwargs: tuple(range(7)),
+    )
+
+    executor = ResumablePilotExecutor(config)
+    observed_slices = []
+
+    def fake_evaluate(batches, *, warmup_steps=None, measure_steps=None):
+        observed_slices.append(tuple(batches))
+        nll = 1.0 + 0.1 * len(observed_slices)
+        return EvaluationMetricsContract(
+            nll=nll,
+            perplexity=2.0,
+            tokens_per_second=10.0,
+            peak_memory_mb=100.0,
+            model_parameter_mb=200.0,
+            evaluated_tokens=10 * len(batches),
+            elapsed_seconds=float(len(batches)),
+        )
+
+    monkeypatch.setattr(executor, "_evaluate", fake_evaluate)
+    result = executor.run_baseline("validation")
+
+    assert result.status == PilotStepStatus.COMPLETED
+    assert observed_slices == [(0, 3, 6), (1, 4), (2, 5)]
+    row = read_incremental_records(executor.record_path)[0]
+    assert row["validation_slices"]["slice_count"] == 3
+    assert len(row["validation_slices"]["metrics"]) == 3
+    assert row["metrics"]["evaluated_tokens"] == 70
+
+
+def test_multislice_validation_reports_too_few_batches_as_expected_failure(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+    config = replace(
+        config,
+        pilot=replace(
+            config.pilot,
+            max_eval_batches=3,
+            validation_selection=replace(
+                config.pilot.validation_selection,
+                slice_count=3,
+            ),
+        ),
+        profile=replace(config.profile, measure_steps=3),
+    )
+    executor = ResumablePilotExecutor(config)
+    with pytest.raises(ExpectedExperimentFailure) as failure:
+        executor._validation_batch_slices((object(), object()))
+    assert failure.value.code == ExperimentFailureCode.EVALUATION_FAILED
+    assert failure.value.context == {"available_batches": 2, "slice_count": 3}
 
 
 def test_executor_rejects_state_from_another_config(tmp_path: Path) -> None:

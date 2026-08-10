@@ -27,6 +27,11 @@ from moe_opt_core.experiment.pilot_planning import (
     pending_candidate_ids,
     select_validation_winners,
 )
+from moe_opt_core.experiment.pilot_validation import (
+    aggregate_evaluation_metrics,
+    partition_validation_batches,
+    summarize_validation_degradations,
+)
 from moe_opt_core.experiment.trace_validation import validate_trace_payload
 from moe_opt_core.pipelines.rmt_diagnostics import spectral_embeddings_at_ranks
 from moe_opt_runner.evaluation import append_incremental_record, evaluate_language_model
@@ -365,13 +370,68 @@ class ResumablePilotExecutor:
             )
         )
 
-    def _evaluate(self, batches) -> EvaluationMetricsContract:
+    def _evaluate(
+        self,
+        batches,
+        *,
+        warmup_steps: int | None = None,
+        measure_steps: int | None = None,
+    ) -> EvaluationMetricsContract:
         ctx = self._require_context()
         return evaluate_language_model(
             ctx.model,
             batches,
-            warmup_steps=self.config.profile.warmup_steps,
-            measure_steps=min(self.config.profile.measure_steps, self.config.pilot.max_eval_batches),
+            warmup_steps=(
+                self.config.profile.warmup_steps if warmup_steps is None else warmup_steps
+            ),
+            measure_steps=(
+                min(self.config.profile.measure_steps, self.config.pilot.max_eval_batches)
+                if measure_steps is None
+                else measure_steps
+            ),
+        )
+
+    def _uses_validation_slices(self, split: str) -> bool:
+        selection = self.config.pilot.validation_selection
+        return split == "validation" and (
+            selection.slice_count > 1
+            or selection.std_penalty > 0.0
+            or selection.max_slice_degradation is not None
+        )
+
+    def _validation_batch_slices(self, batches) -> tuple[tuple[object, ...], ...]:
+        evaluation_batch_count = min(
+            len(batches),
+            self.config.profile.measure_steps,
+            self.config.pilot.max_eval_batches,
+        )
+        evaluation_batches = tuple(batches[:evaluation_batch_count])
+        try:
+            return partition_validation_batches(
+                evaluation_batches,
+                self.config.pilot.validation_selection.slice_count,
+            )
+        except ValueError as exc:
+            raise ExpectedExperimentFailure(
+                ExperimentFailureCode.EVALUATION_FAILED,
+                "Validation data does not contain enough batches for the configured slices",
+                context={
+                    "available_batches": evaluation_batch_count,
+                    "slice_count": self.config.pilot.validation_selection.slice_count,
+                },
+            ) from exc
+
+    def _evaluate_validation_slices(
+        self,
+        batches,
+    ) -> tuple[EvaluationMetricsContract, ...]:
+        return tuple(
+            self._evaluate(
+                batch_slice,
+                warmup_steps=0,
+                measure_steps=len(batch_slice),
+            )
+            for batch_slice in self._validation_batch_slices(batches)
         )
 
     def _baseline_metrics(self, split: str) -> EvaluationMetricsContract:
@@ -386,6 +446,30 @@ class ResumablePilotExecutor:
         raise ExpectedExperimentFailure(
             ExperimentFailureCode.PILOT_STATE_MISMATCH,
             f"Baseline for split '{split}' has not been evaluated",
+        )
+
+    def _baseline_validation_slice_metrics(self) -> tuple[EvaluationMetricsContract, ...]:
+        for row in reversed(self._records()):
+            if (
+                row.get("config_hash") != self.run_hash
+                or row.get("record_type") != "baseline"
+                or row.get("split") != "validation"
+            ):
+                continue
+            validation_slices = row.get("validation_slices")
+            if not isinstance(validation_slices, Mapping):
+                break
+            metrics = validation_slices.get("metrics")
+            if isinstance(metrics, Sequence):
+                return tuple(
+                    _metrics_contract(item)
+                    for item in metrics
+                    if isinstance(item, Mapping)
+                )
+            break
+        raise ExpectedExperimentFailure(
+            ExperimentFailureCode.PILOT_STATE_MISMATCH,
+            "Validation baseline does not contain slice metrics",
         )
 
     def run_baseline(self, split: str) -> PilotStepResultContract:
@@ -405,23 +489,43 @@ class ResumablePilotExecutor:
             _require_path(self._batch_path(split), f"{split} token batches"),
             map_location="cpu",
         )
-        metrics = self._evaluate(batches)
+        validation_slice_metrics: tuple[EvaluationMetricsContract, ...] = ()
+        if self._uses_validation_slices(split):
+            validation_slice_metrics = self._evaluate_validation_slices(batches)
+            metrics = aggregate_evaluation_metrics(validation_slice_metrics)
+        else:
+            metrics = self._evaluate(batches)
+        record: dict[str, object] = {
+            "config_hash": self.run_hash,
+            "record_type": "baseline",
+            "split": split,
+            "metrics": _metrics_dict(metrics),
+        }
+        if validation_slice_metrics:
+            record["validation_slices"] = {
+                "slice_count": len(validation_slice_metrics),
+                "metrics": [_metrics_dict(item) for item in validation_slice_metrics],
+            }
         append_incremental_record(
             self.record_path,
-            {
-                "config_hash": self.run_hash,
-                "record_type": "baseline",
-                "split": split,
-                "metrics": _metrics_dict(metrics),
-            },
+            record,
         )
         return self._save_result(
             PilotStepResultContract(step, PilotStepStatus.COMPLETED, 1, 0, (str(self.record_path),))
         )
 
-    def _evaluate_plan(self, plan, batches, baseline, expert_cache) -> Mapping[str, object]:
+    def _evaluate_plan(
+        self,
+        plan,
+        batches,
+        baseline,
+        expert_cache,
+        *,
+        split: str,
+    ) -> Mapping[str, object]:
         ctx = self._require_context()
         merge_method = "geometry" if plan.method == CandidateMethod.RMT_GEOMETRY else "baseline"
+        validation_slice_metrics: tuple[EvaluationMetricsContract, ...] = ()
         with reversible_one_layer_transform(
             ctx,
             plan,
@@ -430,14 +534,18 @@ class ResumablePilotExecutor:
             shrink_tau=self.config.h1.shrink_tau,
             expert_cache=expert_cache,
         ) as transform:
-            metrics = self._evaluate(batches)
+            if self._uses_validation_slices(split):
+                validation_slice_metrics = self._evaluate_validation_slices(batches)
+                metrics = aggregate_evaluation_metrics(validation_slice_metrics)
+            else:
+                metrics = self._evaluate(batches)
         comparison = compare_evaluations(
             candidate_id=plan.candidate_id,
             baseline=baseline,
             candidate=metrics,
             quality_budgets=self.config.pilot.quality_budgets,
         )
-        return {
+        result = {
             "config_hash": self.run_hash,
             "plan": _plan_dict(plan),
             "transform": asdict(transform),
@@ -447,6 +555,52 @@ class ResumablePilotExecutor:
             "memory_reduction": comparison.memory_reduction,
             "accepted_quality_budgets": dict(comparison.accepted_quality_budgets),
         }
+        if validation_slice_metrics:
+            baseline_slice_metrics = self._baseline_validation_slice_metrics()
+            if len(validation_slice_metrics) != len(baseline_slice_metrics):
+                raise ExpectedExperimentFailure(
+                    ExperimentFailureCode.PILOT_STATE_MISMATCH,
+                    "Candidate and baseline validation slice counts do not match",
+                    context={
+                        "candidate_slice_count": len(validation_slice_metrics),
+                        "baseline_slice_count": len(baseline_slice_metrics),
+                    },
+                )
+            slice_comparisons = tuple(
+                compare_evaluations(
+                    candidate_id=plan.candidate_id,
+                    baseline=baseline_slice,
+                    candidate=candidate_slice,
+                    quality_budgets=self.config.pilot.quality_budgets,
+                )
+                for baseline_slice, candidate_slice in zip(
+                    baseline_slice_metrics,
+                    validation_slice_metrics,
+                )
+            )
+            robustness = summarize_validation_degradations(
+                tuple(
+                    item.relative_perplexity_degradation for item in slice_comparisons
+                ),
+                std_penalty=self.config.pilot.validation_selection.std_penalty,
+                max_slice_degradation=(
+                    self.config.pilot.validation_selection.max_slice_degradation
+                ),
+            )
+            result["validation_slices"] = [
+                {
+                    "slice_index": index,
+                    "metrics": _metrics_dict(candidate_slice),
+                    "relative_perplexity_degradation": (
+                        slice_comparison.relative_perplexity_degradation
+                    ),
+                }
+                for index, (candidate_slice, slice_comparison) in enumerate(
+                    zip(validation_slice_metrics, slice_comparisons)
+                )
+            ]
+            result["validation_robustness"] = asdict(robustness)
+        return result
 
     def _run_candidate_batch(
         self,
@@ -494,7 +648,15 @@ class ResumablePilotExecutor:
             plan = plan_by_id[candidate_id]
             progress.set_postfix_str(candidate_id)
             try:
-                row = dict(self._evaluate_plan(plan, batches, baseline, expert_cache))
+                row = dict(
+                    self._evaluate_plan(
+                        plan,
+                        batches,
+                        baseline,
+                        expert_cache,
+                        split=split,
+                    )
+                )
                 row.update(
                     {
                         "record_type": "candidate" if split == "validation" else "selected_candidate",
@@ -656,6 +818,16 @@ class ResumablePilotExecutor:
         trace = torch.load(_require_path(self._trace_path(), "calibration trace"), map_location="cpu")
         metadata = trace.get("metadata", {})
         records = self._records()
+        selected_ids = set(state.selected_candidate_ids)
+        selected_validation_results = [
+            dict(row)
+            for row in records
+            if row.get("config_hash") == self.run_hash
+            and row.get("record_type") == "candidate"
+            and row.get("split") == "validation"
+            and isinstance(row.get("plan"), Mapping)
+            and str(row["plan"].get("candidate_id")) in selected_ids
+        ]
         selected_test_results = [
             dict(row)
             for row in records
@@ -663,6 +835,11 @@ class ResumablePilotExecutor:
             and row.get("record_type") == "selected_candidate"
             and row.get("split") == "test"
         ]
+        baseline_validation_slices = (
+            self._baseline_validation_slice_metrics()
+            if self._uses_validation_slices("validation")
+            else ()
+        )
         summary = {
             "layer": self.config.pilot.layer,
             "trace_metadata": dict(metadata) if isinstance(metadata, Mapping) else {},
@@ -679,8 +856,13 @@ class ResumablePilotExecutor:
             "record_path": str(self.record_path),
             "selection_path": str(self.selection_path),
             "state_path": str(self.state_path),
+            "validation_selection": asdict(self.config.pilot.validation_selection),
             "baseline_validation": _metrics_dict(self._baseline_metrics("validation")),
+            "baseline_validation_slices": [
+                _metrics_dict(item) for item in baseline_validation_slices
+            ],
             "baseline_test": _metrics_dict(self._baseline_metrics("test")),
+            "selected_validation_results": selected_validation_results,
             "selected_test_results": selected_test_results,
         }
         write_json_atomic(self.summary_path, summary)

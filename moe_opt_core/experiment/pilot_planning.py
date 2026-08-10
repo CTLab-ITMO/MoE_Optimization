@@ -151,17 +151,22 @@ def select_validation_winners(
         if row is None:
             continue
         degradation = float(row.get("relative_perplexity_degradation", float("inf")))
-        if degradation > max_quality_budget:
+        score = degradation
+        robustness = row.get("validation_robustness")
+        if isinstance(robustness, Mapping):
+            if not bool(robustness.get("passes_max_slice_degradation", False)):
+                continue
+            score = float(robustness.get("robust_score", float("inf")))
+        if degradation > max_quality_budget or score > max_quality_budget:
             continue
         plan = row.get("plan")
         metrics = row.get("metrics")
         if not isinstance(plan, Mapping) or not isinstance(metrics, Mapping):
             continue
         key = (str(plan["method"]), float(plan["compression_fraction"]))
-        perplexity = float(metrics["perplexity"])
         current = winners.get(key)
-        if current is None or perplexity < current[1]:
-            winners[key] = (candidate_id, perplexity)
+        if current is None or score < current[1]:
+            winners[key] = (candidate_id, score)
 
     selected = {candidate_id for candidate_id, _ in winners.values()}
     return tuple(candidate_id for candidate_id in candidate_order if candidate_id in selected)

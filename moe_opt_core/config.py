@@ -114,6 +114,13 @@ class HybridPairingConfig:
 
 
 @dataclass(frozen=True)
+class ValidationSelectionConfig:
+    slice_count: int = 1
+    std_penalty: float = 0.0
+    max_slice_degradation: float | None = None
+
+
+@dataclass(frozen=True)
 class PilotConfig:
     enabled: bool = False
     layer: int = 0
@@ -133,6 +140,7 @@ class PilotConfig:
     max_step_seconds: float = 1800.0
     spectral_pairing_ranks: Tuple[int, ...] = ()
     hybrid_pairing: HybridPairingConfig = HybridPairingConfig()
+    validation_selection: ValidationSelectionConfig = ValidationSelectionConfig()
 
 
 @dataclass(frozen=True)
@@ -215,6 +223,14 @@ def validate_experiment_config_dict(data: Dict[str, Any]) -> None:
     if not isinstance(data["layers"], list) or len(data["layers"]) == 0:
         raise ValueError("layers must be a non-empty list")
 
+    profile = data.get("profile", {})
+    profile_warmup_steps = int(profile.get("warmup_steps", 10))
+    profile_measure_steps = int(profile.get("measure_steps", 50))
+    if profile_warmup_steps < 0:
+        raise ValueError("profile.warmup_steps must be non-negative")
+    if profile_measure_steps < 1:
+        raise ValueError("profile.measure_steps must be positive")
+
     model_load_source = str(data["model"].get("load_source", "hf"))
     if model_load_source not in {"hf", "local"}:
         raise ValueError("model.load_source must be one of: hf, local")
@@ -276,6 +292,34 @@ def validate_experiment_config_dict(data: Dict[str, Any]) -> None:
     for value in pilot.get("quality_budgets", (0.01, 0.03, 0.05)):
         if float(value) < 0.0:
             raise ValueError("pilot.quality_budgets values must be non-negative")
+    validation_selection = pilot.get("validation_selection", {})
+    if not isinstance(validation_selection, dict):
+        raise ValueError("pilot.validation_selection must be an object")
+    validation_slice_count = int(validation_selection.get("slice_count", 1))
+    validation_std_penalty = float(validation_selection.get("std_penalty", 0.0))
+    validation_max_slice_degradation = validation_selection.get("max_slice_degradation")
+    max_eval_batches = int(pilot.get("max_eval_batches", 32))
+    if max_eval_batches < 1:
+        raise ValueError("pilot.max_eval_batches must be >= 1")
+    if validation_slice_count < 1:
+        raise ValueError("pilot.validation_selection.slice_count must be positive")
+    if validation_slice_count > max_eval_batches:
+        raise ValueError(
+            "pilot.validation_selection.slice_count must not exceed pilot.max_eval_batches"
+        )
+    if validation_slice_count > profile_measure_steps:
+        raise ValueError(
+            "pilot.validation_selection.slice_count must not exceed profile.measure_steps"
+        )
+    if validation_std_penalty < 0.0:
+        raise ValueError("pilot.validation_selection.std_penalty must be non-negative")
+    if (
+        validation_max_slice_degradation is not None
+        and float(validation_max_slice_degradation) < 0.0
+    ):
+        raise ValueError(
+            "pilot.validation_selection.max_slice_degradation must be non-negative"
+        )
     if bool(pilot.get("enabled", False)):
         if not methods:
             raise ValueError("pilot.methods must not be empty when pilot is enabled")
@@ -290,8 +334,6 @@ def validate_experiment_config_dict(data: Dict[str, Any]) -> None:
             raise ValueError("pilot.layer must be included in layers")
         if not bool(h1["enabled"]):
             raise ValueError("pilot requires stages.h1.enabled=true")
-        if int(pilot.get("max_eval_batches", 32)) < 1:
-            raise ValueError("pilot.max_eval_batches must be >= 1")
         if int(pilot.get("candidates_per_invocation", 2)) < 1:
             raise ValueError("pilot.candidates_per_invocation must be >= 1")
         if float(pilot.get("max_step_seconds", 1800.0)) <= 0.0:
@@ -389,6 +431,8 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
     pilot_defaults = PilotConfig()
     hybrid_raw = pilot_raw.get("hybrid_pairing", {})
     hybrid_defaults = HybridPairingConfig()
+    validation_selection_raw = pilot_raw.get("validation_selection", {})
+    validation_selection_defaults = ValidationSelectionConfig()
     hybrid_variants = tuple(
         HybridPairingVariantConfig(
             name=str(item["name"]),
@@ -423,6 +467,23 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
             ),
             usage_weight=float(hybrid_raw.get("usage_weight", hybrid_defaults.usage_weight)),
             variants=hybrid_variants,
+        ),
+        validation_selection=ValidationSelectionConfig(
+            slice_count=int(
+                validation_selection_raw.get(
+                    "slice_count", validation_selection_defaults.slice_count
+                )
+            ),
+            std_penalty=float(
+                validation_selection_raw.get(
+                    "std_penalty", validation_selection_defaults.std_penalty
+                )
+            ),
+            max_slice_degradation=(
+                float(validation_selection_raw["max_slice_degradation"])
+                if validation_selection_raw.get("max_slice_degradation") is not None
+                else None
+            ),
         ),
     )
 
@@ -526,5 +587,10 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
 
 
 def config_hash(config: ExperimentConfig) -> str:
-    payload = json.dumps(config.__dict__, default=lambda x: x.__dict__, sort_keys=True)
+    config_payload = dict(config.__dict__)
+    pilot_payload = dict(config.pilot.__dict__)
+    if config.pilot.validation_selection == ValidationSelectionConfig():
+        pilot_payload.pop("validation_selection")
+    config_payload["pilot"] = pilot_payload
+    payload = json.dumps(config_payload, default=lambda x: x.__dict__, sort_keys=True)
     return sha256(payload.encode("utf-8")).hexdigest()
