@@ -116,6 +116,52 @@ def test_multislice_config_is_loaded_into_typed_contract() -> None:
     assert config.pilot.validation_selection.max_slice_degradation == 0.05
 
 
+def test_usage_weighted_merge_config_loads_typed_variants_and_rank_schedule() -> None:
+    config = load_experiment_config(
+        "configs/experiments/h1_rmt_usage_weighted_merge_one_layer_pilot.json"
+    )
+    assert config.pilot.merge_weighting.methods == (
+        "rmt_geometry",
+        "rmt_functional_usage",
+    )
+    assert tuple(variant.policy for variant in config.pilot.merge_weighting.variants) == (
+        "uniform",
+        "usage_proportional",
+        "usage_bounded",
+    )
+    assert len(config.pilot.spectral_rank_schedule) == 6
+
+
+def test_merge_weighting_rejects_invalid_policy_bounds_and_partial_config() -> None:
+    raw = _raw_config()
+    raw["pilot"]["merge_weighting"] = {
+        "methods": ["rmt_geometry"],
+        "variants": [{"name": "bounded", "policy": "usage_bounded"}],
+    }
+    with pytest.raises(ValueError, match="positive minimum_weight"):
+        validate_experiment_config_dict(raw)
+
+    raw["pilot"]["merge_weighting"]["variants"][0]["minimum_weight"] = 0.5
+    with pytest.raises(ValueError, match="minimum_weight"):
+        validate_experiment_config_dict(raw)
+
+    raw["pilot"]["merge_weighting"] = {"methods": ["rmt_geometry"]}
+    with pytest.raises(ValueError, match="both be empty or both be set"):
+        validate_experiment_config_dict(raw)
+
+
+def test_spectral_rank_schedule_must_cover_each_fraction_once() -> None:
+    raw = _raw_config()
+    raw["pilot"]["methods"] = ["rmt_geometry"]
+    raw["pilot"]["spectral_pairing_ranks"] = [1, 4]
+    raw["pilot"]["spectral_rank_schedule"] = [
+        {"method": "rmt_geometry", "compression_fraction": 0.1, "rank": 1},
+        {"method": "rmt_geometry", "compression_fraction": 0.25, "rank": 4},
+    ]
+    with pytest.raises(ValueError, match="assign every compression fraction"):
+        validate_experiment_config_dict(raw)
+
+
 def test_legacy_config_hash_is_stable_when_validation_selection_is_not_configured() -> None:
     config = load_experiment_config(
         "configs/experiments/h1_rmt_pairing_rank_ablation_one_layer_pilot.json"

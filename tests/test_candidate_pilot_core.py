@@ -14,6 +14,7 @@ from moe_opt_core.experiment import (
     CandidateAction,
     CandidateMethod,
     CandidatePlanContract,
+    MergeWeightingPolicy,
     MoeLayerRuntimeContract,
 )
 from moe_opt_core.experiment.candidates import build_candidate_plans, validate_candidate_plan
@@ -190,6 +191,35 @@ def test_rank_ablation_config_materializes_thirty_unique_plans() -> None:
     assert sum(plan.method == CandidateMethod.RMT_FUNCTIONAL_USAGE for plan in plans) == 12
 
 
+def test_usage_weighted_config_materializes_fixed_rank_grid() -> None:
+    config = load_experiment_config(
+        "configs/experiments/h1_rmt_usage_weighted_merge_one_layer_pilot.json"
+    )
+    executor = ResumablePilotExecutor(config)
+    raw_embedding = torch.randn(60, 64, generator=torch.Generator().manual_seed(31))
+    plans = executor._build_plans(
+        num_experts=60,
+        trace={"routing_probs": torch.softmax(torch.randn(32, 60), dim=-1)},
+        embedding={
+            "raw_embedding": raw_embedding,
+            "spectral_embedding": raw_embedding[:, :1],
+            "rmt_pairs": tuple((idx, idx + 1) for idx in range(0, 60, 2)),
+        },
+    )
+    assert len(plans) == 24
+    assert len({plan.candidate_id for plan in plans}) == 24
+    assert sum(plan.method == CandidateMethod.USAGE_PRUNE for plan in plans) == 3
+    assert sum(plan.method == CandidateMethod.FUNCTIONAL_COSINE for plan in plans) == 3
+    assert sum(plan.method == CandidateMethod.RMT_GEOMETRY for plan in plans) == 9
+    assert sum(plan.method == CandidateMethod.RMT_FUNCTIONAL_USAGE for plan in plans) == 9
+    assert {
+        int(dict(plan.diagnostics)["spectral_pairing_rank"])
+        for plan in plans
+        if plan.method == CandidateMethod.RMT_GEOMETRY
+        and plan.compression_fraction == 0.1
+    } == {8}
+
+
 def test_hybrid_pairing_uses_routing_load_as_a_merge_safety_term() -> None:
     routing_probs = torch.tensor(
         [
@@ -246,6 +276,39 @@ def test_reversible_transform_restores_layer() -> None:
     assert ctx.handles_by_layer[0].gate is original_gate
     assert ctx.handles_by_layer[0].experts is original_experts
     assert ctx.model.moe.num_experts == 4
+
+
+def test_reversible_transform_applies_group_merge_weights() -> None:
+    ctx = _runtime()
+    first = ctx.model.moe.experts[0]
+    second = ctx.model.moe.experts[1]
+    with torch.no_grad():
+        first.weight.fill_(0.0)
+        first.bias.fill_(0.0)
+        second.weight.fill_(4.0)
+        second.bias.fill_(4.0)
+    plan = CandidatePlanContract(
+        candidate_id="weighted-merge",
+        layer=0,
+        method=CandidateMethod.RMT_FUNCTIONAL_USAGE,
+        action=CandidateAction.MERGE,
+        compression_fraction=0.25,
+        groups=((0, 1), (2,), (3,)),
+        seed=1,
+        merge_weighting=MergeWeightingPolicy.USAGE_PROPORTIONAL,
+        group_merge_weights=((0.25, 0.75), (1.0,), (1.0,)),
+    )
+    with reversible_one_layer_transform(
+        ctx,
+        plan,
+        merge_method="baseline",
+        geometry_rank=2,
+        shrink_tau=0.0,
+    ) as info:
+        merged = ctx.model.moe.experts[0]
+        assert torch.allclose(merged.weight, torch.full_like(merged.weight, 3.0))
+        assert torch.allclose(merged.bias, torch.full_like(merged.bias, 3.0))
+        assert info.merge_weighting == "usage_proportional"
 
 
 def test_reversible_transform_never_replaces_shared_expert() -> None:

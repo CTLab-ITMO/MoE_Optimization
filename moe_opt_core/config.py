@@ -114,6 +114,26 @@ class HybridPairingConfig:
 
 
 @dataclass(frozen=True)
+class MergeWeightingVariantConfig:
+    name: str
+    policy: str
+    minimum_weight: float = 0.0
+
+
+@dataclass(frozen=True)
+class MergeWeightingConfig:
+    methods: Tuple[str, ...] = ()
+    variants: Tuple[MergeWeightingVariantConfig, ...] = ()
+
+
+@dataclass(frozen=True)
+class SpectralRankAssignmentConfig:
+    method: str
+    compression_fraction: float
+    rank: int
+
+
+@dataclass(frozen=True)
 class ValidationSelectionConfig:
     slice_count: int = 1
     std_penalty: float = 0.0
@@ -139,7 +159,9 @@ class PilotConfig:
     candidates_per_invocation: int = 2
     max_step_seconds: float = 1800.0
     spectral_pairing_ranks: Tuple[int, ...] = ()
+    spectral_rank_schedule: Tuple[SpectralRankAssignmentConfig, ...] = ()
     hybrid_pairing: HybridPairingConfig = HybridPairingConfig()
+    merge_weighting: MergeWeightingConfig = MergeWeightingConfig()
     validation_selection: ValidationSelectionConfig = ValidationSelectionConfig()
 
 
@@ -286,7 +308,10 @@ def validate_experiment_config_dict(data: Dict[str, Any]) -> None:
     unknown_methods = sorted(set(methods) - allowed_methods)
     if unknown_methods:
         raise ValueError(f"pilot.methods contains unsupported methods: {unknown_methods}")
-    for value in pilot.get("compression_fractions", (0.1, 0.25, 0.4)):
+    compression_fractions = tuple(
+        float(value) for value in pilot.get("compression_fractions", (0.1, 0.25, 0.4))
+    )
+    for value in compression_fractions:
         if not 0.0 < float(value) < 1.0:
             raise ValueError("pilot.compression_fractions values must be in (0, 1)")
     for value in pilot.get("quality_budgets", (0.01, 0.03, 0.05)):
@@ -347,6 +372,98 @@ def validate_experiment_config_dict(data: Dict[str, Any]) -> None:
         raise ValueError("pilot.spectral_pairing_ranks values must be unique")
     if expected_routed is not None and any(rank > int(expected_routed) for rank in spectral_pairing_ranks):
         raise ValueError("pilot.spectral_pairing_ranks must not exceed runtime.expected_routed_experts")
+    rank_schedule = pilot.get("spectral_rank_schedule", ())
+    if not isinstance(rank_schedule, (list, tuple)):
+        raise ValueError("pilot.spectral_rank_schedule must be an array")
+    schedule_keys: list[tuple[str, float]] = []
+    scheduled_methods: set[str] = set()
+    for index, item in enumerate(rank_schedule):
+        if not isinstance(item, dict):
+            raise ValueError("pilot.spectral_rank_schedule entries must be objects")
+        _require(
+            item,
+            ["method", "compression_fraction", "rank"],
+            f"pilot.spectral_rank_schedule[{index}]",
+        )
+        method = str(item["method"])
+        fraction = float(item["compression_fraction"])
+        rank = int(item["rank"])
+        if method not in {"rmt_geometry", "rmt_functional_usage"}:
+            raise ValueError("pilot.spectral_rank_schedule only supports RMT methods")
+        if method not in methods:
+            raise ValueError("pilot.spectral_rank_schedule methods must be enabled in pilot.methods")
+        if not any(abs(fraction - value) <= 1e-12 for value in compression_fractions):
+            raise ValueError(
+                "pilot.spectral_rank_schedule fractions must be enabled in "
+                "pilot.compression_fractions"
+            )
+        if rank not in spectral_pairing_ranks:
+            raise ValueError(
+                "pilot.spectral_rank_schedule ranks must be enabled in "
+                "pilot.spectral_pairing_ranks"
+            )
+        schedule_keys.append((method, fraction))
+        scheduled_methods.add(method)
+    if len(set(schedule_keys)) != len(schedule_keys):
+        raise ValueError("pilot.spectral_rank_schedule assignments must be unique")
+    for method in scheduled_methods:
+        assigned = {
+            fraction for scheduled_method, fraction in schedule_keys if scheduled_method == method
+        }
+        if any(not any(abs(fraction - value) <= 1e-12 for value in assigned) for fraction in compression_fractions):
+            raise ValueError(
+                "pilot.spectral_rank_schedule must assign every compression fraction "
+                f"for method {method}"
+            )
+
+    merge_weighting = pilot.get("merge_weighting", {})
+    if not isinstance(merge_weighting, dict):
+        raise ValueError("pilot.merge_weighting must be an object")
+    weighted_methods = tuple(str(item) for item in merge_weighting.get("methods", ()))
+    if len(set(weighted_methods)) != len(weighted_methods):
+        raise ValueError("pilot.merge_weighting methods must be unique")
+    unsupported_weighted_methods = sorted(
+        set(weighted_methods) - (allowed_methods - {"usage_prune"})
+    )
+    if unsupported_weighted_methods:
+        raise ValueError(
+            "pilot.merge_weighting only supports merge methods: "
+            f"{unsupported_weighted_methods}"
+        )
+    if any(method not in methods for method in weighted_methods):
+        raise ValueError("pilot.merge_weighting methods must be enabled in pilot.methods")
+    merge_weight_variants = merge_weighting.get("variants", ())
+    if not isinstance(merge_weight_variants, (list, tuple)):
+        raise ValueError("pilot.merge_weighting.variants must be an array")
+    if bool(weighted_methods) != bool(merge_weight_variants):
+        raise ValueError(
+            "pilot.merge_weighting methods and variants must either both be empty or both be set"
+        )
+    merge_variant_names: list[str] = []
+    allowed_weighting_policies = {"uniform", "usage_proportional", "usage_bounded"}
+    for index, item in enumerate(merge_weight_variants):
+        if not isinstance(item, dict):
+            raise ValueError("pilot.merge_weighting variants must be objects")
+        _require(item, ["name", "policy"], f"pilot.merge_weighting.variants[{index}]")
+        name = str(item["name"])
+        policy = str(item["policy"])
+        minimum_weight = float(item.get("minimum_weight", 0.0))
+        if re.fullmatch(r"[a-z0-9_]+", name) is None:
+            raise ValueError("pilot.merge_weighting variant names must match [a-z0-9_]+")
+        if policy not in allowed_weighting_policies:
+            raise ValueError("pilot.merge_weighting contains an unsupported policy")
+        if not 0.0 <= minimum_weight < 0.5:
+            raise ValueError("pilot.merge_weighting minimum_weight must be in [0, 0.5)")
+        if policy == "usage_bounded" and minimum_weight <= 0.0:
+            raise ValueError("usage_bounded merge weighting requires a positive minimum_weight")
+        if policy != "usage_bounded" and minimum_weight != 0.0:
+            raise ValueError(
+                "pilot.merge_weighting minimum_weight is only valid for usage_bounded"
+            )
+        merge_variant_names.append(name)
+    if len(set(merge_variant_names)) != len(merge_variant_names):
+        raise ValueError("pilot.merge_weighting variant names must be unique")
+
     hybrid = pilot.get("hybrid_pairing", {})
     hybrid_weights = (
         float(hybrid.get("rmt_weight", 0.5)),
@@ -431,6 +548,7 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
     pilot_defaults = PilotConfig()
     hybrid_raw = pilot_raw.get("hybrid_pairing", {})
     hybrid_defaults = HybridPairingConfig()
+    merge_weighting_raw = pilot_raw.get("merge_weighting", {})
     validation_selection_raw = pilot_raw.get("validation_selection", {})
     validation_selection_defaults = ValidationSelectionConfig()
     hybrid_variants = tuple(
@@ -441,6 +559,22 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
             usage_weight=float(item["usage_weight"]),
         )
         for item in hybrid_raw.get("variants", ())
+    )
+    merge_weighting_variants = tuple(
+        MergeWeightingVariantConfig(
+            name=str(item["name"]),
+            policy=str(item["policy"]),
+            minimum_weight=float(item.get("minimum_weight", 0.0)),
+        )
+        for item in merge_weighting_raw.get("variants", ())
+    )
+    spectral_rank_schedule = tuple(
+        SpectralRankAssignmentConfig(
+            method=str(item["method"]),
+            compression_fraction=float(item["compression_fraction"]),
+            rank=int(item["rank"]),
+        )
+        for item in pilot_raw.get("spectral_rank_schedule", ())
     )
     pilot = PilotConfig(
         enabled=bool(pilot_raw.get("enabled", False)),
@@ -460,6 +594,7 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
         spectral_pairing_ranks=tuple(
             int(item) for item in pilot_raw.get("spectral_pairing_ranks", ())
         ),
+        spectral_rank_schedule=spectral_rank_schedule,
         hybrid_pairing=HybridPairingConfig(
             rmt_weight=float(hybrid_raw.get("rmt_weight", hybrid_defaults.rmt_weight)),
             functional_weight=float(
@@ -467,6 +602,10 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
             ),
             usage_weight=float(hybrid_raw.get("usage_weight", hybrid_defaults.usage_weight)),
             variants=hybrid_variants,
+        ),
+        merge_weighting=MergeWeightingConfig(
+            methods=tuple(str(item) for item in merge_weighting_raw.get("methods", ())),
+            variants=merge_weighting_variants,
         ),
         validation_selection=ValidationSelectionConfig(
             slice_count=int(
@@ -591,6 +730,10 @@ def config_hash(config: ExperimentConfig) -> str:
     pilot_payload = dict(config.pilot.__dict__)
     if config.pilot.validation_selection == ValidationSelectionConfig():
         pilot_payload.pop("validation_selection")
+    if not config.pilot.spectral_rank_schedule:
+        pilot_payload.pop("spectral_rank_schedule")
+    if config.pilot.merge_weighting == MergeWeightingConfig():
+        pilot_payload.pop("merge_weighting")
     config_payload["pilot"] = pilot_payload
     payload = json.dumps(config_payload, default=lambda x: x.__dict__, sort_keys=True)
     return sha256(payload.encode("utf-8")).hexdigest()

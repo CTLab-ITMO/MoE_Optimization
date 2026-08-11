@@ -73,7 +73,7 @@ def _metrics_contract(payload: Mapping[str, object]) -> EvaluationMetricsContrac
 
 
 def _plan_dict(plan) -> dict[str, object]:
-    return {
+    payload = {
         "candidate_id": plan.candidate_id,
         "layer": plan.layer,
         "method": plan.method.value,
@@ -83,6 +83,12 @@ def _plan_dict(plan) -> dict[str, object]:
         "seed": plan.seed,
         "diagnostics": dict(plan.diagnostics),
     }
+    if plan.group_merge_weights:
+        payload["merge_weighting"] = plan.merge_weighting.value
+        payload["group_merge_weights"] = [
+            list(weights) for weights in plan.group_merge_weights
+        ]
+    return payload
 
 
 def pilot_step_result_dict(result: PilotStepResultContract) -> dict[str, object]:
@@ -196,6 +202,19 @@ class ResumablePilotExecutor:
                     ),
                 )
                 for variant in self.config.pilot.hybrid_pairing.variants
+            ),
+            spectral_rank_schedule=tuple(
+                (
+                    assignment.method,
+                    assignment.compression_fraction,
+                    assignment.rank,
+                )
+                for assignment in self.config.pilot.spectral_rank_schedule
+            ),
+            merge_weighting_methods=self.config.pilot.merge_weighting.methods,
+            merge_weighting_variants=tuple(
+                (variant.name, variant.policy, variant.minimum_weight)
+                for variant in self.config.pilot.merge_weighting.variants
             ),
         )
 

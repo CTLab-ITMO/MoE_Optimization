@@ -126,6 +126,66 @@
           "uniqueItems": true,
           "items": {"type": "integer", "minimum": 1}
         },
+        "spectral_rank_schedule": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["method", "compression_fraction", "rank"],
+            "additionalProperties": false,
+            "properties": {
+              "method": {
+                "type": "string",
+                "enum": ["rmt_geometry", "rmt_functional_usage"]
+              },
+              "compression_fraction": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "exclusiveMaximum": 1
+              },
+              "rank": {"type": "integer", "minimum": 1}
+            }
+          }
+        },
+        "merge_weighting": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "methods": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "enum": [
+                  "random_merge",
+                  "usage_guided_merge",
+                  "functional_cosine",
+                  "rmt_geometry",
+                  "rmt_functional_usage"
+                ]
+              }
+            },
+            "variants": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name", "policy"],
+                "additionalProperties": false,
+                "properties": {
+                  "name": {"type": "string", "pattern": "^[a-z0-9_]+$"},
+                  "policy": {
+                    "type": "string",
+                    "enum": ["uniform", "usage_proportional", "usage_bounded"]
+                  },
+                  "minimum_weight": {
+                    "type": "number",
+                    "minimum": 0,
+                    "exclusiveMaximum": 0.5
+                  }
+                }
+              }
+            }
+          }
+        },
         "validation_selection": {
           "type": "object",
           "additionalProperties": false,
