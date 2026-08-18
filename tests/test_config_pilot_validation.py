@@ -207,3 +207,57 @@ def test_new_pairing_method_is_opt_in_for_legacy_pilot_defaults(tmp_path) -> Non
     path.write_text(json.dumps(raw), encoding="utf-8")
     config = load_experiment_config(path)
     assert "usage_guided_merge" not in config.pilot.methods
+
+
+def test_multilayer_config_loads_typed_values_and_defaults_are_backward_compatible(
+    tmp_path,
+) -> None:
+    raw = _raw_config()
+    raw["layers"] = [0, 1, 2, 3, 4, 5]
+    raw["multilayer"] = {
+        "enabled": True,
+        "sensitivity_layers": [0, 2, 5],
+        "methods": ["functional_cosine", "rmt_functional_usage"],
+        "compression_fractions": [0.1, 0.25],
+        "cumulative_layer_counts": [1, 3, 6],
+        "trace_refresh_modes": ["static", "adaptive"],
+        "global_compression_targets": [0.1],
+        "materialization": {"selected_plan_count": 2},
+    }
+    source = Path("configs/experiments/h1_rmt_one_layer_pilot.json").resolve()
+    raw["constants"] = {
+        key: str((source.parent / value).resolve())
+        for key, value in raw["constants"].items()
+    }
+    path = tmp_path / "multilayer.json"
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    config = load_experiment_config(path)
+    assert config.multilayer.enabled
+    assert config.multilayer.sensitivity_layers == (0, 2, 5)
+    assert config.multilayer.materialization.selected_plan_count == 2
+
+    legacy = load_experiment_config(
+        "configs/experiments/h1_rmt_pairing_rank_ablation_one_layer_pilot.json"
+    )
+    assert not legacy.multilayer.enabled
+    assert config_hash(legacy) == "6012e1266b819f1f6b7f0a45d5ec5a628d5017fb2d6841ebb4c777dceedb6684"
+
+
+def test_enabled_multilayer_rejects_counts_larger_than_layer_set() -> None:
+    raw = _raw_config()
+    raw["multilayer"] = {"enabled": True, "cumulative_layer_counts": [2]}
+    with pytest.raises(ValueError, match="must not exceed"):
+        validate_experiment_config_dict(raw)
+
+
+def test_multilayer_grid_values_must_be_unique() -> None:
+    raw = _raw_config()
+    raw["multilayer"] = {
+        "methods": ["functional_cosine", "functional_cosine"]
+    }
+    with pytest.raises(ValueError, match="methods values must be unique"):
+        validate_experiment_config_dict(raw)
+
+    raw["multilayer"] = {"compression_fractions": [0.1, 0.1]}
+    with pytest.raises(ValueError, match="compression_fractions values must be unique"):
+        validate_experiment_config_dict(raw)

@@ -41,6 +41,33 @@ class PilotStepStatus(str, Enum):
     SKIPPED = "skipped"
 
 
+class MultiLayerStep(str, Enum):
+    TRACES_CALIBRATION = "traces_calibration"
+    TRACES_VALIDATION = "traces_validation"
+    TRACES_TEST = "traces_test"
+    LAYER_DIAGNOSTICS = "layer_diagnostics"
+    BASELINE_VALIDATION = "baseline_validation"
+    SENSITIVITY_VALIDATION = "sensitivity_validation"
+    BUILD_RECIPES = "build_recipes"
+    MULTILAYER_VALIDATION = "multilayer_validation"
+    SELECT_CONFIGURATIONS = "select_configurations"
+    BASELINE_TEST = "baseline_test"
+    TEST_SELECTED = "test_selected"
+    MATERIALIZE = "materialize"
+    BENCHMARK_MATERIALIZED = "benchmark_materialized"
+    BUILD_SUMMARY = "build_summary"
+
+
+class TraceRefreshMode(str, Enum):
+    STATIC = "static"
+    ADAPTIVE = "adaptive"
+
+
+class MultiLayerRecipeKind(str, Enum):
+    CUMULATIVE = "cumulative"
+    GLOBAL_BUDGET = "global_budget"
+
+
 class CandidateAction(str, Enum):
     KEEP = "keep"
     PRUNE = "prune"
@@ -171,6 +198,59 @@ class PilotExecutionStateContract:
 @dataclass(frozen=True)
 class PilotStepResultContract:
     step: PilotStep
+    status: PilotStepStatus
+    processed_items: int
+    remaining_items: int
+    artifact_paths: Tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class LayerCandidateScoreContract:
+    layer: int
+    plan: CandidatePlanContract
+    relative_perplexity_degradation: float
+    robust_score: float
+    measured: bool = True
+    score_source_layer: int | None = None
+
+
+@dataclass(frozen=True)
+class LayerCompressionChoiceContract:
+    layer: int
+    plan: CandidatePlanContract | None
+    compression_fraction: float
+    predicted_degradation: float
+    score_source_layer: int
+
+
+@dataclass(frozen=True)
+class MultiLayerRecipeContract:
+    recipe_id: str
+    kind: MultiLayerRecipeKind
+    trace_refresh_mode: TraceRefreshMode
+    choices: Tuple[LayerCompressionChoiceContract, ...]
+    target_compression: float
+    achieved_compression: float
+    predicted_degradation: float
+
+
+@dataclass(frozen=True)
+class MultiLayerExecutionStateContract:
+    schema_version: str
+    config_hash: str
+    completed_steps: Tuple[MultiLayerStep, ...]
+    completed_sensitivity_ids: Tuple[str, ...]
+    failed_sensitivity_ids: Tuple[str, ...]
+    completed_validation_recipe_ids: Tuple[str, ...]
+    failed_validation_recipe_ids: Tuple[str, ...]
+    selected_recipe_ids: Tuple[str, ...]
+    completed_test_recipe_ids: Tuple[str, ...]
+    failed_test_recipe_ids: Tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class MultiLayerStepResultContract:
+    step: MultiLayerStep
     status: PilotStepStatus
     processed_items: int
     remaining_items: int

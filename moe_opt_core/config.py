@@ -141,6 +141,35 @@ class ValidationSelectionConfig:
 
 
 @dataclass(frozen=True)
+class MultiLayerMaterializationConfig:
+    enabled: bool = True
+    output_dir: str = "artifacts/materialized"
+    selected_plan_count: int = 1
+    save_layer_weights: bool = True
+
+
+@dataclass(frozen=True)
+class MultiLayerConfig:
+    enabled: bool = False
+    sensitivity_layers: Tuple[int, ...] = ()
+    methods: Tuple[str, ...] = (
+        "usage_prune",
+        "functional_cosine",
+        "rmt_functional_usage",
+    )
+    compression_fractions: Tuple[float, ...] = (0.1, 0.25)
+    cumulative_layer_counts: Tuple[int, ...] = (1, 3, 6)
+    include_all_layers: bool = True
+    trace_refresh_modes: Tuple[str, ...] = ("static", "adaptive")
+    global_compression_targets: Tuple[float, ...] = (0.05, 0.1, 0.2)
+    quality_budget: float = 0.03
+    max_layer_degradation: float = 0.05
+    candidates_per_invocation: int = 2
+    max_step_seconds: float = 1800.0
+    materialization: MultiLayerMaterializationConfig = MultiLayerMaterializationConfig()
+
+
+@dataclass(frozen=True)
 class PilotConfig:
     enabled: bool = False
     layer: int = 0
@@ -186,6 +215,7 @@ class ExperimentConfig:
     profile: ProfileConfig
     calibration: CalibrationConfig
     pilot: PilotConfig
+    multilayer: MultiLayerConfig
     h1: H1Config
     h2: H2Config
     h3: H3Config
@@ -503,6 +533,125 @@ def validate_experiment_config_dict(data: Dict[str, Any]) -> None:
         if sum(weights) <= 0.0:
             raise ValueError("pilot.hybrid_pairing variants must contain at least one positive weight")
 
+    configured_layers = tuple(int(layer) for layer in data["layers"])
+    if len(set(configured_layers)) != len(configured_layers):
+        raise ValueError("layers values must be unique")
+    if any(layer < 0 for layer in configured_layers):
+        raise ValueError("layers values must be non-negative")
+
+    multilayer = data.get("multilayer", {})
+    if not isinstance(multilayer, dict):
+        raise ValueError("multilayer must be an object")
+    multilayer_methods = tuple(
+        str(item) for item in multilayer.get("methods", MultiLayerConfig().methods)
+    )
+    supported_multilayer_methods = {
+        "usage_prune",
+        "functional_cosine",
+        "rmt_functional_usage",
+    }
+    unknown_multilayer_methods = sorted(
+        set(multilayer_methods) - supported_multilayer_methods
+    )
+    if unknown_multilayer_methods:
+        raise ValueError(
+            "multilayer.methods contains unsupported methods: "
+            f"{unknown_multilayer_methods}"
+        )
+    if len(set(multilayer_methods)) != len(multilayer_methods):
+        raise ValueError("multilayer.methods values must be unique")
+    multilayer_fractions = tuple(
+        float(value)
+        for value in multilayer.get(
+            "compression_fractions", MultiLayerConfig().compression_fractions
+        )
+    )
+    if any(not 0.0 < value < 1.0 for value in multilayer_fractions):
+        raise ValueError("multilayer.compression_fractions values must be in (0, 1)")
+    if len(set(multilayer_fractions)) != len(multilayer_fractions):
+        raise ValueError("multilayer.compression_fractions values must be unique")
+    sensitivity_layers = tuple(
+        int(layer) for layer in multilayer.get("sensitivity_layers", ())
+    )
+    if len(set(sensitivity_layers)) != len(sensitivity_layers):
+        raise ValueError("multilayer.sensitivity_layers values must be unique")
+    unknown_sensitivity_layers = sorted(set(sensitivity_layers) - set(configured_layers))
+    if unknown_sensitivity_layers:
+        raise ValueError(
+            "multilayer.sensitivity_layers must be included in layers: "
+            f"{unknown_sensitivity_layers}"
+        )
+    effective_layer_count = len(configured_layers)
+    cumulative_counts = tuple(
+        int(value)
+        for value in multilayer.get(
+            "cumulative_layer_counts", MultiLayerConfig().cumulative_layer_counts
+        )
+    )
+    if any(value < 1 for value in cumulative_counts):
+        raise ValueError("multilayer.cumulative_layer_counts values must be positive")
+    if len(set(cumulative_counts)) != len(cumulative_counts):
+        raise ValueError("multilayer.cumulative_layer_counts values must be unique")
+    if bool(multilayer.get("enabled", False)) and any(
+        value > effective_layer_count for value in cumulative_counts
+    ):
+        raise ValueError(
+            "multilayer.cumulative_layer_counts values must not exceed the "
+            "number of configured layers"
+        )
+    refresh_modes = tuple(
+        str(value)
+        for value in multilayer.get(
+            "trace_refresh_modes", MultiLayerConfig().trace_refresh_modes
+        )
+    )
+    if not refresh_modes or set(refresh_modes) - {"static", "adaptive"}:
+        raise ValueError(
+            "multilayer.trace_refresh_modes must contain only: static, adaptive"
+        )
+    if len(set(refresh_modes)) != len(refresh_modes):
+        raise ValueError("multilayer.trace_refresh_modes values must be unique")
+    global_targets = tuple(
+        float(value)
+        for value in multilayer.get(
+            "global_compression_targets", MultiLayerConfig().global_compression_targets
+        )
+    )
+    if any(not 0.0 < value < 1.0 for value in global_targets):
+        raise ValueError("multilayer.global_compression_targets values must be in (0, 1)")
+    if len(set(global_targets)) != len(global_targets):
+        raise ValueError("multilayer.global_compression_targets values must be unique")
+    if float(multilayer.get("quality_budget", 0.03)) < 0.0:
+        raise ValueError("multilayer.quality_budget must be non-negative")
+    if float(multilayer.get("max_layer_degradation", 0.05)) < 0.0:
+        raise ValueError("multilayer.max_layer_degradation must be non-negative")
+    if int(multilayer.get("candidates_per_invocation", 2)) < 1:
+        raise ValueError("multilayer.candidates_per_invocation must be positive")
+    if float(multilayer.get("max_step_seconds", 1800.0)) <= 0.0:
+        raise ValueError("multilayer.max_step_seconds must be positive")
+    materialization = multilayer.get("materialization", {})
+    if not isinstance(materialization, dict):
+        raise ValueError("multilayer.materialization must be an object")
+    if int(materialization.get("selected_plan_count", 1)) < 1:
+        raise ValueError(
+            "multilayer.materialization.selected_plan_count must be positive"
+        )
+    if bool(materialization.get("enabled", True)) and not str(
+        materialization.get("output_dir", "artifacts/materialized")
+    ).strip():
+        raise ValueError(
+            "multilayer.materialization.output_dir is required when materialization is enabled"
+        )
+    if bool(multilayer.get("enabled", False)):
+        if not bool(pilot.get("enabled", False)):
+            raise ValueError("multilayer requires pilot.enabled=true")
+        if not bool(h1["enabled"]):
+            raise ValueError("multilayer requires stages.h1.enabled=true")
+        if not multilayer_methods:
+            raise ValueError("multilayer.methods must not be empty")
+        if not multilayer_fractions:
+            raise ValueError("multilayer.compression_fractions must not be empty")
+
 
 
 def _load_constants(constants_section: Dict[str, str], config_path: Path) -> Dict[str, Dict[str, Any]]:
@@ -626,6 +775,95 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
         ),
     )
 
+    multilayer_raw = raw.get("multilayer", {})
+    multilayer_defaults = MultiLayerConfig()
+    materialization_raw = multilayer_raw.get("materialization", {})
+    materialization_defaults = MultiLayerMaterializationConfig()
+    multilayer = MultiLayerConfig(
+        enabled=bool(multilayer_raw.get("enabled", multilayer_defaults.enabled)),
+        sensitivity_layers=tuple(
+            int(item)
+            for item in multilayer_raw.get(
+                "sensitivity_layers", multilayer_defaults.sensitivity_layers
+            )
+        ),
+        methods=tuple(
+            str(item)
+            for item in multilayer_raw.get("methods", multilayer_defaults.methods)
+        ),
+        compression_fractions=tuple(
+            float(item)
+            for item in multilayer_raw.get(
+                "compression_fractions", multilayer_defaults.compression_fractions
+            )
+        ),
+        cumulative_layer_counts=tuple(
+            int(item)
+            for item in multilayer_raw.get(
+                "cumulative_layer_counts", multilayer_defaults.cumulative_layer_counts
+            )
+        ),
+        include_all_layers=bool(
+            multilayer_raw.get("include_all_layers", multilayer_defaults.include_all_layers)
+        ),
+        trace_refresh_modes=tuple(
+            str(item)
+            for item in multilayer_raw.get(
+                "trace_refresh_modes", multilayer_defaults.trace_refresh_modes
+            )
+        ),
+        global_compression_targets=tuple(
+            float(item)
+            for item in multilayer_raw.get(
+                "global_compression_targets",
+                multilayer_defaults.global_compression_targets,
+            )
+        ),
+        quality_budget=float(
+            multilayer_raw.get("quality_budget", multilayer_defaults.quality_budget)
+        ),
+        max_layer_degradation=float(
+            multilayer_raw.get(
+                "max_layer_degradation", multilayer_defaults.max_layer_degradation
+            )
+        ),
+        candidates_per_invocation=int(
+            multilayer_raw.get(
+                "candidates_per_invocation",
+                multilayer_defaults.candidates_per_invocation,
+            )
+        ),
+        max_step_seconds=float(
+            multilayer_raw.get(
+                "max_step_seconds", multilayer_defaults.max_step_seconds
+            )
+        ),
+        materialization=MultiLayerMaterializationConfig(
+            enabled=bool(
+                materialization_raw.get(
+                    "enabled", materialization_defaults.enabled
+                )
+            ),
+            output_dir=str(
+                materialization_raw.get(
+                    "output_dir", materialization_defaults.output_dir
+                )
+            ),
+            selected_plan_count=int(
+                materialization_raw.get(
+                    "selected_plan_count",
+                    materialization_defaults.selected_plan_count,
+                )
+            ),
+            save_layer_weights=bool(
+                materialization_raw.get(
+                    "save_layer_weights",
+                    materialization_defaults.save_layer_weights,
+                )
+            ),
+        ),
+    )
+
     artifacts = ArtifactSpecConfig(
         root_dir=str(raw["artifacts"]["root_dir"]),
         manifest_path=str(raw["artifacts"]["manifest_path"]),
@@ -718,6 +956,7 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
         profile=profile,
         calibration=calibration,
         pilot=pilot,
+        multilayer=multilayer,
         h1=h1,
         h2=h2,
         h3=h3,
@@ -735,5 +974,7 @@ def config_hash(config: ExperimentConfig) -> str:
     if config.pilot.merge_weighting == MergeWeightingConfig():
         pilot_payload.pop("merge_weighting")
     config_payload["pilot"] = pilot_payload
+    if config.multilayer == MultiLayerConfig():
+        config_payload.pop("multilayer")
     payload = json.dumps(config_payload, default=lambda x: x.__dict__, sort_keys=True)
     return sha256(payload.encode("utf-8")).hexdigest()

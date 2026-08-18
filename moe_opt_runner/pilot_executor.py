@@ -18,7 +18,6 @@ from moe_opt_core.experiment import (
     PilotStepResultContract,
     PilotStepStatus,
 )
-from moe_opt_core.experiment.candidates import build_candidate_plans
 from moe_opt_core.experiment.errors import ExpectedExperimentFailure, ExperimentFailureCode
 from moe_opt_core.experiment.evaluation import compare_evaluations
 from moe_opt_core.experiment.pilot_planning import (
@@ -33,7 +32,7 @@ from moe_opt_core.experiment.pilot_validation import (
     summarize_validation_degradations,
 )
 from moe_opt_core.experiment.trace_validation import validate_trace_payload
-from moe_opt_core.pipelines.rmt_diagnostics import spectral_embeddings_at_ranks
+from moe_opt_runner.candidate_factory import build_layer_candidate_plans
 from moe_opt_runner.evaluation import append_incremental_record, evaluate_language_model
 from moe_opt_runner.pilot_artifacts import (
     read_incremental_records,
@@ -172,50 +171,12 @@ class ResumablePilotExecutor:
         return trace, embedding
 
     def _build_plans(self, *, num_experts: int, trace, embedding):
-        spectral_embeddings = spectral_embeddings_at_ranks(
-            embedding["raw_embedding"],
-            self.config.pilot.spectral_pairing_ranks,
-        )
-        return build_candidate_plans(
-            num_experts=num_experts,
+        return build_layer_candidate_plans(
+            self.config,
             layer=self.config.pilot.layer,
-            methods=self.config.pilot.methods,
-            compression_fractions=self.config.pilot.compression_fractions,
-            seeds=self.config.pilot.seeds,
-            rmt_pairs=embedding["rmt_pairs"],
-            spectral_embedding=embedding["spectral_embedding"],
-            functional_embedding=embedding["raw_embedding"],
-            routing_probs=trace["routing_probs"],
-            hybrid_weights=(
-                self.config.pilot.hybrid_pairing.rmt_weight,
-                self.config.pilot.hybrid_pairing.functional_weight,
-                self.config.pilot.hybrid_pairing.usage_weight,
-            ),
-            spectral_embeddings=spectral_embeddings,
-            hybrid_weight_variants=tuple(
-                (
-                    variant.name,
-                    (
-                        variant.rmt_weight,
-                        variant.functional_weight,
-                        variant.usage_weight,
-                    ),
-                )
-                for variant in self.config.pilot.hybrid_pairing.variants
-            ),
-            spectral_rank_schedule=tuple(
-                (
-                    assignment.method,
-                    assignment.compression_fraction,
-                    assignment.rank,
-                )
-                for assignment in self.config.pilot.spectral_rank_schedule
-            ),
-            merge_weighting_methods=self.config.pilot.merge_weighting.methods,
-            merge_weighting_variants=tuple(
-                (variant.name, variant.policy, variant.minimum_weight)
-                for variant in self.config.pilot.merge_weighting.variants
-            ),
+            num_experts=num_experts,
+            trace=trace,
+            embedding=embedding,
         )
 
     def _load_trace_and_plans(self):

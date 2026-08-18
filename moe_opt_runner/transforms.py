@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Dict, Iterator, Tuple
+from typing import Dict, Iterator, Sequence, Tuple
 
 import torch
 import torch.nn as nn
@@ -190,3 +190,118 @@ def reversible_one_layer_transform(
             raise RuntimeError("Shared expert changed during a routed-expert transform")
         if getattr(moe, "shared_expert_gate", None) is not shared_expert_gate:
             raise RuntimeError("Shared expert gate changed during a routed-expert transform")
+
+
+@contextmanager
+def reversible_multi_layer_transform(
+    ctx: RuntimeContext,
+    plans: Sequence[CandidatePlanContract],
+    *,
+    merge_method: str,
+    geometry_rank: int,
+    shrink_tau: float,
+) -> Iterator[tuple[AppliedTransformInfo, ...]]:
+    layers = tuple(plan.layer for plan in plans)
+    if len(set(layers)) != len(layers):
+        raise ValueError("A multi-layer transform may contain only one plan per layer")
+    with ExitStack() as stack:
+        transforms = tuple(
+            stack.enter_context(
+                reversible_one_layer_transform(
+                    ctx,
+                    plan,
+                    merge_method=merge_method,
+                    geometry_rank=geometry_rank,
+                    shrink_tau=shrink_tau,
+                    expert_cache={},
+                )
+            )
+            for plan in plans
+        )
+        yield transforms
+
+
+def apply_one_layer_transform_inplace(
+    ctx: RuntimeContext,
+    plan: CandidatePlanContract,
+    *,
+    merge_method: str,
+    geometry_rank: int,
+    shrink_tau: float,
+) -> AppliedTransformInfo:
+    handle = ctx.handles_by_layer.get(plan.layer)
+    if handle is None:
+        raise ValueError(f"Layer {plan.layer} is not available")
+    moe = handle.moe
+    old_gate = getattr(moe, "gate")
+    if not isinstance(old_gate, nn.Linear):
+        raise TypeError(f"Only linear gates are supported, got {type(old_gate)}")
+    experts = list(getattr(moe, "experts"))
+    validate_candidate_plan(plan, num_experts=len(experts))
+    runtime_contract = ctx.runtime_contracts_by_layer.get(plan.layer)
+    method = merge_method if plan.action == CandidateAction.MERGE else "baseline"
+    new_experts = nn.ModuleList(
+        [
+            _merge_expert_group(
+                experts,
+                group,
+                method=method,
+                rank=geometry_rank,
+                shrink_tau=shrink_tau,
+                merge_weights=(
+                    plan.group_merge_weights[index]
+                    if plan.group_merge_weights
+                    else None
+                ),
+            )
+            for index, group in enumerate(plan.groups)
+        ]
+    )
+    new_gate = (
+        GroupedLinearGate(old_gate, plan.groups)
+        if plan.action == CandidateAction.MERGE
+        else _aggregate_linear_gate(old_gate, plan.groups)
+    )
+    setattr(moe, "experts", new_experts)
+    setattr(moe, "gate", new_gate)
+    handle.experts = new_experts
+    handle.gate = new_gate
+    for name in ("num_experts", "num_local_experts"):
+        if hasattr(moe, name):
+            setattr(moe, name, len(new_experts))
+    for name in ("num_experts_per_tok", "num_experts_per_token", "top_k", "k"):
+        if hasattr(moe, name):
+            setattr(moe, name, min(int(getattr(moe, name)), len(new_experts)))
+    return AppliedTransformInfo(
+        candidate_id=plan.candidate_id,
+        original_experts=len(experts),
+        active_experts=len(new_experts),
+        model_parameter_mb=model_parameter_mb(ctx.model),
+        shared_experts_preserved=(
+            runtime_contract.shared_experts if runtime_contract is not None else 0
+        ),
+        merge_weighting=plan.merge_weighting.value,
+    )
+
+
+def apply_multi_layer_transform_inplace(
+    ctx: RuntimeContext,
+    plans: Sequence[CandidatePlanContract],
+    *,
+    merge_method: str,
+    geometry_rank: int,
+    shrink_tau: float,
+) -> tuple[AppliedTransformInfo, ...]:
+    layers = tuple(plan.layer for plan in plans)
+    if len(set(layers)) != len(layers):
+        raise ValueError("A multi-layer transform may contain only one plan per layer")
+    return tuple(
+        apply_one_layer_transform_inplace(
+            ctx,
+            plan,
+            merge_method=merge_method,
+            geometry_rank=geometry_rank,
+            shrink_tau=shrink_tau,
+        )
+        for plan in plans
+    )
