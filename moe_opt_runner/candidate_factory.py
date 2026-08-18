@@ -20,6 +20,14 @@ def build_layer_candidate_plans(
     namespace_layer: bool = False,
 ):
     """Materialize candidate plans from typed config and layer artifacts."""
+    selected_methods = (
+        tuple(methods) if methods is not None else config.pilot.methods
+    )
+    merge_weighting_methods = tuple(
+        method
+        for method in config.pilot.merge_weighting.methods
+        if method in selected_methods
+    )
     spectral_embeddings = spectral_embeddings_at_ranks(
         embedding["raw_embedding"],
         config.pilot.spectral_pairing_ranks,
@@ -27,7 +35,7 @@ def build_layer_candidate_plans(
     plans = build_candidate_plans(
         num_experts=num_experts,
         layer=layer,
-        methods=(tuple(methods) if methods is not None else config.pilot.methods),
+        methods=selected_methods,
         compression_fractions=(
             tuple(compression_fractions)
             if compression_fractions is not None
@@ -62,16 +70,16 @@ def build_layer_candidate_plans(
                 assignment.rank,
             )
             for assignment in config.pilot.spectral_rank_schedule
-            if methods is None or assignment.method in methods
+            if assignment.method in selected_methods
         ),
-        merge_weighting_methods=tuple(
-            method
-            for method in config.pilot.merge_weighting.methods
-            if methods is None or method in methods
-        ),
-        merge_weighting_variants=tuple(
-            (variant.name, variant.policy, variant.minimum_weight)
-            for variant in config.pilot.merge_weighting.variants
+        merge_weighting_methods=merge_weighting_methods,
+        merge_weighting_variants=(
+            tuple(
+                (variant.name, variant.policy, variant.minimum_weight)
+                for variant in config.pilot.merge_weighting.variants
+            )
+            if merge_weighting_methods
+            else ()
         ),
     )
     if not namespace_layer:
