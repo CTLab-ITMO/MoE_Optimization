@@ -5,18 +5,25 @@ from moe_opt_core.experiment import (
     CandidateMethod,
     CandidatePlanContract,
     LayerCandidateScoreContract,
+    MultiLayerRecipeKind,
+    MultiLayerStep,
+    MultiLayerValidationScoreContract,
+    TraceRefreshMode,
 )
 from moe_opt_core.experiment.multilayer_planning import (
     allocate_global_budget,
     build_cumulative_recipes,
+    build_hybrid_cumulative_recipes,
     cumulative_layer_prefixes,
     representative_layer_order,
     resolve_sensitivity_layers,
     score_layer_plans,
+    select_materialization_ids,
     select_layer_winners,
     next_multilayer_step,
+    plan_progressive_validation,
+    select_multilayer_configurations,
 )
-from moe_opt_core.experiment import MultiLayerStep
 
 
 def _plan(layer: int, method: str, fraction: float, suffix: str = ""):
@@ -172,3 +179,172 @@ def test_next_step_advances_only_after_bounded_work_is_terminal() -> None:
         selection_written=True,
         selected_recipe_count=0,
     ) == MultiLayerStep.BUILD_SUMMARY
+
+
+def test_hybrid_recipe_selects_the_best_method_for_each_layer() -> None:
+    scores = (
+        _score(0, "functional_cosine", 0.25, 0.01),
+        _score(0, "usage_prune", 0.25, 0.03),
+        _score(1, "functional_cosine", 0.25, 0.04),
+        _score(1, "usage_prune", 0.25, 0.02),
+    )
+    recipes = build_hybrid_cumulative_recipes(
+        layer_prefixes=((0, 1),),
+        scored_plans=scores,
+        methods=("functional_cosine", "usage_prune"),
+        compression_fractions=(0.25,),
+        refresh_modes=("static",),
+    )
+    assert len(recipes) == 1
+    assert recipes[0].kind == MultiLayerRecipeKind.HYBRID
+    assert tuple(choice.plan.method.value for choice in recipes[0].choices) == (
+        "functional_cosine",
+        "usage_prune",
+    )
+
+
+def _validation_score(
+    recipe_id: str,
+    method: str,
+    *,
+    fraction: float,
+    refresh: str,
+    score: float,
+) -> MultiLayerValidationScoreContract:
+    return MultiLayerValidationScoreContract(
+        recipe_id=recipe_id,
+        kind=MultiLayerRecipeKind.CUMULATIVE,
+        trace_refresh_mode=TraceRefreshMode(refresh),
+        methods=(method,),
+        layer_count=1,
+        target_compression=fraction,
+        achieved_compression=fraction,
+        relative_perplexity_degradation=score,
+        robust_score=score,
+    )
+
+
+def test_method_balanced_selection_preserves_each_method_fraction_and_mode() -> None:
+    combinations = tuple(
+        (method, fraction, refresh)
+        for method in ("usage_prune", "rmt_functional_usage")
+        for fraction in (0.1, 0.25)
+        for refresh in ("static", "adaptive")
+    )
+    scores = tuple(
+        _validation_score(
+            f"{method}-{fraction}-{refresh}",
+            method,
+            fraction=fraction,
+            refresh=refresh,
+            score=0.01 + index * 0.001,
+        )
+        for index, (method, fraction, refresh) in enumerate(combinations)
+    )
+    selected = select_multilayer_configurations(
+        scores,
+        quality_budget=0.05,
+        strategy="method_balanced",
+        per_method_per_cell=1,
+        include_global_winners=False,
+        balance_layer_counts=True,
+        max_selected=0,
+    )
+    assert set(selected) == {score.recipe_id for score in scores}
+
+
+def test_method_balanced_selection_preserves_each_layer_scale() -> None:
+    scores = tuple(
+        MultiLayerValidationScoreContract(
+            recipe_id=f"usage-n{layer_count}",
+            kind=MultiLayerRecipeKind.CUMULATIVE,
+            trace_refresh_mode=TraceRefreshMode.STATIC,
+            methods=("usage_prune",),
+            layer_count=layer_count,
+            target_compression=0.1,
+            achieved_compression=0.1,
+            relative_perplexity_degradation=0.001 * layer_count,
+            robust_score=0.001 * layer_count,
+        )
+        for layer_count in (1, 3, 6)
+    )
+    selected = select_multilayer_configurations(
+        scores,
+        quality_budget=0.05,
+        strategy="method_balanced",
+        per_method_per_cell=1,
+        include_global_winners=False,
+        balance_layer_counts=True,
+        max_selected=0,
+    )
+    assert set(selected) == {"usage-n1", "usage-n3", "usage-n6"}
+
+
+def test_method_balanced_materialization_samples_distinct_method_families() -> None:
+    methods = ("usage_prune", "functional_cosine", "rmt_functional_usage")
+    recipes = build_cumulative_recipes(
+        layer_prefixes=((0,), (0, 1, 2)),
+        scored_plans=tuple(
+            _score(layer, method, 0.1, 0.01)
+            for layer in range(3)
+            for method in methods
+        ),
+        methods=methods,
+        compression_fractions=(0.1,),
+        refresh_modes=("static", "adaptive"),
+    )
+    recipe_by_id = {recipe.recipe_id: recipe for recipe in recipes}
+    selected = (
+        "cumulative-static-usage_prune-f0.100-n1",
+        "cumulative-static-usage_prune-f0.100-n3",
+        "cumulative-static-rmt_functional_usage-f0.100-n1",
+        "cumulative-static-functional_cosine-f0.100-n1",
+    )
+    materialized = select_materialization_ids(
+        selected,
+        tuple(recipe_by_id.values()),
+        count=3,
+        strategy="method_balanced",
+    )
+    assert materialized == (
+        "cumulative-static-usage_prune-f0.100-n3",
+        "cumulative-static-rmt_functional_usage-f0.100-n1",
+        "cumulative-static-functional_cosine-f0.100-n1",
+    )
+
+
+def test_progressive_plan_stops_larger_stages_after_failed_quality_gate() -> None:
+    scores = tuple(
+        _score(layer, "usage_prune", 0.1, 0.01) for layer in range(6)
+    )
+    recipes = build_cumulative_recipes(
+        layer_prefixes=((0, 1, 2), tuple(range(6))),
+        scored_plans=scores,
+        methods=("usage_prune",),
+        compression_fractions=(0.1,),
+        refresh_modes=("static",),
+    )
+    first_id, second_id = (recipe.recipe_id for recipe in recipes)
+    validation_scores = (
+        _validation_score(
+            first_id,
+            "usage_prune",
+            fraction=0.1,
+            refresh="static",
+            score=0.08,
+        ),
+    )
+    plan = plan_progressive_validation(
+        recipes,
+        validation_scores,
+        completed_ids=(first_id,),
+        failed_ids=(),
+        skipped_ids=(),
+        layer_counts=(3, 6),
+        quality_budget=0.05,
+        min_accepted_recipes=1,
+        stop_on_failure=True,
+    )
+    assert plan.pending_recipe_ids == ()
+    assert plan.skipped_recipe_ids == (second_id,)
+    assert not plan.stages[0].passed

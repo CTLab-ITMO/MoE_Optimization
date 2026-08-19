@@ -57,11 +57,14 @@ The multi-layer follow-up has a separate bounded runner and two launch scopes:
 
 ```bash
 python -m moe_opt_runner.multilayer_cli \
-  --config configs/experiments/h1_rmt_multilayer_representative_pilot.json \
-  --step status
+  --config configs/experiments/h1_rmt_rank_merge_representative_campaign.json \
+  --replication-seed 2026 --step status
 python -m moe_opt_runner.multilayer_cli \
   --config configs/experiments/h1_rmt_multilayer_full_model.json \
-  --step status
+  --replication-seed 2026 --step status
+python -m moe_opt_runner.multilayer_campaign_cli \
+  --config configs/experiments/h1_rmt_rank_merge_representative_campaign.json \
+  --allow-partial --no-write
 ```
 
 Start with the representative layers (`0`, `11`, `23`). The full 24-layer
@@ -69,6 +72,8 @@ configuration is a second gate, not a substitute for the representative pilot.
 Each invocation processes one stage or a bounded item batch. Static recipes use
 base-model traces; adaptive recipes recalculate the current layer plan after all
 preceding layer transforms. See `docs/10. Многослойный RMT-MoE эксперимент.md`.
+The replicated rank, merge-weighting, hybrid, and progressive campaign is
+described in `docs/11. Протокол повторной RMT-MoE кампании.md`.
 
 The robust rank-selection follow-up is configured in
 `configs/experiments/h1_rmt_multislice_rank_validation_one_layer_pilot.json`.

@@ -222,7 +222,10 @@ def test_multilayer_config_loads_typed_values_and_defaults_are_backward_compatib
         "cumulative_layer_counts": [1, 3, 6],
         "trace_refresh_modes": ["static", "adaptive"],
         "global_compression_targets": [0.1],
-        "materialization": {"selected_plan_count": 2},
+        "materialization": {
+            "selected_plan_count": 2,
+            "strategy": "method_balanced",
+        },
     }
     source = Path("configs/experiments/h1_rmt_one_layer_pilot.json").resolve()
     raw["constants"] = {
@@ -235,6 +238,7 @@ def test_multilayer_config_loads_typed_values_and_defaults_are_backward_compatib
     assert config.multilayer.enabled
     assert config.multilayer.sensitivity_layers == (0, 2, 5)
     assert config.multilayer.materialization.selected_plan_count == 2
+    assert config.multilayer.materialization.strategy == "method_balanced"
 
     legacy = load_experiment_config(
         "configs/experiments/h1_rmt_pairing_rank_ablation_one_layer_pilot.json"
@@ -260,4 +264,33 @@ def test_multilayer_grid_values_must_be_unique() -> None:
 
     raw["multilayer"] = {"compression_fractions": [0.1, 0.1]}
     with pytest.raises(ValueError, match="compression_fractions values must be unique"):
+        validate_experiment_config_dict(raw)
+
+
+def test_multilayer_materialization_strategy_is_typed_and_validated() -> None:
+    raw = _raw_config()
+    raw["multilayer"] = {
+        "materialization": {"strategy": "unknown"},
+    }
+    with pytest.raises(ValueError, match="materialization.strategy"):
+        validate_experiment_config_dict(raw)
+
+
+def test_method_balanced_cap_must_cover_the_configured_cells() -> None:
+    raw = _raw_config()
+    raw["layers"] = [0, 1, 2]
+    raw["multilayer"] = {
+        "enabled": True,
+        "methods": ["usage_prune", "functional_cosine"],
+        "compression_fractions": [0.1, 0.25],
+        "cumulative_layer_counts": [1, 3],
+        "trace_refresh_modes": ["static", "adaptive"],
+        "selection": {
+            "strategy": "method_balanced",
+            "balance_layer_counts": True,
+            "balance_refresh_modes": True,
+            "max_selected": 15,
+        },
+    }
+    with pytest.raises(ValueError, match=r"method-balanced quota \(16\)"):
         validate_experiment_config_dict(raw)

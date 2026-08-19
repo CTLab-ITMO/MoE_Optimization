@@ -375,6 +375,7 @@ def run_h1_pipeline(
         {
             "raw_embedding": result.raw_embedding,
             "spectral_embedding": result.spectral_embedding,
+            "diagnostics": dict(result.diagnostics),
             "rmt_pairs": result.pairs,
             "functional_cosine_pairs": result.functional_cosine_pairs,
             "validation_raw_embedding": result.validation_raw_embedding,

@@ -49,6 +49,48 @@ def spectral_embeddings_at_ranks(
     return result
 
 
+def resolve_spectral_rank_grid(
+    calibration_embedding: torch.Tensor,
+    *,
+    fixed_ranks: tuple[int, ...] = (),
+    useful_rank: int | None = None,
+    mp_rank: int | None = None,
+    include_useful_rank: bool = False,
+    include_mp_rank: bool = False,
+    explained_variance_thresholds: tuple[float, ...] = (),
+) -> tuple[int, ...]:
+    _, eigenvectors = _descending_eigensystem(calibration_embedding)
+    max_rank = int(eigenvectors.shape[1])
+    ranks = {int(rank) for rank in fixed_ranks}
+    if include_useful_rank:
+        if useful_rank is None:
+            raise ValueError("useful_rank is required by the spectral rank policy")
+        ranks.add(int(useful_rank))
+    if include_mp_rank:
+        if mp_rank is None:
+            raise ValueError("mp_rank is required by the spectral rank policy")
+        ranks.add(int(mp_rank))
+
+    eigenvalues, _ = _descending_eigensystem(calibration_embedding)
+    positive = eigenvalues.clamp_min(0.0)
+    total = float(positive.sum().item())
+    for threshold in explained_variance_thresholds:
+        value = float(threshold)
+        if not 0.0 < value <= 1.0:
+            raise ValueError("explained variance thresholds must be in (0, 1]")
+        if total <= 0.0:
+            ranks.add(1)
+            continue
+        cumulative = torch.cumsum(positive, dim=0) / total
+        selected = int(torch.searchsorted(cumulative, value).item()) + 1
+        ranks.add(min(selected, max_rank))
+
+    invalid = sorted(rank for rank in ranks if rank < 1 or rank > max_rank)
+    if invalid:
+        raise ValueError(f"spectral ranks must be in [1, {max_rank}]: {invalid}")
+    return tuple(sorted(ranks))
+
+
 def _max_principal_angle_deg(first: torch.Tensor, second: torch.Tensor) -> float:
     singular_values = torch.linalg.svdvals(first.t() @ second).clamp(0.0, 1.0)
     angles = torch.arccos(singular_values)

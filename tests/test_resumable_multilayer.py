@@ -165,6 +165,25 @@ def test_status_is_model_free_and_points_to_first_missing_step(tmp_path: Path) -
     assert status["remaining_sensitivity"] == 1
 
 
+def test_fresh_status_does_not_require_recipes_for_balanced_materialization(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+    config = replace(
+        config,
+        multilayer=replace(
+            config.multilayer,
+            materialization=replace(
+                config.multilayer.materialization,
+                strategy="method_balanced",
+            ),
+        ),
+    )
+    status = ResumableMultiLayerExecutor(config).status()
+    assert status["next_step"] == MultiLayerStep.TRACES_CALIBRATION.value
+    assert status["remaining_materializations"] == 0
+
+
 def test_trace_step_reports_partial_until_every_layer_artifact_exists(
     tmp_path: Path,
 ) -> None:

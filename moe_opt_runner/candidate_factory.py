@@ -5,7 +5,10 @@ from typing import Mapping, Sequence
 
 from moe_opt_core.config import ExperimentConfig
 from moe_opt_core.experiment.candidates import build_candidate_plans
-from moe_opt_core.pipelines.rmt_diagnostics import spectral_embeddings_at_ranks
+from moe_opt_core.pipelines.rmt_diagnostics import (
+    resolve_spectral_rank_grid,
+    spectral_embeddings_at_ranks,
+)
 
 
 def build_layer_candidate_plans(
@@ -28,9 +31,26 @@ def build_layer_candidate_plans(
         for method in config.pilot.merge_weighting.methods
         if method in selected_methods
     )
+    diagnostics = embedding.get("diagnostics", {})
+    if not isinstance(diagnostics, Mapping):
+        diagnostics = {}
+    useful_rank = int(
+        diagnostics.get("r_useful", embedding["spectral_embedding"].shape[1])
+    )
+    mp_rank = diagnostics.get("mp_rank")
+    policy = config.pilot.spectral_rank_policy
+    effective_ranks = resolve_spectral_rank_grid(
+        embedding["raw_embedding"],
+        fixed_ranks=config.pilot.spectral_pairing_ranks,
+        useful_rank=useful_rank,
+        mp_rank=(int(mp_rank) if mp_rank is not None else None),
+        include_useful_rank=policy.include_useful_rank,
+        include_mp_rank=policy.include_mp_rank,
+        explained_variance_thresholds=policy.explained_variance_thresholds,
+    )
     spectral_embeddings = spectral_embeddings_at_ranks(
         embedding["raw_embedding"],
-        config.pilot.spectral_pairing_ranks,
+        effective_ranks,
     )
     plans = build_candidate_plans(
         num_experts=num_experts,
@@ -75,7 +95,12 @@ def build_layer_candidate_plans(
         merge_weighting_methods=merge_weighting_methods,
         merge_weighting_variants=(
             tuple(
-                (variant.name, variant.policy, variant.minimum_weight)
+                (
+                    variant.name,
+                    variant.policy,
+                    variant.minimum_weight,
+                    variant.ridge_lambda,
+                )
                 for variant in config.pilot.merge_weighting.variants
             )
             if merge_weighting_methods

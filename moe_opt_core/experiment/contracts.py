@@ -65,6 +65,7 @@ class TraceRefreshMode(str, Enum):
 
 class MultiLayerRecipeKind(str, Enum):
     CUMULATIVE = "cumulative"
+    HYBRID = "hybrid"
     GLOBAL_BUDGET = "global_budget"
 
 
@@ -88,6 +89,7 @@ class MergeWeightingPolicy(str, Enum):
     UNIFORM = "uniform"
     USAGE_PROPORTIONAL = "usage_proportional"
     USAGE_BOUNDED = "usage_bounded"
+    FUNCTIONAL_RIDGE = "functional_ridge"
 
 
 @dataclass(frozen=True)
@@ -157,6 +159,16 @@ class EvaluationMetricsContract:
     model_parameter_mb: float
     evaluated_tokens: int
     elapsed_seconds: float
+
+
+@dataclass(frozen=True)
+class EvaluationRepeatSummaryContract:
+    repeat_count: int
+    aggregation: str
+    perplexity_std: float
+    tokens_per_second_median: float
+    tokens_per_second_p05: float
+    tokens_per_second_p95: float
 
 
 @dataclass(frozen=True)
@@ -235,6 +247,110 @@ class MultiLayerRecipeContract:
 
 
 @dataclass(frozen=True)
+class MultiLayerValidationScoreContract:
+    recipe_id: str
+    kind: MultiLayerRecipeKind
+    trace_refresh_mode: TraceRefreshMode
+    methods: Tuple[str, ...]
+    layer_count: int
+    target_compression: float
+    achieved_compression: float
+    relative_perplexity_degradation: float
+    robust_score: float
+
+
+@dataclass(frozen=True)
+class ScalarDistributionContract:
+    count: int
+    median: float
+    p05: float
+    p95: float
+    minimum: float
+    maximum: float
+
+
+@dataclass(frozen=True)
+class ReplicatedRecipeObservationContract:
+    seed: int
+    recipe_id: str
+    record_type: str
+    methods: Tuple[str, ...]
+    layer_count: int
+    target_compression: float
+    achieved_compression: float
+    relative_perplexity_degradation: float
+    throughput_gain: float
+    memory_reduction: float
+
+
+@dataclass(frozen=True)
+class ReplicatedRecipeSummaryContract:
+    recipe_id: str
+    record_type: str
+    methods: Tuple[str, ...]
+    layer_count: int
+    target_compression: float
+    achieved_compression: float
+    seeds: Tuple[int, ...]
+    degradation: ScalarDistributionContract
+    throughput_gain: ScalarDistributionContract
+    memory_reduction: ScalarDistributionContract
+    quality_pass_rate: float
+
+
+@dataclass(frozen=True)
+class SensitivityVariantObservationContract:
+    seed: int
+    layer: int
+    method: str
+    compression_fraction: float
+    candidate_id: str
+    spectral_rank: int | None
+    merge_weighting: str
+    robust_score: float
+
+
+@dataclass(frozen=True)
+class SensitivityCellSummaryContract:
+    layer: int
+    method: str
+    compression_fraction: float
+    seeds: Tuple[int, ...]
+    robust_score: ScalarDistributionContract
+    winning_candidate_ids: Tuple[str, ...]
+    spectral_rank_counts: Tuple[Tuple[int, int], ...]
+    merge_weighting_counts: Tuple[Tuple[str, int], ...]
+
+
+@dataclass(frozen=True)
+class MultiLayerCampaignSummaryContract:
+    schema_version: str
+    config_name: str
+    expected_seeds: Tuple[int, ...]
+    completed_seeds: Tuple[int, ...]
+    missing_seeds: Tuple[int, ...]
+    recipe_summaries: Tuple[ReplicatedRecipeSummaryContract, ...]
+    sensitivity_summaries: Tuple[SensitivityCellSummaryContract, ...]
+
+
+@dataclass(frozen=True)
+class ProgressiveStageContract:
+    layer_count: int
+    recipe_count: int
+    completed_count: int
+    accepted_count: int
+    passed: bool
+
+
+@dataclass(frozen=True)
+class ProgressiveValidationPlanContract:
+    current_layer_count: int | None
+    pending_recipe_ids: Tuple[str, ...]
+    skipped_recipe_ids: Tuple[str, ...]
+    stages: Tuple[ProgressiveStageContract, ...]
+
+
+@dataclass(frozen=True)
 class MultiLayerExecutionStateContract:
     schema_version: str
     config_hash: str
@@ -243,6 +359,7 @@ class MultiLayerExecutionStateContract:
     failed_sensitivity_ids: Tuple[str, ...]
     completed_validation_recipe_ids: Tuple[str, ...]
     failed_validation_recipe_ids: Tuple[str, ...]
+    skipped_validation_recipe_ids: Tuple[str, ...]
     selected_recipe_ids: Tuple[str, ...]
     completed_test_recipe_ids: Tuple[str, ...]
     failed_test_recipe_ids: Tuple[str, ...]

@@ -11,6 +11,9 @@ from moe_opt_core.experiment.contracts import (
     LayerCompressionChoiceContract,
     MultiLayerRecipeContract,
     MultiLayerRecipeKind,
+    MultiLayerValidationScoreContract,
+    ProgressiveStageContract,
+    ProgressiveValidationPlanContract,
     MultiLayerExecutionStateContract,
     MultiLayerStep,
     TraceRefreshMode,
@@ -69,6 +72,12 @@ def build_multilayer_execution_state(
         record_type="failed_multilayer_candidate",
         id_field="recipe_id",
     )
+    skipped_validation = _record_ids(
+        records,
+        config_hash=config_hash,
+        record_type="skipped_multilayer_candidate",
+        id_field="recipe_id",
+    )
     completed_test = _record_ids(
         records,
         config_hash=config_hash,
@@ -89,6 +98,7 @@ def build_multilayer_execution_state(
         failed_sensitivity_ids=failed_sensitivity,
         completed_validation_recipe_ids=completed_validation,
         failed_validation_recipe_ids=failed_validation,
+        skipped_validation_recipe_ids=skipped_validation,
         selected_recipe_ids=tuple(selected_recipe_ids),
         completed_test_recipe_ids=completed_test,
         failed_test_recipe_ids=failed_test,
@@ -380,6 +390,339 @@ def build_cumulative_recipes(
                         )
                     )
     return tuple(recipes)
+
+
+def build_hybrid_cumulative_recipes(
+    *,
+    layer_prefixes: Sequence[Sequence[int]],
+    scored_plans: Sequence[LayerCandidateScoreContract],
+    methods: Sequence[str],
+    compression_fractions: Sequence[float],
+    refresh_modes: Sequence[str],
+) -> tuple[MultiLayerRecipeContract, ...]:
+    allowed_methods = {str(method) for method in methods}
+    winners = tuple(
+        score
+        for score in select_layer_winners(scored_plans)
+        if score.plan.method.value in allowed_methods
+    )
+    by_layer_fraction: dict[
+        tuple[int, float], list[LayerCandidateScoreContract]
+    ] = defaultdict(list)
+    for score in winners:
+        by_layer_fraction[
+            (score.layer, round(score.plan.compression_fraction, 12))
+        ].append(score)
+
+    all_layers = indexed_layers(
+        {
+            (
+                score.layer,
+                score.plan.method.value,
+                round(score.plan.compression_fraction, 12),
+            ): score
+            for score in winners
+        }
+    )
+    recipes: list[MultiLayerRecipeContract] = []
+    for layers in layer_prefixes:
+        selected_layers = tuple(int(layer) for layer in layers)
+        for fraction in compression_fractions:
+            rounded_fraction = round(float(fraction), 12)
+            choices = []
+            for layer in selected_layers:
+                candidates = by_layer_fraction.get((layer, rounded_fraction), ())
+                if not candidates:
+                    raise ValueError(
+                        f"No hybrid candidate for layer={layer}, fraction={fraction}"
+                    )
+                winner = min(
+                    candidates,
+                    key=lambda score: (
+                        score.robust_score,
+                        score.relative_perplexity_degradation,
+                        score.plan.candidate_id,
+                    ),
+                )
+                choices.append(_choice_from_score(winner))
+            choice_tuple = tuple(choices)
+            for refresh in refresh_modes:
+                recipes.append(
+                    MultiLayerRecipeContract(
+                        recipe_id=(
+                            f"hybrid-{refresh}-f{float(fraction):.3f}"
+                            f"-n{len(selected_layers)}"
+                        ),
+                        kind=MultiLayerRecipeKind.HYBRID,
+                        trace_refresh_mode=TraceRefreshMode(refresh),
+                        choices=choice_tuple,
+                        target_compression=float(fraction),
+                        achieved_compression=(
+                            float(fraction) * len(choice_tuple) / len(all_layers)
+                        ),
+                        predicted_degradation=sum(
+                            choice.predicted_degradation for choice in choice_tuple
+                        ),
+                    )
+                )
+    return tuple(recipes)
+
+
+def select_multilayer_configurations(
+    scores: Sequence[MultiLayerValidationScoreContract],
+    *,
+    quality_budget: float,
+    strategy: str,
+    per_method_per_cell: int,
+    include_global_winners: bool,
+    max_selected: int,
+    balance_layer_counts: bool = False,
+    balance_refresh_modes: bool = True,
+) -> tuple[str, ...]:
+    if strategy not in {"global_winners", "method_balanced"}:
+        raise ValueError("unsupported multi-layer selection strategy")
+    if per_method_per_cell < 1:
+        raise ValueError("per_method_per_cell must be positive")
+    if max_selected < 0:
+        raise ValueError("max_selected must be non-negative")
+    eligible = tuple(
+        sorted(
+            (score for score in scores if score.robust_score <= quality_budget),
+            key=lambda score: (score.robust_score, score.recipe_id),
+        )
+    )
+
+    global_winners: dict[
+        tuple[str, float, str], MultiLayerValidationScoreContract
+    ] = {}
+    for score in eligible:
+        key = (
+            score.kind.value,
+            round(score.achieved_compression, 6),
+            score.trace_refresh_mode.value,
+        )
+        current = global_winners.get(key)
+        if current is None or (score.robust_score, score.recipe_id) < (
+            current.robust_score,
+            current.recipe_id,
+        ):
+            global_winners[key] = score
+    mandatory_ids: set[str] = set()
+    if strategy == "global_winners":
+        selected_scores = tuple(global_winners.values())
+    else:
+        balanced: dict[tuple[object, ...], list[MultiLayerValidationScoreContract]] = (
+            defaultdict(list)
+        )
+        for score in eligible:
+            if score.kind == MultiLayerRecipeKind.GLOBAL_BUDGET:
+                continue
+            family = (
+                "hybrid"
+                if score.kind == MultiLayerRecipeKind.HYBRID
+                or len(score.methods) != 1
+                else score.methods[0]
+            )
+            key: tuple[object, ...] = (
+                family,
+                score.kind.value,
+                round(score.target_compression, 6),
+            )
+            if balance_layer_counts:
+                key += (score.layer_count,)
+            if balance_refresh_modes:
+                key += (score.trace_refresh_mode.value,)
+            balanced[key].append(score)
+        mandatory = tuple(
+            score
+            for key in sorted(balanced)
+            for score in sorted(
+                balanced[key],
+                key=lambda item: (item.robust_score, item.recipe_id),
+            )[:per_method_per_cell]
+        )
+        mandatory_ids = {score.recipe_id for score in mandatory}
+        additions = tuple(global_winners.values()) if include_global_winners else ()
+        selected_scores = mandatory + additions
+
+    deduplicated = {
+        score.recipe_id: score
+        for score in selected_scores
+    }
+    ordered = tuple(
+        sorted(
+            deduplicated.values(),
+            key=lambda score: (score.robust_score, score.recipe_id),
+        )
+    )
+    if max_selected and len(ordered) > max_selected:
+        if strategy == "method_balanced":
+            if len(mandatory_ids) > max_selected:
+                raise ValueError(
+                    "max_selected is too small for the method-balanced quota"
+                )
+            mandatory_ordered = tuple(
+                score for score in ordered if score.recipe_id in mandatory_ids
+            )
+            optional_ordered = tuple(
+                score for score in ordered if score.recipe_id not in mandatory_ids
+            )
+            ordered = mandatory_ordered + optional_ordered[
+                : max_selected - len(mandatory_ordered)
+            ]
+            ordered = tuple(
+                sorted(
+                    ordered,
+                    key=lambda score: (score.robust_score, score.recipe_id),
+                )
+            )
+        else:
+            ordered = ordered[:max_selected]
+    return tuple(score.recipe_id for score in ordered)
+
+
+def _recipe_method_family(recipe: MultiLayerRecipeContract) -> str:
+    methods = tuple(
+        sorted(
+            {
+                choice.plan.method.value
+                for choice in recipe.choices
+                if choice.plan is not None
+            }
+        )
+    )
+    if recipe.kind == MultiLayerRecipeKind.HYBRID or len(methods) != 1:
+        return "hybrid"
+    return methods[0]
+
+
+def select_materialization_ids(
+    selected_ids: Sequence[str],
+    recipes: Sequence[MultiLayerRecipeContract],
+    *,
+    count: int,
+    strategy: str,
+) -> tuple[str, ...]:
+    if count < 1:
+        raise ValueError("materialization count must be positive")
+    if strategy not in {"selected_order", "method_balanced"}:
+        raise ValueError("unsupported materialization selection strategy")
+    ordered_ids = tuple(dict.fromkeys(str(value) for value in selected_ids))
+    if strategy == "selected_order":
+        return ordered_ids[:count]
+
+    recipe_by_id = {recipe.recipe_id: recipe for recipe in recipes}
+    unknown = tuple(recipe_id for recipe_id in ordered_ids if recipe_id not in recipe_by_id)
+    if unknown:
+        raise ValueError(f"Unknown selected recipe ids: {list(unknown)}")
+
+    by_family: dict[str, list[tuple[int, str, MultiLayerRecipeContract]]] = defaultdict(list)
+    for index, recipe_id in enumerate(ordered_ids):
+        recipe = recipe_by_id[recipe_id]
+        by_family[_recipe_method_family(recipe)].append((index, recipe_id, recipe))
+
+    balanced: list[str] = []
+    for family in sorted(by_family, key=lambda value: by_family[value][0][0]):
+        _, recipe_id, _ = max(
+            by_family[family],
+            key=lambda item: (
+                len(item[2].choices),
+                item[2].achieved_compression,
+                -item[0],
+            ),
+        )
+        balanced.append(recipe_id)
+    balanced.extend(recipe_id for recipe_id in ordered_ids if recipe_id not in balanced)
+    return tuple(balanced[:count])
+
+
+def plan_progressive_validation(
+    recipes: Sequence[MultiLayerRecipeContract],
+    scores: Sequence[MultiLayerValidationScoreContract],
+    *,
+    completed_ids: Sequence[str],
+    failed_ids: Sequence[str],
+    skipped_ids: Sequence[str],
+    layer_counts: Sequence[int],
+    quality_budget: float,
+    min_accepted_recipes: int,
+    stop_on_failure: bool,
+) -> ProgressiveValidationPlanContract:
+    configured_counts = tuple(sorted(set(int(value) for value in layer_counts)))
+    if not configured_counts:
+        raise ValueError("progressive layer counts must not be empty")
+    if min_accepted_recipes < 1:
+        raise ValueError("min_accepted_recipes must be positive")
+    terminal = set(completed_ids) | set(failed_ids) | set(skipped_ids)
+    score_by_id = {score.recipe_id: score for score in scores}
+    progressive = tuple(
+        recipe
+        for recipe in recipes
+        if recipe.kind in {
+            MultiLayerRecipeKind.CUMULATIVE,
+            MultiLayerRecipeKind.HYBRID,
+        }
+        and len(recipe.choices) in configured_counts
+    )
+    stages: list[ProgressiveStageContract] = []
+    for layer_count in configured_counts:
+        stage_ids = tuple(
+            recipe.recipe_id
+            for recipe in progressive
+            if len(recipe.choices) == layer_count
+        )
+        pending = tuple(recipe_id for recipe_id in stage_ids if recipe_id not in terminal)
+        completed = tuple(recipe_id for recipe_id in stage_ids if recipe_id in completed_ids)
+        accepted = tuple(
+            recipe_id
+            for recipe_id in completed
+            if recipe_id in score_by_id
+            and score_by_id[recipe_id].robust_score <= quality_budget
+        )
+        passed = not pending and len(accepted) >= min_accepted_recipes
+        stages.append(
+            ProgressiveStageContract(
+                layer_count=layer_count,
+                recipe_count=len(stage_ids),
+                completed_count=len(completed),
+                accepted_count=len(accepted),
+                passed=passed,
+            )
+        )
+        if pending:
+            return ProgressiveValidationPlanContract(
+                current_layer_count=layer_count,
+                pending_recipe_ids=pending,
+                skipped_recipe_ids=(),
+                stages=tuple(stages),
+            )
+        if not passed and stop_on_failure:
+            later = tuple(
+                recipe.recipe_id
+                for recipe in recipes
+                if recipe.recipe_id not in terminal
+                and recipe.recipe_id not in stage_ids
+            )
+            return ProgressiveValidationPlanContract(
+                current_layer_count=None,
+                pending_recipe_ids=(),
+                skipped_recipe_ids=later,
+                stages=tuple(stages),
+            )
+
+    progressive_ids = {recipe.recipe_id for recipe in progressive}
+    remaining = tuple(
+        recipe.recipe_id
+        for recipe in recipes
+        if recipe.recipe_id not in progressive_ids
+        and recipe.recipe_id not in terminal
+    )
+    return ProgressiveValidationPlanContract(
+        current_layer_count=None,
+        pending_recipe_ids=remaining,
+        skipped_recipe_ids=(),
+        stages=tuple(stages),
+    )
 
 
 def indexed_layers(

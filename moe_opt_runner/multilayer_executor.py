@@ -17,22 +17,28 @@ from moe_opt_core.experiment import (
     MultiLayerRecipeContract,
     MultiLayerStep,
     MultiLayerStepResultContract,
+    MultiLayerValidationScoreContract,
     PilotStepStatus,
 )
 from moe_opt_core.experiment.evaluation import compare_evaluations
 from moe_opt_core.experiment.multilayer_planning import (
     allocate_global_budget,
     build_cumulative_recipes,
+    build_hybrid_cumulative_recipes,
     build_multilayer_execution_state,
     cumulative_layer_prefixes,
     pending_multilayer_ids,
+    plan_progressive_validation,
     next_multilayer_step,
     resolve_sensitivity_layers,
     score_layer_plans,
+    select_materialization_ids,
+    select_multilayer_configurations,
 )
 from moe_opt_core.experiment.pilot_validation import (
     aggregate_evaluation_metrics,
     partition_validation_batches,
+    summarize_evaluation_repeats,
     summarize_validation_degradations,
 )
 from moe_opt_core.experiment.serialization import (
@@ -106,6 +112,7 @@ class ResumableMultiLayerExecutor:
         self.recipes_path = self.root / "multilayer_recipes.json"
         self.selection_path = self.root / "multilayer_selection.json"
         self.summary_path = self.root / "multilayer_summary.json"
+        self.progressive_path = self.root / "progressive_checkpoints.json"
         self.layer_artifact_root = self.root / "layer_artifacts"
 
     @property
@@ -255,10 +262,20 @@ class ResumableMultiLayerExecutor:
                 for fraction in self.config.multilayer.compression_fractions:
                     rank_count = 1
                     if method in {"rmt_geometry", "rmt_functional_usage"}:
+                        rank_policy = self.config.pilot.spectral_rank_policy
+                        policy_rank_count = (
+                            int(rank_policy.include_useful_rank)
+                            + int(rank_policy.include_mp_rank)
+                            + len(rank_policy.explained_variance_thresholds)
+                        )
                         rank_count = (
                             1
                             if method in scheduled_methods
-                            else max(1, len(self.config.pilot.spectral_pairing_ranks))
+                            else max(
+                                1,
+                                len(self.config.pilot.spectral_pairing_ranks)
+                                + policy_rank_count,
+                            )
                         )
                     hybrid_count = (
                         hybrid_variant_count
@@ -301,7 +318,10 @@ class ResumableMultiLayerExecutor:
             pending_multilayer_ids(
                 tuple(recipe.recipe_id for recipe in recipes),
                 completed_ids=state.completed_validation_recipe_ids,
-                failed_ids=state.failed_validation_recipe_ids,
+                failed_ids=(
+                    state.failed_validation_recipe_ids
+                    + state.skipped_validation_recipe_ids
+                ),
                 retry_failed=False,
             )
         )
@@ -462,6 +482,14 @@ class ResumableMultiLayerExecutor:
             ),
         )
 
+    def _evaluate_repeated(self, batches, *, repeats: int):
+        measurements = tuple(self._evaluate(batches) for _ in range(repeats))
+        aggregate, summary = summarize_evaluation_repeats(
+            measurements,
+            aggregation=self.config.multilayer.protocol.aggregation,
+        )
+        return aggregate, measurements, summary
+
     def _validation_slices(self, batches):
         limited = tuple(batches[: self.config.pilot.max_eval_batches])
         return partition_validation_batches(
@@ -470,16 +498,34 @@ class ResumableMultiLayerExecutor:
         )
 
     def _evaluate_validation(self, batches):
-        metrics = tuple(
-            evaluate_language_model(
-                self._require_context().model,
-                batch_slice,
-                warmup_steps=0,
-                measure_steps=len(batch_slice),
+        slices = self._validation_slices(batches)
+        repeat_slices = tuple(
+            tuple(
+                evaluate_language_model(
+                    self._require_context().model,
+                    batch_slice,
+                    warmup_steps=0,
+                    measure_steps=len(batch_slice),
+                )
+                for batch_slice in slices
             )
-            for batch_slice in self._validation_slices(batches)
+            for _ in range(self.config.multilayer.protocol.validation_repeats)
         )
-        return aggregate_evaluation_metrics(metrics), metrics
+        repeat_metrics = tuple(
+            aggregate_evaluation_metrics(items) for items in repeat_slices
+        )
+        aggregate, repeat_summary = summarize_evaluation_repeats(
+            repeat_metrics,
+            aggregation=self.config.multilayer.protocol.aggregation,
+        )
+        aggregate_slices = tuple(
+            summarize_evaluation_repeats(
+                tuple(items[index] for items in repeat_slices),
+                aggregation=self.config.multilayer.protocol.aggregation,
+            )[0]
+            for index in range(len(slices))
+        )
+        return aggregate, aggregate_slices, repeat_metrics, repeat_summary
 
     def _baseline_row(
         self,
@@ -511,14 +557,20 @@ class ResumableMultiLayerExecutor:
             return self._result(step, PilotStepStatus.SKIPPED, 0, 0, (self.record_path,))
         batches = self._load_batches(split)
         if split == "validation":
-            metrics, slices = self._evaluate_validation(batches)
+            metrics, slices, repeats, repeat_summary = self._evaluate_validation(batches)
         else:
-            metrics, slices = self._evaluate(batches), ()
+            metrics, repeats, repeat_summary = self._evaluate_repeated(
+                batches,
+                repeats=self.config.multilayer.protocol.test_repeats,
+            )
+            slices = ()
         row: dict[str, object] = {
             "config_hash": self.run_hash,
             "record_type": "multilayer_baseline",
             "split": split,
             "metrics": asdict(metrics),
+            "evaluation_repeats": [asdict(item) for item in repeats],
+            "evaluation_repeat_summary": asdict(repeat_summary),
         }
         if slices:
             row["validation_slice_metrics"] = [asdict(item) for item in slices]
@@ -544,6 +596,8 @@ class ResumableMultiLayerExecutor:
         split: str,
         metrics: EvaluationMetricsContract,
         slice_metrics: Sequence[EvaluationMetricsContract],
+        repeat_metrics: Sequence[EvaluationMetricsContract] = (),
+        repeat_summary=None,
     ) -> dict[str, object]:
         baseline, baseline_slices = self._baseline_metrics(split)
         comparison = compare_evaluations(
@@ -559,6 +613,10 @@ class ResumableMultiLayerExecutor:
             "memory_reduction": comparison.memory_reduction,
             "accepted_quality_budgets": dict(comparison.accepted_quality_budgets),
         }
+        if repeat_metrics:
+            result["evaluation_repeats"] = [asdict(item) for item in repeat_metrics]
+        if repeat_summary is not None:
+            result["evaluation_repeat_summary"] = asdict(repeat_summary)
         if slice_metrics:
             degradations = tuple(
                 compare_evaluations(
@@ -631,7 +689,7 @@ class ResumableMultiLayerExecutor:
             shrink_tau=self.config.h1.shrink_tau,
             expert_cache={},
         ) as transform:
-            metrics, slices = self._evaluate_validation(batches)
+            metrics, slices, repeats, repeat_summary = self._evaluate_validation(batches)
         return {
             "plan": candidate_plan_to_dict(plan),
             "transform": asdict(transform),
@@ -640,6 +698,8 @@ class ResumableMultiLayerExecutor:
                 split="validation",
                 metrics=metrics,
                 slice_metrics=slices,
+                repeat_metrics=repeats,
+                repeat_summary=repeat_summary,
             ),
         }
 
@@ -772,6 +832,18 @@ class ResumableMultiLayerExecutor:
                 refresh_modes=self.config.multilayer.trace_refresh_modes,
             )
         )
+        if self.config.multilayer.include_hybrid_recipes:
+            recipes.extend(
+                build_hybrid_cumulative_recipes(
+                    layer_prefixes=prefixes,
+                    scored_plans=scored,
+                    methods=self.config.multilayer.methods,
+                    compression_fractions=(
+                        self.config.multilayer.compression_fractions
+                    ),
+                    refresh_modes=self.config.multilayer.trace_refresh_modes,
+                )
+            )
         planning_failures = []
         for refresh in self.config.multilayer.trace_refresh_modes:
             for target in self.config.multilayer.global_compression_targets:
@@ -932,9 +1004,50 @@ class ResumableMultiLayerExecutor:
             step = MultiLayerStep.MULTILAYER_VALIDATION
             candidate_ids = tuple(recipe.recipe_id for recipe in recipes)
             completed = state.completed_validation_recipe_ids
-            failed = state.failed_validation_recipe_ids
+            failed = (
+                state.failed_validation_recipe_ids
+                + state.skipped_validation_recipe_ids
+            )
             success_type = "multilayer_candidate"
             failure_type = "failed_multilayer_candidate"
+            progressive = self.config.multilayer.progressive_scaling
+            if progressive.enabled:
+                validation_plan = plan_progressive_validation(
+                    recipes,
+                    self._validation_scores(),
+                    completed_ids=state.completed_validation_recipe_ids,
+                    failed_ids=state.failed_validation_recipe_ids,
+                    skipped_ids=state.skipped_validation_recipe_ids,
+                    layer_counts=progressive.layer_counts,
+                    quality_budget=self.config.multilayer.quality_budget,
+                    min_accepted_recipes=progressive.min_accepted_recipes,
+                    stop_on_failure=progressive.stop_on_failure,
+                )
+                for recipe_id in validation_plan.skipped_recipe_ids:
+                    append_incremental_record(
+                        self.record_path,
+                        {
+                            "config_hash": self.run_hash,
+                            "record_type": "skipped_multilayer_candidate",
+                            "recipe_id": recipe_id,
+                            "reason": "progressive_quality_gate_failed",
+                        },
+                    )
+                write_json_atomic(
+                    self.progressive_path,
+                    {
+                        "schema_version": "1.0",
+                        "config_hash": self.run_hash,
+                        "current_layer_count": validation_plan.current_layer_count,
+                        "stages": [asdict(item) for item in validation_plan.stages],
+                        "skipped_recipe_ids": list(
+                            validation_plan.skipped_recipe_ids
+                        ),
+                    },
+                )
+                candidate_ids = validation_plan.pending_recipe_ids
+                completed = ()
+                failed = ()
         else:
             step = MultiLayerStep.TEST_SELECTED
             candidate_ids = state.selected_recipe_ids
@@ -962,6 +1075,46 @@ class ResumableMultiLayerExecutor:
             id_field="recipe_id",
         )
 
+    def _validation_scores(self) -> tuple[MultiLayerValidationScoreContract, ...]:
+        scores = []
+        for row in self._records():
+            if (
+                row.get("config_hash") != self.run_hash
+                or row.get("record_type") != "multilayer_candidate"
+                or not isinstance(row.get("recipe"), Mapping)
+            ):
+                continue
+            degradation = float(row["relative_perplexity_degradation"])
+            robustness = row.get("validation_robustness")
+            robust_score = degradation
+            if isinstance(robustness, Mapping):
+                if not bool(robustness.get("passes_max_slice_degradation", True)):
+                    continue
+                robust_score = float(robustness["robust_score"])
+            recipe = multilayer_recipe_from_dict(row["recipe"])
+            scores.append(
+                MultiLayerValidationScoreContract(
+                    recipe_id=str(row["recipe_id"]),
+                    kind=recipe.kind,
+                    trace_refresh_mode=recipe.trace_refresh_mode,
+                    methods=tuple(
+                        sorted(
+                            {
+                                choice.plan.method.value
+                                for choice in recipe.choices
+                                if choice.plan is not None
+                            }
+                        )
+                    ),
+                    layer_count=len(recipe.choices),
+                    target_compression=recipe.target_compression,
+                    achieved_compression=recipe.achieved_compression,
+                    relative_perplexity_degradation=degradation,
+                    robust_score=robust_score,
+                )
+            )
+        return tuple(scores)
+
     def _evaluate_recipe(
         self,
         recipe: MultiLayerRecipeContract,
@@ -971,9 +1124,13 @@ class ResumableMultiLayerExecutor:
         batches = self._load_batches(split)
         with self._recipe_transform(recipe) as (resolved_recipe, transforms):
             if split == "validation":
-                metrics, slices = self._evaluate_validation(batches)
+                metrics, slices, repeats, repeat_summary = self._evaluate_validation(batches)
             else:
-                metrics, slices = self._evaluate(batches), ()
+                metrics, repeats, repeat_summary = self._evaluate_repeated(
+                    batches,
+                    repeats=self.config.multilayer.protocol.test_repeats,
+                )
+                slices = ()
         return {
             "split": split,
             "recipe": multilayer_recipe_to_dict(resolved_recipe),
@@ -983,6 +1140,8 @@ class ResumableMultiLayerExecutor:
                 split=split,
                 metrics=metrics,
                 slice_metrics=slices,
+                repeat_metrics=repeats,
+                repeat_summary=repeat_summary,
             ),
         }
 
@@ -1000,7 +1159,10 @@ class ResumableMultiLayerExecutor:
         pending = pending_multilayer_ids(
             tuple(recipe.recipe_id for recipe in recipes),
             completed_ids=state.completed_validation_recipe_ids,
-            failed_ids=state.failed_validation_recipe_ids,
+            failed_ids=(
+                state.failed_validation_recipe_ids
+                + state.skipped_validation_recipe_ids
+            ),
             retry_failed=False,
         )
         if pending:
@@ -1008,38 +1170,16 @@ class ResumableMultiLayerExecutor:
                 "Cannot select configurations before validation finishes: "
                 f"{len(pending)} pending"
             )
-        winners: dict[tuple[str, float, str], tuple[str, float]] = {}
-        for row in self._records():
-            if (
-                row.get("config_hash") != self.run_hash
-                or row.get("record_type") != "multilayer_candidate"
-                or not isinstance(row.get("recipe"), Mapping)
-            ):
-                continue
-            degradation = float(row["relative_perplexity_degradation"])
-            robustness = row.get("validation_robustness")
-            score = degradation
-            if isinstance(robustness, Mapping):
-                if not bool(robustness.get("passes_max_slice_degradation", True)):
-                    continue
-                score = float(robustness["robust_score"])
-            if score > self.config.multilayer.quality_budget:
-                continue
-            recipe = row["recipe"]
-            key = (
-                str(recipe["kind"]),
-                round(float(recipe["achieved_compression"]), 6),
-                str(recipe["trace_refresh_mode"]),
-            )
-            candidate = (str(row["recipe_id"]), score)
-            current = winners.get(key)
-            if current is None or (candidate[1], candidate[0]) < (current[1], current[0]):
-                winners[key] = candidate
-        selected = tuple(
-            candidate_id
-            for candidate_id, _ in sorted(
-                winners.values(), key=lambda item: (item[1], item[0])
-            )
+        selection = self.config.multilayer.selection
+        selected = select_multilayer_configurations(
+            self._validation_scores(),
+            quality_budget=self.config.multilayer.quality_budget,
+            strategy=selection.strategy,
+            per_method_per_cell=selection.per_method_per_cell,
+            include_global_winners=selection.include_global_winners,
+            balance_layer_counts=selection.balance_layer_counts,
+            balance_refresh_modes=selection.balance_refresh_modes,
+            max_selected=selection.max_selected,
         )
         write_json_atomic(
             self.selection_path,
@@ -1047,6 +1187,7 @@ class ResumableMultiLayerExecutor:
                 "schema_version": "1.0",
                 "config_hash": self.run_hash,
                 "selected_recipe_ids": list(selected),
+                "selection_strategy": selection.strategy,
             },
         )
         return self._result(
@@ -1058,7 +1199,21 @@ class ResumableMultiLayerExecutor:
         )
 
     def _materialization_ids(self) -> tuple[str, ...]:
-        return self._selected_ids()[: self.config.multilayer.materialization.selected_plan_count]
+        materialization = self.config.multilayer.materialization
+        selected_ids = self._selected_ids()
+        if not selected_ids:
+            return ()
+        recipes = (
+            tuple(self._resolved_recipe_by_id().values())
+            if materialization.strategy == "method_balanced"
+            else ()
+        )
+        return select_materialization_ids(
+            selected_ids,
+            recipes,
+            count=materialization.selected_plan_count,
+            strategy=materialization.strategy,
+        )
 
     def _resolved_recipe_by_id(self) -> dict[str, MultiLayerRecipeContract]:
         recipes = {recipe.recipe_id: recipe for recipe in self._load_recipes()}
@@ -1165,12 +1320,17 @@ class ResumableMultiLayerExecutor:
                 if device.type == "cuda"
                 else 0.0
             )
-            metrics = self._evaluate(batches)
+            metrics, repeats, repeat_summary = self._evaluate_repeated(
+                batches,
+                repeats=self.config.multilayer.protocol.materialized_repeats,
+            )
             comparison = self._comparison_record(
                 identifier=recipe_id,
                 split="test",
                 metrics=metrics,
                 slice_metrics=(),
+                repeat_metrics=repeats,
+                repeat_summary=repeat_summary,
             )
             row = {
                 "config_hash": self.run_hash,

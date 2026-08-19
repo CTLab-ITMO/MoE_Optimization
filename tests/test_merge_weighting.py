@@ -108,3 +108,17 @@ def test_explicit_uniform_merge_is_equivalent_to_legacy_default() -> None:
 def test_matrix_merge_rejects_misaligned_coefficients() -> None:
     with pytest.raises(ValueError, match="align"):
         merge_weight_matrices_baseline((torch.ones(1), torch.ones(1)), usage=(1.0,))
+
+
+def test_functional_ridge_weights_follow_token_conditioned_expert_outputs() -> None:
+    weights = build_group_merge_weights(
+        ((0, 1),),
+        (1.0, 0.0),
+        policy=MergeWeightingPolicy.FUNCTIONAL_RIDGE,
+        ridge_lambda=1e-3,
+        functional_embedding=torch.tensor([[1.0, 0.0], [0.0, 1.0]]),
+        routing_probs=torch.tensor([[1.0, 0.0], [1.0, 0.0]]),
+    )
+    assert weights[0][0] > 0.99
+    assert weights[0][1] < 0.01
+    assert sum(weights[0]) == pytest.approx(1.0)

@@ -3,6 +3,7 @@ import torch
 
 from moe_opt_core.pipelines.rmt_diagnostics import (
     finite_size_spectral_diagnostics,
+    resolve_spectral_rank_grid,
     spectral_embeddings_at_ranks,
 )
 
@@ -53,3 +54,19 @@ def test_spectral_embeddings_reject_invalid_rank_grid() -> None:
         spectral_embeddings_at_ranks(embedding, (1, 1))
     with pytest.raises(ValueError, match=r"\[1, 4\]"):
         spectral_embeddings_at_ranks(embedding, (5,))
+
+
+def test_rank_grid_combines_fixed_detected_and_explained_variance_policies() -> None:
+    embedding = torch.diag(torch.tensor([4.0, 2.0, 1.0, 0.5]))
+    ranks = resolve_spectral_rank_grid(
+        embedding,
+        fixed_ranks=(2,),
+        useful_rank=1,
+        mp_rank=3,
+        include_useful_rank=True,
+        include_mp_rank=True,
+        explained_variance_thresholds=(0.95,),
+    )
+    assert ranks == tuple(sorted(set(ranks)))
+    assert {1, 2, 3}.issubset(ranks)
+    assert max(ranks) <= 4

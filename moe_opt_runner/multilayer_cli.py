@@ -5,6 +5,7 @@ import json
 
 from moe_opt_core.config import load_experiment_config
 from moe_opt_core.experiment import MultiLayerStep, PilotStepStatus
+from moe_opt_core.experiment.protocol import materialize_replication_config
 from moe_opt_runner.multilayer_executor import (
     ResumableMultiLayerExecutor,
     multilayer_step_result_dict,
@@ -31,8 +32,12 @@ def execute_multilayer_step(
     max_items: int | None = None,
     max_step_seconds: float | None = None,
     retry_failed: bool = False,
+    replication_seed: int | None = None,
 ) -> dict[str, object]:
-    config = load_experiment_config(config_path)
+    config = materialize_replication_config(
+        load_experiment_config(config_path),
+        replication_seed,
+    )
     executor = ResumableMultiLayerExecutor(config)
     item_limit = (
         max_items
@@ -159,6 +164,7 @@ def main() -> None:
     parser.add_argument("--max-items", type=int, default=None)
     parser.add_argument("--max-step-seconds", type=float, default=None)
     parser.add_argument("--retry-failed", action="store_true")
+    parser.add_argument("--replication-seed", type=int, default=None)
     args = parser.parse_args()
     if args.max_items is not None and args.max_items < 1:
         parser.error("--max-items must be positive")
@@ -166,7 +172,10 @@ def main() -> None:
         parser.error("--max-step-seconds must be positive")
 
     if args.step == "status":
-        config = load_experiment_config(args.config)
+        config = materialize_replication_config(
+            load_experiment_config(args.config),
+            args.replication_seed,
+        )
         output = ResumableMultiLayerExecutor(config).status()
     else:
         output = execute_multilayer_step(
@@ -175,6 +184,7 @@ def main() -> None:
             max_items=args.max_items,
             max_step_seconds=args.max_step_seconds,
             retry_failed=args.retry_failed,
+            replication_seed=args.replication_seed,
         )
     print(json.dumps(output, indent=2, ensure_ascii=False))
 

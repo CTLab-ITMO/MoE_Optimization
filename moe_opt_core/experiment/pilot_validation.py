@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import math
+from statistics import median, pstdev
 from typing import Sequence, TypeVar
 
 from moe_opt_core.experiment.contracts import (
     EvaluationMetricsContract,
+    EvaluationRepeatSummaryContract,
     ValidationRobustnessContract,
 )
 
@@ -43,6 +45,62 @@ def aggregate_evaluation_metrics(
         evaluated_tokens=total_tokens,
         elapsed_seconds=float(elapsed),
     )
+
+
+def _linear_quantile(values: Sequence[float], probability: float) -> float:
+    ordered = tuple(sorted(float(value) for value in values))
+    if not ordered:
+        raise ValueError("values must not be empty")
+    if not 0.0 <= probability <= 1.0:
+        raise ValueError("probability must be in [0, 1]")
+    position = probability * (len(ordered) - 1)
+    lower = int(math.floor(position))
+    upper = int(math.ceil(position))
+    if lower == upper:
+        return ordered[lower]
+    weight = position - lower
+    return ordered[lower] * (1.0 - weight) + ordered[upper] * weight
+
+
+def summarize_evaluation_repeats(
+    metrics: Sequence[EvaluationMetricsContract],
+    *,
+    aggregation: str = "median",
+) -> tuple[EvaluationMetricsContract, EvaluationRepeatSummaryContract]:
+    if not metrics:
+        raise ValueError("metrics must not be empty")
+    if aggregation != "median":
+        raise ValueError("aggregation must be median")
+    token_counts = {item.evaluated_tokens for item in metrics}
+    parameter_sizes = {round(item.model_parameter_mb, 9) for item in metrics}
+    if len(token_counts) != 1:
+        raise ValueError("evaluation repeats must use the same token count")
+    if len(parameter_sizes) != 1:
+        raise ValueError("evaluation repeats must use the same model parameters")
+
+    nll_values = tuple(item.nll for item in metrics)
+    perplexities = tuple(item.perplexity for item in metrics)
+    throughputs = tuple(item.tokens_per_second for item in metrics)
+    elapsed_values = tuple(item.elapsed_seconds for item in metrics)
+    nll = float(median(nll_values))
+    aggregate = EvaluationMetricsContract(
+        nll=nll,
+        perplexity=float(math.exp(min(nll, 50.0))),
+        tokens_per_second=float(median(throughputs)),
+        peak_memory_mb=max(item.peak_memory_mb for item in metrics),
+        model_parameter_mb=float(median(item.model_parameter_mb for item in metrics)),
+        evaluated_tokens=next(iter(token_counts)),
+        elapsed_seconds=float(median(elapsed_values)),
+    )
+    summary = EvaluationRepeatSummaryContract(
+        repeat_count=len(metrics),
+        aggregation=aggregation,
+        perplexity_std=float(pstdev(perplexities)),
+        tokens_per_second_median=float(median(throughputs)),
+        tokens_per_second_p05=float(_linear_quantile(throughputs, 0.05)),
+        tokens_per_second_p95=float(_linear_quantile(throughputs, 0.95)),
+    )
+    return aggregate, summary
 
 
 def summarize_validation_degradations(
