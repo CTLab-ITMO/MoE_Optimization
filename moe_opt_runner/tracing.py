@@ -127,12 +127,17 @@ def collect_traces_from_batches(
     config: ExperimentConfig,
     ctx: RuntimeContext,
     split_batches: Mapping[str, Sequence[Mapping[str, torch.Tensor]]],
+    *,
+    layers: Sequence[int] | None = None,
+    output_root: str | Path | None = None,
+    persist_legacy_aliases: bool = True,
 ) -> tuple[CalibrationTraceContract, ...]:
-    output_root = Path(config.calibration.output_dir)
-    output_root.mkdir(parents=True, exist_ok=True)
+    resolved_output_root = Path(output_root or config.calibration.output_dir)
+    resolved_output_root.mkdir(parents=True, exist_ok=True)
     device = _model_input_device(ctx.model)
     handles = []
-    for layer in config.layers:
+    target_layers = tuple(int(layer) for layer in (layers or config.layers))
+    for layer in target_layers:
         handle = ctx.handles_by_layer.get(layer)
         if handle is None:
             raise ExpectedExperimentFailure(
@@ -144,7 +149,7 @@ def collect_traces_from_batches(
     contracts: list[CalibrationTraceContract] = []
     ctx.model.eval()
     for split, batches in split_batches.items():
-        split_dir = output_root / split
+        split_dir = resolved_output_root / split
         split_dir.mkdir(parents=True, exist_ok=True)
         token_batches_path = split_dir / "token_batches.pt"
         cpu_batches = [
@@ -245,7 +250,7 @@ def collect_traces_from_batches(
                 )
             )
 
-            if split == "calibration" and layer == config.h1.layer:
+            if persist_legacy_aliases and split == "calibration" and layer == config.h1.layer:
                 h1_path = Path(config.h1.mlp_inputs_path)
                 h1_path.parent.mkdir(parents=True, exist_ok=True)
                 torch.save(hidden, h1_path)
@@ -253,7 +258,7 @@ def collect_traces_from_batches(
                 h3_path.parent.mkdir(parents=True, exist_ok=True)
                 torch.save(probs, h3_path)
 
-    manifest_path = output_root / "trace_manifest.json"
+    manifest_path = resolved_output_root / "trace_manifest.json"
     existing_payload = []
     if manifest_path.exists():
         loaded = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -279,6 +284,10 @@ def collect_real_calibration_traces(
     config: ExperimentConfig,
     ctx: RuntimeContext,
     splits: Sequence[str] | None = None,
+    *,
+    layers: Sequence[int] | None = None,
+    output_root: str | Path | None = None,
+    persist_legacy_aliases: bool = True,
 ) -> tuple[CalibrationTraceContract, ...]:
     if config.calibration.source != TraceSource.HF_DATASET.value:
         raise ExpectedExperimentFailure(
@@ -297,4 +306,11 @@ def collect_real_calibration_traces(
         raise ValueError(f"Unknown trace splits: {unknown}")
     selected_texts = {split: texts[split] for split in requested}
     batches = _tokenize_splits(config, ctx.tokenizer, selected_texts)
-    return collect_traces_from_batches(config, ctx, batches)
+    return collect_traces_from_batches(
+        config,
+        ctx,
+        batches,
+        layers=layers,
+        output_root=output_root,
+        persist_legacy_aliases=persist_legacy_aliases,
+    )

@@ -3,6 +3,8 @@ from __future__ import annotations
 import math
 from typing import Sequence
 
+import torch
+
 from moe_opt_core.experiment.contracts import MergeWeightingPolicy
 
 
@@ -24,6 +26,9 @@ def build_group_merge_weights(
     *,
     policy: MergeWeightingPolicy,
     minimum_weight: float = 0.0,
+    ridge_lambda: float = 0.0,
+    functional_embedding: torch.Tensor | None = None,
+    routing_probs: torch.Tensor | None = None,
 ) -> tuple[tuple[float, ...], ...]:
     usage = tuple(float(value) for value in expert_usage)
     if any(not math.isfinite(value) or value < 0.0 for value in usage):
@@ -34,6 +39,17 @@ def build_group_merge_weights(
         raise ValueError("usage_bounded requires a positive minimum_weight")
     if policy != MergeWeightingPolicy.USAGE_BOUNDED and minimum_weight != 0.0:
         raise ValueError("minimum_weight is only valid for usage_bounded")
+    if ridge_lambda < 0.0:
+        raise ValueError("ridge_lambda must be non-negative")
+    if policy == MergeWeightingPolicy.FUNCTIONAL_RIDGE:
+        if ridge_lambda <= 0.0:
+            raise ValueError("functional_ridge requires a positive ridge_lambda")
+        if functional_embedding is None or routing_probs is None:
+            raise ValueError(
+                "functional_ridge requires functional_embedding and routing_probs"
+            )
+    elif ridge_lambda != 0.0:
+        raise ValueError("ridge_lambda is only valid for functional_ridge")
 
     result: list[tuple[float, ...]] = []
     for raw_group in groups:
@@ -45,6 +61,14 @@ def build_group_merge_weights(
 
         if policy == MergeWeightingPolicy.UNIFORM:
             weights = tuple(1.0 / len(group) for _ in group)
+        elif policy == MergeWeightingPolicy.FUNCTIONAL_RIDGE:
+            weights = _functional_ridge_group_weights(
+                group,
+                usage,
+                functional_embedding=functional_embedding,
+                routing_probs=routing_probs,
+                ridge_lambda=ridge_lambda,
+            )
         else:
             weights = _normalize_non_negative(tuple(usage[index] for index in group))
             if policy == MergeWeightingPolicy.USAGE_BOUNDED:
@@ -58,6 +82,62 @@ def build_group_merge_weights(
                 raise ValueError(f"Unsupported merge weighting policy: {policy.value}")
         result.append(weights)
     return tuple(result)
+
+
+def _functional_ridge_group_weights(
+    group: tuple[int, ...],
+    expert_usage: tuple[float, ...],
+    *,
+    functional_embedding: torch.Tensor,
+    routing_probs: torch.Tensor,
+    ridge_lambda: float,
+) -> tuple[float, ...]:
+    if len(group) == 1:
+        return (1.0,)
+    if functional_embedding.ndim != 2 or routing_probs.ndim != 2:
+        raise ValueError("functional ridge inputs must be two-dimensional")
+    if functional_embedding.shape[0] != routing_probs.shape[1]:
+        raise ValueError("functional embedding and routing probabilities must align")
+    token_count = int(routing_probs.shape[0])
+    if token_count < 1 or functional_embedding.shape[1] % token_count != 0:
+        raise ValueError(
+            "functional embedding columns must be divisible by routing rows"
+        )
+
+    indices = torch.tensor(group, dtype=torch.long)
+    experts = functional_embedding.detach().float().cpu().index_select(0, indices)
+    routes = routing_probs.detach().float().cpu().index_select(1, indices)
+    prior = torch.tensor(
+        _normalize_non_negative(tuple(expert_usage[index] for index in group)),
+        dtype=torch.float64,
+    )
+    route_total = routes.sum(dim=1, keepdim=True)
+    conditional = routes / route_total.clamp_min(1e-12)
+    empty = route_total.squeeze(1) <= 1e-12
+    if empty.any():
+        conditional[empty] = prior.to(dtype=conditional.dtype)
+
+    projection_dim = int(experts.shape[1] // token_count)
+    expert_outputs = experts.reshape(len(group), token_count, projection_dim)
+    target = (
+        conditional.unsqueeze(-1)
+        * expert_outputs.permute(1, 0, 2)
+    ).sum(dim=1).reshape(-1).to(torch.float64)
+    design = experts.t().to(torch.float64)
+    gram = design.t() @ design
+    scale = max(float(torch.trace(gram).item()) / len(group), 1e-12)
+    regularization = float(ridge_lambda) * scale
+    system = gram + regularization * torch.eye(len(group), dtype=torch.float64)
+    rhs = design.t() @ target + regularization * prior
+    try:
+        fitted = torch.linalg.solve(system, rhs)
+    except RuntimeError:
+        fitted = torch.linalg.lstsq(system, rhs.unsqueeze(1)).solution.squeeze(1)
+    fitted = fitted.clamp_min(0.0)
+    if float(fitted.sum().item()) <= 1e-12:
+        fitted = prior
+    fitted = fitted / fitted.sum()
+    return tuple(float(value) for value in fitted.tolist())
 
 
 def merge_weight_diagnostics(

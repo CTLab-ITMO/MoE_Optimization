@@ -118,6 +118,7 @@ class MergeWeightingVariantConfig:
     name: str
     policy: str
     minimum_weight: float = 0.0
+    ridge_lambda: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -134,10 +135,78 @@ class SpectralRankAssignmentConfig:
 
 
 @dataclass(frozen=True)
+class SpectralRankPolicyConfig:
+    include_useful_rank: bool = False
+    include_mp_rank: bool = False
+    explained_variance_thresholds: Tuple[float, ...] = ()
+
+
+@dataclass(frozen=True)
 class ValidationSelectionConfig:
     slice_count: int = 1
     std_penalty: float = 0.0
     max_slice_degradation: float | None = None
+
+
+@dataclass(frozen=True)
+class MultiLayerMaterializationConfig:
+    enabled: bool = True
+    output_dir: str = "artifacts/materialized"
+    selected_plan_count: int = 1
+    strategy: str = "selected_order"
+    save_layer_weights: bool = True
+
+
+@dataclass(frozen=True)
+class MultiLayerProtocolConfig:
+    replication_seeds: Tuple[int, ...] = ()
+    validation_repeats: int = 1
+    test_repeats: int = 1
+    materialized_repeats: int = 1
+    aggregation: str = "median"
+
+
+@dataclass(frozen=True)
+class MultiLayerSelectionConfig:
+    strategy: str = "global_winners"
+    per_method_per_cell: int = 1
+    include_global_winners: bool = True
+    balance_layer_counts: bool = False
+    balance_refresh_modes: bool = True
+    max_selected: int = 0
+
+
+@dataclass(frozen=True)
+class ProgressiveScalingConfig:
+    enabled: bool = False
+    layer_counts: Tuple[int, ...] = ()
+    min_accepted_recipes: int = 1
+    stop_on_failure: bool = True
+
+
+@dataclass(frozen=True)
+class MultiLayerConfig:
+    enabled: bool = False
+    sensitivity_layers: Tuple[int, ...] = ()
+    methods: Tuple[str, ...] = (
+        "usage_prune",
+        "functional_cosine",
+        "rmt_functional_usage",
+    )
+    compression_fractions: Tuple[float, ...] = (0.1, 0.25)
+    cumulative_layer_counts: Tuple[int, ...] = (1, 3, 6)
+    include_all_layers: bool = True
+    trace_refresh_modes: Tuple[str, ...] = ("static", "adaptive")
+    global_compression_targets: Tuple[float, ...] = (0.05, 0.1, 0.2)
+    quality_budget: float = 0.03
+    max_layer_degradation: float = 0.05
+    candidates_per_invocation: int = 2
+    max_step_seconds: float = 1800.0
+    include_hybrid_recipes: bool = False
+    protocol: MultiLayerProtocolConfig = MultiLayerProtocolConfig()
+    selection: MultiLayerSelectionConfig = MultiLayerSelectionConfig()
+    progressive_scaling: ProgressiveScalingConfig = ProgressiveScalingConfig()
+    materialization: MultiLayerMaterializationConfig = MultiLayerMaterializationConfig()
 
 
 @dataclass(frozen=True)
@@ -160,6 +229,7 @@ class PilotConfig:
     max_step_seconds: float = 1800.0
     spectral_pairing_ranks: Tuple[int, ...] = ()
     spectral_rank_schedule: Tuple[SpectralRankAssignmentConfig, ...] = ()
+    spectral_rank_policy: SpectralRankPolicyConfig = SpectralRankPolicyConfig()
     hybrid_pairing: HybridPairingConfig = HybridPairingConfig()
     merge_weighting: MergeWeightingConfig = MergeWeightingConfig()
     validation_selection: ValidationSelectionConfig = ValidationSelectionConfig()
@@ -186,6 +256,7 @@ class ExperimentConfig:
     profile: ProfileConfig
     calibration: CalibrationConfig
     pilot: PilotConfig
+    multilayer: MultiLayerConfig
     h1: H1Config
     h2: H2Config
     h3: H3Config
@@ -372,6 +443,25 @@ def validate_experiment_config_dict(data: Dict[str, Any]) -> None:
         raise ValueError("pilot.spectral_pairing_ranks values must be unique")
     if expected_routed is not None and any(rank > int(expected_routed) for rank in spectral_pairing_ranks):
         raise ValueError("pilot.spectral_pairing_ranks must not exceed runtime.expected_routed_experts")
+    rank_policy = pilot.get("spectral_rank_policy", {})
+    if not isinstance(rank_policy, dict):
+        raise ValueError("pilot.spectral_rank_policy must be an object")
+    explained_variance_thresholds = tuple(
+        float(value)
+        for value in rank_policy.get("explained_variance_thresholds", ())
+    )
+    if any(not 0.0 < value <= 1.0 for value in explained_variance_thresholds):
+        raise ValueError(
+            "pilot.spectral_rank_policy.explained_variance_thresholds values "
+            "must be in (0, 1]"
+        )
+    if len(set(explained_variance_thresholds)) != len(
+        explained_variance_thresholds
+    ):
+        raise ValueError(
+            "pilot.spectral_rank_policy.explained_variance_thresholds values "
+            "must be unique"
+        )
     rank_schedule = pilot.get("spectral_rank_schedule", ())
     if not isinstance(rank_schedule, (list, tuple)):
         raise ValueError("pilot.spectral_rank_schedule must be an array")
@@ -440,7 +530,12 @@ def validate_experiment_config_dict(data: Dict[str, Any]) -> None:
             "pilot.merge_weighting methods and variants must either both be empty or both be set"
         )
     merge_variant_names: list[str] = []
-    allowed_weighting_policies = {"uniform", "usage_proportional", "usage_bounded"}
+    allowed_weighting_policies = {
+        "uniform",
+        "usage_proportional",
+        "usage_bounded",
+        "functional_ridge",
+    }
     for index, item in enumerate(merge_weight_variants):
         if not isinstance(item, dict):
             raise ValueError("pilot.merge_weighting variants must be objects")
@@ -448,6 +543,7 @@ def validate_experiment_config_dict(data: Dict[str, Any]) -> None:
         name = str(item["name"])
         policy = str(item["policy"])
         minimum_weight = float(item.get("minimum_weight", 0.0))
+        ridge_lambda = float(item.get("ridge_lambda", 0.0))
         if re.fullmatch(r"[a-z0-9_]+", name) is None:
             raise ValueError("pilot.merge_weighting variant names must match [a-z0-9_]+")
         if policy not in allowed_weighting_policies:
@@ -459,6 +555,16 @@ def validate_experiment_config_dict(data: Dict[str, Any]) -> None:
         if policy != "usage_bounded" and minimum_weight != 0.0:
             raise ValueError(
                 "pilot.merge_weighting minimum_weight is only valid for usage_bounded"
+            )
+        if ridge_lambda < 0.0:
+            raise ValueError("pilot.merge_weighting ridge_lambda must be non-negative")
+        if policy == "functional_ridge" and ridge_lambda <= 0.0:
+            raise ValueError(
+                "functional_ridge merge weighting requires a positive ridge_lambda"
+            )
+        if policy != "functional_ridge" and ridge_lambda != 0.0:
+            raise ValueError(
+                "pilot.merge_weighting ridge_lambda is only valid for functional_ridge"
             )
         merge_variant_names.append(name)
     if len(set(merge_variant_names)) != len(merge_variant_names):
@@ -502,6 +608,223 @@ def validate_experiment_config_dict(data: Dict[str, Any]) -> None:
             raise ValueError("pilot.hybrid_pairing variant weights must be non-negative")
         if sum(weights) <= 0.0:
             raise ValueError("pilot.hybrid_pairing variants must contain at least one positive weight")
+
+    configured_layers = tuple(int(layer) for layer in data["layers"])
+    if len(set(configured_layers)) != len(configured_layers):
+        raise ValueError("layers values must be unique")
+    if any(layer < 0 for layer in configured_layers):
+        raise ValueError("layers values must be non-negative")
+
+    multilayer = data.get("multilayer", {})
+    if not isinstance(multilayer, dict):
+        raise ValueError("multilayer must be an object")
+    multilayer_methods = tuple(
+        str(item) for item in multilayer.get("methods", MultiLayerConfig().methods)
+    )
+    supported_multilayer_methods = {
+        "usage_prune",
+        "functional_cosine",
+        "rmt_functional_usage",
+    }
+    unknown_multilayer_methods = sorted(
+        set(multilayer_methods) - supported_multilayer_methods
+    )
+    if unknown_multilayer_methods:
+        raise ValueError(
+            "multilayer.methods contains unsupported methods: "
+            f"{unknown_multilayer_methods}"
+        )
+    if len(set(multilayer_methods)) != len(multilayer_methods):
+        raise ValueError("multilayer.methods values must be unique")
+    multilayer_fractions = tuple(
+        float(value)
+        for value in multilayer.get(
+            "compression_fractions", MultiLayerConfig().compression_fractions
+        )
+    )
+    if any(not 0.0 < value < 1.0 for value in multilayer_fractions):
+        raise ValueError("multilayer.compression_fractions values must be in (0, 1)")
+    if len(set(multilayer_fractions)) != len(multilayer_fractions):
+        raise ValueError("multilayer.compression_fractions values must be unique")
+    sensitivity_layers = tuple(
+        int(layer) for layer in multilayer.get("sensitivity_layers", ())
+    )
+    if len(set(sensitivity_layers)) != len(sensitivity_layers):
+        raise ValueError("multilayer.sensitivity_layers values must be unique")
+    unknown_sensitivity_layers = sorted(set(sensitivity_layers) - set(configured_layers))
+    if unknown_sensitivity_layers:
+        raise ValueError(
+            "multilayer.sensitivity_layers must be included in layers: "
+            f"{unknown_sensitivity_layers}"
+        )
+    effective_layer_count = len(configured_layers)
+    cumulative_counts = tuple(
+        int(value)
+        for value in multilayer.get(
+            "cumulative_layer_counts", MultiLayerConfig().cumulative_layer_counts
+        )
+    )
+    if any(value < 1 for value in cumulative_counts):
+        raise ValueError("multilayer.cumulative_layer_counts values must be positive")
+    if len(set(cumulative_counts)) != len(cumulative_counts):
+        raise ValueError("multilayer.cumulative_layer_counts values must be unique")
+    if bool(multilayer.get("enabled", False)) and any(
+        value > effective_layer_count for value in cumulative_counts
+    ):
+        raise ValueError(
+            "multilayer.cumulative_layer_counts values must not exceed the "
+            "number of configured layers"
+        )
+    refresh_modes = tuple(
+        str(value)
+        for value in multilayer.get(
+            "trace_refresh_modes", MultiLayerConfig().trace_refresh_modes
+        )
+    )
+    if not refresh_modes or set(refresh_modes) - {"static", "adaptive"}:
+        raise ValueError(
+            "multilayer.trace_refresh_modes must contain only: static, adaptive"
+        )
+    if len(set(refresh_modes)) != len(refresh_modes):
+        raise ValueError("multilayer.trace_refresh_modes values must be unique")
+    global_targets = tuple(
+        float(value)
+        for value in multilayer.get(
+            "global_compression_targets", MultiLayerConfig().global_compression_targets
+        )
+    )
+    if any(not 0.0 < value < 1.0 for value in global_targets):
+        raise ValueError("multilayer.global_compression_targets values must be in (0, 1)")
+    if len(set(global_targets)) != len(global_targets):
+        raise ValueError("multilayer.global_compression_targets values must be unique")
+    if float(multilayer.get("quality_budget", 0.03)) < 0.0:
+        raise ValueError("multilayer.quality_budget must be non-negative")
+    if float(multilayer.get("max_layer_degradation", 0.05)) < 0.0:
+        raise ValueError("multilayer.max_layer_degradation must be non-negative")
+    if int(multilayer.get("candidates_per_invocation", 2)) < 1:
+        raise ValueError("multilayer.candidates_per_invocation must be positive")
+    if float(multilayer.get("max_step_seconds", 1800.0)) <= 0.0:
+        raise ValueError("multilayer.max_step_seconds must be positive")
+    protocol = multilayer.get("protocol", {})
+    if not isinstance(protocol, dict):
+        raise ValueError("multilayer.protocol must be an object")
+    replication_seeds = tuple(int(value) for value in protocol.get("replication_seeds", ()))
+    if len(set(replication_seeds)) != len(replication_seeds):
+        raise ValueError("multilayer.protocol.replication_seeds values must be unique")
+    for field in ("validation_repeats", "test_repeats", "materialized_repeats"):
+        if int(protocol.get(field, 1)) < 1:
+            raise ValueError(f"multilayer.protocol.{field} must be positive")
+    if str(protocol.get("aggregation", "median")) != "median":
+        raise ValueError("multilayer.protocol.aggregation must be median")
+
+    selection = multilayer.get("selection", {})
+    if not isinstance(selection, dict):
+        raise ValueError("multilayer.selection must be an object")
+    if str(selection.get("strategy", "global_winners")) not in {
+        "global_winners",
+        "method_balanced",
+    }:
+        raise ValueError(
+            "multilayer.selection.strategy must be global_winners or method_balanced"
+        )
+    if int(selection.get("per_method_per_cell", 1)) < 1:
+        raise ValueError(
+            "multilayer.selection.per_method_per_cell must be positive"
+        )
+    max_selected = int(selection.get("max_selected", 0))
+    if max_selected < 0:
+        raise ValueError("multilayer.selection.max_selected must be non-negative")
+    if (
+        str(selection.get("strategy", "global_winners")) == "method_balanced"
+        and max_selected
+    ):
+        balanced_counts = set(cumulative_counts)
+        if bool(multilayer.get("include_all_layers", True)):
+            balanced_counts.add(effective_layer_count)
+        family_count = len(multilayer_methods) + int(
+            bool(multilayer.get("include_hybrid_recipes", False))
+        )
+        required_quota = (
+            int(selection.get("per_method_per_cell", 1))
+            * family_count
+            * len(multilayer_fractions)
+            * (
+                len(balanced_counts)
+                if bool(selection.get("balance_layer_counts", False))
+                else 1
+            )
+            * (
+                len(refresh_modes)
+                if bool(selection.get("balance_refresh_modes", True))
+                else 1
+            )
+        )
+        if max_selected < required_quota:
+            raise ValueError(
+                "multilayer.selection.max_selected is smaller than the configured "
+                f"method-balanced quota ({required_quota})"
+            )
+
+    progressive = multilayer.get("progressive_scaling", {})
+    if not isinstance(progressive, dict):
+        raise ValueError("multilayer.progressive_scaling must be an object")
+    progressive_counts = tuple(
+        int(value) for value in progressive.get("layer_counts", ())
+    )
+    if any(value < 1 or value > effective_layer_count for value in progressive_counts):
+        raise ValueError(
+            "multilayer.progressive_scaling.layer_counts values must be within "
+            "the configured layer count"
+        )
+    if len(set(progressive_counts)) != len(progressive_counts):
+        raise ValueError(
+            "multilayer.progressive_scaling.layer_counts values must be unique"
+        )
+    if bool(progressive.get("enabled", False)) and not progressive_counts:
+        raise ValueError(
+            "multilayer.progressive_scaling.layer_counts must not be empty when enabled"
+        )
+    if int(progressive.get("min_accepted_recipes", 1)) < 1:
+        raise ValueError(
+            "multilayer.progressive_scaling.min_accepted_recipes must be positive"
+        )
+    if bool(progressive.get("enabled", False)) and set(progressive_counts) != set(
+        cumulative_counts
+    ):
+        raise ValueError(
+            "multilayer.progressive_scaling.layer_counts must match "
+            "multilayer.cumulative_layer_counts"
+        )
+    materialization = multilayer.get("materialization", {})
+    if not isinstance(materialization, dict):
+        raise ValueError("multilayer.materialization must be an object")
+    if int(materialization.get("selected_plan_count", 1)) < 1:
+        raise ValueError(
+            "multilayer.materialization.selected_plan_count must be positive"
+        )
+    if materialization.get("strategy", "selected_order") not in {
+        "selected_order",
+        "method_balanced",
+    }:
+        raise ValueError(
+            "multilayer.materialization.strategy must be one of: "
+            "selected_order, method_balanced"
+        )
+    if bool(materialization.get("enabled", True)) and not str(
+        materialization.get("output_dir", "artifacts/materialized")
+    ).strip():
+        raise ValueError(
+            "multilayer.materialization.output_dir is required when materialization is enabled"
+        )
+    if bool(multilayer.get("enabled", False)):
+        if not bool(pilot.get("enabled", False)):
+            raise ValueError("multilayer requires pilot.enabled=true")
+        if not bool(h1["enabled"]):
+            raise ValueError("multilayer requires stages.h1.enabled=true")
+        if not multilayer_methods:
+            raise ValueError("multilayer.methods must not be empty")
+        if not multilayer_fractions:
+            raise ValueError("multilayer.compression_fractions must not be empty")
 
 
 
@@ -549,6 +872,8 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
     hybrid_raw = pilot_raw.get("hybrid_pairing", {})
     hybrid_defaults = HybridPairingConfig()
     merge_weighting_raw = pilot_raw.get("merge_weighting", {})
+    spectral_rank_policy_raw = pilot_raw.get("spectral_rank_policy", {})
+    spectral_rank_policy_defaults = SpectralRankPolicyConfig()
     validation_selection_raw = pilot_raw.get("validation_selection", {})
     validation_selection_defaults = ValidationSelectionConfig()
     hybrid_variants = tuple(
@@ -565,6 +890,7 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
             name=str(item["name"]),
             policy=str(item["policy"]),
             minimum_weight=float(item.get("minimum_weight", 0.0)),
+            ridge_lambda=float(item.get("ridge_lambda", 0.0)),
         )
         for item in merge_weighting_raw.get("variants", ())
     )
@@ -595,6 +921,27 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
             int(item) for item in pilot_raw.get("spectral_pairing_ranks", ())
         ),
         spectral_rank_schedule=spectral_rank_schedule,
+        spectral_rank_policy=SpectralRankPolicyConfig(
+            include_useful_rank=bool(
+                spectral_rank_policy_raw.get(
+                    "include_useful_rank",
+                    spectral_rank_policy_defaults.include_useful_rank,
+                )
+            ),
+            include_mp_rank=bool(
+                spectral_rank_policy_raw.get(
+                    "include_mp_rank",
+                    spectral_rank_policy_defaults.include_mp_rank,
+                )
+            ),
+            explained_variance_thresholds=tuple(
+                float(item)
+                for item in spectral_rank_policy_raw.get(
+                    "explained_variance_thresholds",
+                    spectral_rank_policy_defaults.explained_variance_thresholds,
+                )
+            ),
+        ),
         hybrid_pairing=HybridPairingConfig(
             rmt_weight=float(hybrid_raw.get("rmt_weight", hybrid_defaults.rmt_weight)),
             functional_weight=float(
@@ -622,6 +969,193 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
                 float(validation_selection_raw["max_slice_degradation"])
                 if validation_selection_raw.get("max_slice_degradation") is not None
                 else None
+            ),
+        ),
+    )
+
+    multilayer_raw = raw.get("multilayer", {})
+    multilayer_defaults = MultiLayerConfig()
+    protocol_raw = multilayer_raw.get("protocol", {})
+    protocol_defaults = MultiLayerProtocolConfig()
+    selection_raw = multilayer_raw.get("selection", {})
+    selection_defaults = MultiLayerSelectionConfig()
+    progressive_raw = multilayer_raw.get("progressive_scaling", {})
+    progressive_defaults = ProgressiveScalingConfig()
+    materialization_raw = multilayer_raw.get("materialization", {})
+    materialization_defaults = MultiLayerMaterializationConfig()
+    multilayer = MultiLayerConfig(
+        enabled=bool(multilayer_raw.get("enabled", multilayer_defaults.enabled)),
+        sensitivity_layers=tuple(
+            int(item)
+            for item in multilayer_raw.get(
+                "sensitivity_layers", multilayer_defaults.sensitivity_layers
+            )
+        ),
+        methods=tuple(
+            str(item)
+            for item in multilayer_raw.get("methods", multilayer_defaults.methods)
+        ),
+        compression_fractions=tuple(
+            float(item)
+            for item in multilayer_raw.get(
+                "compression_fractions", multilayer_defaults.compression_fractions
+            )
+        ),
+        cumulative_layer_counts=tuple(
+            int(item)
+            for item in multilayer_raw.get(
+                "cumulative_layer_counts", multilayer_defaults.cumulative_layer_counts
+            )
+        ),
+        include_all_layers=bool(
+            multilayer_raw.get("include_all_layers", multilayer_defaults.include_all_layers)
+        ),
+        trace_refresh_modes=tuple(
+            str(item)
+            for item in multilayer_raw.get(
+                "trace_refresh_modes", multilayer_defaults.trace_refresh_modes
+            )
+        ),
+        global_compression_targets=tuple(
+            float(item)
+            for item in multilayer_raw.get(
+                "global_compression_targets",
+                multilayer_defaults.global_compression_targets,
+            )
+        ),
+        quality_budget=float(
+            multilayer_raw.get("quality_budget", multilayer_defaults.quality_budget)
+        ),
+        max_layer_degradation=float(
+            multilayer_raw.get(
+                "max_layer_degradation", multilayer_defaults.max_layer_degradation
+            )
+        ),
+        candidates_per_invocation=int(
+            multilayer_raw.get(
+                "candidates_per_invocation",
+                multilayer_defaults.candidates_per_invocation,
+            )
+        ),
+        max_step_seconds=float(
+            multilayer_raw.get(
+                "max_step_seconds", multilayer_defaults.max_step_seconds
+            )
+        ),
+        include_hybrid_recipes=bool(
+            multilayer_raw.get(
+                "include_hybrid_recipes",
+                multilayer_defaults.include_hybrid_recipes,
+            )
+        ),
+        protocol=MultiLayerProtocolConfig(
+            replication_seeds=tuple(
+                int(item)
+                for item in protocol_raw.get(
+                    "replication_seeds", protocol_defaults.replication_seeds
+                )
+            ),
+            validation_repeats=int(
+                protocol_raw.get(
+                    "validation_repeats", protocol_defaults.validation_repeats
+                )
+            ),
+            test_repeats=int(
+                protocol_raw.get("test_repeats", protocol_defaults.test_repeats)
+            ),
+            materialized_repeats=int(
+                protocol_raw.get(
+                    "materialized_repeats", protocol_defaults.materialized_repeats
+                )
+            ),
+            aggregation=str(
+                protocol_raw.get("aggregation", protocol_defaults.aggregation)
+            ),
+        ),
+        selection=MultiLayerSelectionConfig(
+            strategy=str(
+                selection_raw.get("strategy", selection_defaults.strategy)
+            ),
+            per_method_per_cell=int(
+                selection_raw.get(
+                    "per_method_per_cell",
+                    selection_defaults.per_method_per_cell,
+                )
+            ),
+            include_global_winners=bool(
+                selection_raw.get(
+                    "include_global_winners",
+                    selection_defaults.include_global_winners,
+                )
+            ),
+            balance_layer_counts=bool(
+                selection_raw.get(
+                    "balance_layer_counts",
+                    selection_defaults.balance_layer_counts,
+                )
+            ),
+            balance_refresh_modes=bool(
+                selection_raw.get(
+                    "balance_refresh_modes",
+                    selection_defaults.balance_refresh_modes,
+                )
+            ),
+            max_selected=int(
+                selection_raw.get(
+                    "max_selected", selection_defaults.max_selected
+                )
+            ),
+        ),
+        progressive_scaling=ProgressiveScalingConfig(
+            enabled=bool(
+                progressive_raw.get("enabled", progressive_defaults.enabled)
+            ),
+            layer_counts=tuple(
+                int(item)
+                for item in progressive_raw.get(
+                    "layer_counts", progressive_defaults.layer_counts
+                )
+            ),
+            min_accepted_recipes=int(
+                progressive_raw.get(
+                    "min_accepted_recipes",
+                    progressive_defaults.min_accepted_recipes,
+                )
+            ),
+            stop_on_failure=bool(
+                progressive_raw.get(
+                    "stop_on_failure", progressive_defaults.stop_on_failure
+                )
+            ),
+        ),
+        materialization=MultiLayerMaterializationConfig(
+            enabled=bool(
+                materialization_raw.get(
+                    "enabled", materialization_defaults.enabled
+                )
+            ),
+            output_dir=str(
+                materialization_raw.get(
+                    "output_dir", materialization_defaults.output_dir
+                )
+            ),
+            selected_plan_count=int(
+                materialization_raw.get(
+                    "selected_plan_count",
+                    materialization_defaults.selected_plan_count,
+                )
+            ),
+            strategy=str(
+                materialization_raw.get(
+                    "strategy",
+                    materialization_defaults.strategy,
+                )
+            ),
+            save_layer_weights=bool(
+                materialization_raw.get(
+                    "save_layer_weights",
+                    materialization_defaults.save_layer_weights,
+                )
             ),
         ),
     )
@@ -718,6 +1252,7 @@ def load_experiment_config(path: str | Path) -> ExperimentConfig:
         profile=profile,
         calibration=calibration,
         pilot=pilot,
+        multilayer=multilayer,
         h1=h1,
         h2=h2,
         h3=h3,
@@ -732,8 +1267,12 @@ def config_hash(config: ExperimentConfig) -> str:
         pilot_payload.pop("validation_selection")
     if not config.pilot.spectral_rank_schedule:
         pilot_payload.pop("spectral_rank_schedule")
+    if config.pilot.spectral_rank_policy == SpectralRankPolicyConfig():
+        pilot_payload.pop("spectral_rank_policy")
     if config.pilot.merge_weighting == MergeWeightingConfig():
         pilot_payload.pop("merge_weighting")
     config_payload["pilot"] = pilot_payload
+    if config.multilayer == MultiLayerConfig():
+        config_payload.pop("multilayer")
     payload = json.dumps(config_payload, default=lambda x: x.__dict__, sort_keys=True)
     return sha256(payload.encode("utf-8")).hexdigest()

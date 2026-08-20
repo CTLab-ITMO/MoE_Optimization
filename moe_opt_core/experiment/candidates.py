@@ -213,7 +213,7 @@ def build_candidate_plans(
     hybrid_weight_variants: Sequence[tuple[str, Sequence[float]]] = (),
     spectral_rank_schedule: Sequence[tuple[str, float, int]] = (),
     merge_weighting_methods: Sequence[str] = (),
-    merge_weighting_variants: Sequence[tuple[str, str, float]] = (),
+    merge_weighting_variants: Sequence[tuple] = (),
 ) -> tuple[CandidatePlanContract, ...]:
     plans: list[CandidatePlanContract] = []
     usage = routing_probs.float().mean(dim=0)
@@ -240,8 +240,13 @@ def build_candidate_plans(
     )
     weighted_methods = {CandidateMethod(method) for method in merge_weighting_methods}
     explicit_merge_weighting_variants = tuple(
-        (str(name), MergeWeightingPolicy(policy), float(minimum_weight))
-        for name, policy, minimum_weight in merge_weighting_variants
+        (
+            str(item[0]),
+            MergeWeightingPolicy(item[1]),
+            float(item[2]),
+            float(item[3]) if len(item) > 3 else 0.0,
+        )
+        for item in merge_weighting_variants
     )
     if weighted_methods and not explicit_merge_weighting_variants:
         raise ValueError("merge weighting methods require at least one weighting variant")
@@ -348,9 +353,14 @@ def build_candidate_plans(
                         candidate_merge_variants = (
                             explicit_merge_weighting_variants
                             if method in weighted_methods
-                            else ((None, MergeWeightingPolicy.UNIFORM, 0.0),)
+                            else ((None, MergeWeightingPolicy.UNIFORM, 0.0, 0.0),)
                         )
-                        for merge_variant_name, merge_policy, minimum_weight in candidate_merge_variants:
+                        for (
+                            merge_variant_name,
+                            merge_policy,
+                            minimum_weight,
+                            ridge_lambda,
+                        ) in candidate_merge_variants:
                             variant_diagnostics = diagnostics
                             id_parts = [method.value]
                             if rank is not None:
@@ -374,12 +384,16 @@ def build_candidate_plans(
                                     usage_values,
                                     policy=merge_policy,
                                     minimum_weight=minimum_weight,
+                                    ridge_lambda=ridge_lambda,
+                                    functional_embedding=functional_embedding,
+                                    routing_probs=routing_probs,
                                 )
                                 variant_diagnostics += merge_weight_diagnostics(
                                     group_merge_weights
                                 )
                                 variant_diagnostics += (
                                     ("merge_weight_minimum", float(minimum_weight)),
+                                    ("merge_ridge_lambda", float(ridge_lambda)),
                                 )
 
                             candidate_prefix = "-".join(id_parts)
