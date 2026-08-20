@@ -122,3 +122,51 @@ def test_functional_ridge_weights_follow_token_conditioned_expert_outputs() -> N
     assert weights[0][0] > 0.99
     assert weights[0][1] < 0.01
     assert sum(weights[0]) == pytest.approx(1.0)
+
+
+def test_functional_ridge_supports_non_token_aligned_weight_sketches() -> None:
+    weights = build_group_merge_weights(
+        ((0, 1),),
+        (0.75, 0.25),
+        policy=MergeWeightingPolicy.FUNCTIONAL_RIDGE,
+        ridge_lambda=1e-3,
+        functional_embedding=torch.tensor(
+            [[1.0, 0.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0, 0.0]]
+        ),
+        routing_probs=torch.tensor(
+            [[1.0, 0.0], [0.8, 0.2], [0.7, 0.3]]
+        ),
+    )
+    assert weights[0][0] == pytest.approx(2.5 / 3.0, abs=1e-3)
+    assert weights[0][1] == pytest.approx(0.5 / 3.0, abs=1e-3)
+    assert sum(weights[0]) == pytest.approx(1.0)
+
+
+def test_candidate_plan_records_functional_ridge_sketch_mode() -> None:
+    plans = build_candidate_plans(
+        num_experts=4,
+        layer=11,
+        methods=("rmt_geometry",),
+        compression_fractions=(0.25,),
+        seeds=(2026,),
+        rmt_pairs=((0, 1), (2, 3)),
+        spectral_embedding=torch.ones((4, 1)),
+        functional_embedding=torch.eye(4, 5),
+        routing_probs=torch.tensor(
+            [
+                [0.7, 0.2, 0.1, 0.0],
+                [0.6, 0.3, 0.1, 0.0],
+                [0.5, 0.2, 0.2, 0.1],
+            ]
+        ),
+        merge_weighting_methods=("rmt_geometry",),
+        merge_weighting_variants=(
+            ("functional_ridge", "functional_ridge", 0.0, 1e-3),
+        ),
+    )
+    assert len(plans) == 1
+    diagnostics = dict(plans[0].diagnostics)
+    assert diagnostics["merge_ridge_token_aligned"] == 0.0
+    assert diagnostics["merge_ridge_routing_rows"] == 3.0
+    assert diagnostics["merge_ridge_functional_features"] == 5.0
+    assert sum(plans[0].group_merge_weights[0]) == pytest.approx(1.0)

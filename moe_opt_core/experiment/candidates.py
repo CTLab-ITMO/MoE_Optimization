@@ -14,6 +14,7 @@ from moe_opt_core.experiment.contracts import (
 )
 from moe_opt_core.experiment.merge_weighting import (
     build_group_merge_weights,
+    functional_ridge_token_aligned,
     merge_weight_diagnostics,
 )
 
@@ -395,6 +396,28 @@ def build_candidate_plans(
                                     ("merge_weight_minimum", float(minimum_weight)),
                                     ("merge_ridge_lambda", float(ridge_lambda)),
                                 )
+                                if merge_policy == MergeWeightingPolicy.FUNCTIONAL_RIDGE:
+                                    assert functional_embedding is not None
+                                    assert routing_probs is not None
+                                    variant_diagnostics += (
+                                        (
+                                            "merge_ridge_token_aligned",
+                                            float(
+                                                functional_ridge_token_aligned(
+                                                    functional_embedding,
+                                                    routing_probs,
+                                                )
+                                            ),
+                                        ),
+                                        (
+                                            "merge_ridge_routing_rows",
+                                            float(routing_probs.shape[0]),
+                                        ),
+                                        (
+                                            "merge_ridge_functional_features",
+                                            float(functional_embedding.shape[1]),
+                                        ),
+                                    )
 
                             candidate_prefix = "-".join(id_parts)
                             plan = CandidatePlanContract(

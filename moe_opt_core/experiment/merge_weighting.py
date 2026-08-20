@@ -84,6 +84,18 @@ def build_group_merge_weights(
     return tuple(result)
 
 
+def functional_ridge_token_aligned(
+    functional_embedding: torch.Tensor,
+    routing_probs: torch.Tensor,
+) -> bool:
+    if functional_embedding.ndim != 2 or routing_probs.ndim != 2:
+        raise ValueError("functional ridge inputs must be two-dimensional")
+    if functional_embedding.shape[0] != routing_probs.shape[1]:
+        raise ValueError("functional embedding and routing probabilities must align")
+    token_count = int(routing_probs.shape[0])
+    return token_count > 0 and functional_embedding.shape[1] % token_count == 0
+
+
 def _functional_ridge_group_weights(
     group: tuple[int, ...],
     expert_usage: tuple[float, ...],
@@ -94,15 +106,10 @@ def _functional_ridge_group_weights(
 ) -> tuple[float, ...]:
     if len(group) == 1:
         return (1.0,)
-    if functional_embedding.ndim != 2 or routing_probs.ndim != 2:
-        raise ValueError("functional ridge inputs must be two-dimensional")
-    if functional_embedding.shape[0] != routing_probs.shape[1]:
-        raise ValueError("functional embedding and routing probabilities must align")
-    token_count = int(routing_probs.shape[0])
-    if token_count < 1 or functional_embedding.shape[1] % token_count != 0:
-        raise ValueError(
-            "functional embedding columns must be divisible by routing rows"
-        )
+    token_aligned = functional_ridge_token_aligned(
+        functional_embedding,
+        routing_probs,
+    )
 
     indices = torch.tensor(group, dtype=torch.long)
     experts = functional_embedding.detach().float().cpu().index_select(0, indices)
@@ -117,18 +124,32 @@ def _functional_ridge_group_weights(
     if empty.any():
         conditional[empty] = prior.to(dtype=conditional.dtype)
 
-    projection_dim = int(experts.shape[1] // token_count)
-    expert_outputs = experts.reshape(len(group), token_count, projection_dim)
-    target = (
-        conditional.unsqueeze(-1)
-        * expert_outputs.permute(1, 0, 2)
-    ).sum(dim=1).reshape(-1).to(torch.float64)
     design = experts.t().to(torch.float64)
+    if token_aligned:
+        token_count = int(routes.shape[0])
+        projection_dim = int(experts.shape[1] // token_count)
+        expert_outputs = experts.reshape(len(group), token_count, projection_dim)
+        target = (
+            conditional.unsqueeze(-1)
+            * expert_outputs.permute(1, 0, 2)
+        ).sum(dim=1).reshape(-1).to(torch.float64)
+        penalty_center = prior
+    else:
+        # Weight sketches have no token axis. Reconstruct their routing-weighted
+        # centroid and use ordinary ridge shrinkage in the sketch feature space.
+        route_mass = routes.sum(dim=0).to(torch.float64)
+        if float(route_mass.sum().item()) <= 1e-12:
+            route_prior = prior
+        else:
+            route_prior = route_mass / route_mass.sum()
+        target = design @ route_prior
+        penalty_center = torch.zeros_like(prior)
+
     gram = design.t() @ design
     scale = max(float(torch.trace(gram).item()) / len(group), 1e-12)
     regularization = float(ridge_lambda) * scale
     system = gram + regularization * torch.eye(len(group), dtype=torch.float64)
-    rhs = design.t() @ target + regularization * prior
+    rhs = design.t() @ target + regularization * penalty_center
     try:
         fitted = torch.linalg.solve(system, rhs)
     except RuntimeError:
