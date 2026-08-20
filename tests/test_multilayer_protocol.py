@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -45,9 +46,10 @@ def test_replication_config_isolates_artifacts_and_updates_all_random_seeds() ->
     assert replicated.calibration.seed == 2027
     assert replicated.constants["training"]["seed"] == 2027
     assert replicated.artifacts.root_dir.endswith("seed_2027")
-    assert replicated.calibration.output_dir.endswith("seed_2027\\traces")
-    assert replicated.multilayer.materialization.output_dir.endswith(
-        "seed_2027\\materialized"
+    assert Path(replicated.calibration.output_dir).parts[-2:] == ("seed_2027", "traces")
+    assert Path(replicated.multilayer.materialization.output_dir).parts[-2:] == (
+        "seed_2027",
+        "materialized",
     )
     assert config.constants["training"]["seed"] != 2027
 
