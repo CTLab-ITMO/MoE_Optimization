@@ -1,0 +1,148 @@
+"""Declarative schema registry for QA evaluation samples.
+
+Handles five dataset shapes (MMLU, Winogrande, ARC, OpenBookQA, CommonsenseQA)
+via ordered, presence-keyed rule tables instead of if/elif chains.
+Each field (question, choices, answer) has its own rules; the first matching
+rule wins, so hybrids work without guessing the whole-sample schema.
+
+Public API: ``resolve_question``, ``resolve_choices``, ``resolve_answer``,
+``resolve_answer_index``.
+
+Library code only -- never imports an experiment config.
+"""
+
+from dataclasses import dataclass
+from typing import Callable
+
+# Question-key lookup order: "question" (MMLU/ARC/CommonsenseQA) -> "sentence" (Winogrande)
+# -> "question_stem" (OpenBookQA). First key found wins.
+QUESTION_KEYS: tuple[str, ...] = ("question", "sentence", "question_stem")
+
+
+# --------------------------------------------------------------------------- #
+# Field strategy functions used by the rule tables.
+# --------------------------------------------------------------------------- #
+def _choices_from_dict(sample: dict) -> tuple[list, list]:
+    """``choices`` is a ``{"label": [...], "text": [...]}`` dict (ARC / OpenBookQA / CommonsenseQA)."""
+    choices = sample["choices"]
+    return list(choices["label"]), list(choices["text"])
+
+
+def _choices_from_list(sample: dict) -> tuple[list, list]:
+    """``choices`` is a plain list; synthesize ``A, B, C, ...`` labels (MMLU)."""
+    choices = sample["choices"]
+    labels = [chr(ord("A") + i) for i in range(len(choices))]
+    return labels, list(choices)
+
+
+def _choices_from_options(sample: dict) -> tuple[list, list]:
+    """``option1`` / ``option2`` with fixed ``["A", "B"]`` labels (Winogrande)."""
+    return ["A", "B"], [sample["option1"], sample["option2"]]
+
+
+def _resolve_answer_value(ans, labels: list) -> str:
+    """Normalize the ``"answer"`` field to a label letter.
+
+    int -> labels[ans] (MMLU); letter already in labels -> returned as-is;
+    1-based string -> labels[int(ans)-1] (Winogrande: '1'->'A', '2'->'B').
+    """
+    if isinstance(ans, int):  # mmlu
+        return labels[ans]
+    if ans in labels:  # already a letter
+        return ans
+    return labels[int(ans) - 1]  # winogrande: '1' -> 'A', '2' -> 'B'
+
+
+# --------------------------------------------------------------------------- #
+# Per-field rule tables: ordered, presence-keyed; first match wins.
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True)
+class _ChoiceRule:
+    detect: Callable[[dict], bool]
+    resolve: Callable[[dict], tuple[list, list]]
+
+
+@dataclass(frozen=True)
+class _AnswerRule:
+    detect: Callable[[dict], bool]
+    resolve: Callable[[dict, list], str]
+
+
+_CHOICE_RULES: tuple[_ChoiceRule, ...] = (
+    _ChoiceRule(lambda s: "choices" in s and isinstance(s["choices"], dict), _choices_from_dict),
+    _ChoiceRule(lambda s: "choices" in s and not isinstance(s["choices"], dict), _choices_from_list),
+    _ChoiceRule(lambda s: "option1" in s and "option2" in s, _choices_from_options),
+)
+
+_ANSWER_RULES: tuple[_AnswerRule, ...] = (
+    _AnswerRule(lambda s: "answerKey" in s, lambda s, labels: s["answerKey"]),
+    _AnswerRule(lambda s: "answer" in s, lambda s, labels: _resolve_answer_value(s["answer"], labels)),
+)
+
+
+# --------------------------------------------------------------------------- #
+# Public resolvers driven by the rule tables above; work for any sample shape.
+# --------------------------------------------------------------------------- #
+def resolve_question(sample: dict) -> str:
+    """Return question text using key-presence priority order."""
+    for key in QUESTION_KEYS:
+        if key in sample:
+            return sample[key]
+    raise KeyError(f"sample has none of the question keys {QUESTION_KEYS}")
+
+
+def resolve_choices(sample: dict) -> tuple[list, list]:
+    """Return ``(labels, texts)`` for a sample's choices field."""
+    for rule in _CHOICE_RULES:
+        if rule.detect(sample):
+            return rule.resolve(sample)
+    raise KeyError("sample has no recognized choices field")
+
+
+def resolve_answer(sample: dict, labels: list) -> str:
+    """Return the ground-truth answer letter for a sample."""
+    for rule in _ANSWER_RULES:
+        if rule.detect(sample):
+            return rule.resolve(sample, labels)
+    # Raise KeyError when neither "answerKey" nor "answer" is present.
+    raise KeyError("answer")
+
+
+def _marker_to_index(marker, labels: list) -> int:
+    """Map a ground-truth answer ``marker`` to a 0-based index within ``labels``.
+
+    Robust to heterogeneous label sets -- ARC-Challenge mixes ``A``-``D`` letters
+    with ``1``-``4`` numbers and 3/4/5-choice items across samples:
+
+    * ``marker`` already in ``labels`` -> its position. This covers both letters
+      and numeric labels, since ARC keeps ``answerKey`` in each sample's own
+      label format;
+    * a bare digit -> 1-based index (``"1"`` -> 0), for the rare item whose
+      ``answerKey`` disagrees with its ``choices.label`` format;
+    * a single letter -> ``A``-based index (``"C"`` -> 2), likewise.
+    """
+    if marker in labels:
+        return labels.index(marker)
+    token = str(marker).strip()
+    if token.isdigit():
+        idx = int(token) - 1
+    elif len(token) == 1 and token.isalpha():
+        idx = ord(token.upper()) - ord("A")
+    else:
+        raise KeyError(f"answer {marker!r} not resolvable against labels {labels}")
+    if not 0 <= idx < len(labels):
+        raise KeyError(f"answer {marker!r} out of range for labels {labels}")
+    return idx
+
+
+def resolve_answer_index(sample: dict) -> int:
+    """Return the 0-based index of the correct choice within the sample's own labels.
+
+    Resolves the answer *per sample*: reads this sample's own labels and its
+    stored answer marker, then locates that marker among those labels. Nothing is
+    assumed from a global/first-sample label set, so heterogeneous datasets --
+    ARC-Challenge, whose items vary in choice count and label alphabet -- resolve
+    correctly. Prefer this over ``resolve_answer`` at eval time."""
+    labels, _ = resolve_choices(sample)
+    marker = resolve_answer(sample, labels)
+    return _marker_to_index(marker, labels)
